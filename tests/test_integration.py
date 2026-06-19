@@ -142,7 +142,8 @@ class TestKBWorkflow:
 
         assert kb_main(["init"]) == 0
         assert (repo / ".claude-wiki.lock").exists()
-        assert (Path.home() / ".claude" / "settings.json").exists()
+        assert (repo / ".claude" / "settings.local.json").exists()
+        assert not (Path.home() / ".claude" / "settings.json").exists()
 
         daily = repo / "daily"
         daily.mkdir()
