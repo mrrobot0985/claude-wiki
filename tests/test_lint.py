@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
+import builtins
 import json
+import sys
+from collections.abc import AsyncIterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 from claude_wiki.cli import main
-from claude_wiki.commands.lint import _Issue
+from claude_wiki.commands.lint import (
+    _Issue,
+    _check_contradictions,
+    _read_all_wiki_content,
+    _run_llm_checks,
+    _today_iso,
+    _word_count,
+)
 
 
 class TestLintStructural:
@@ -255,3 +267,285 @@ class TestLintHandlerErrors:
 
         assert exit_code == 1
         assert "Not in a git repository" in captured.err
+
+
+class TestLintHelpers:
+    """Direct unit tests for lint helper functions."""
+
+    def test_word_count_excludes_frontmatter(self, tmp_path: Path) -> None:
+        """Frontmatter is not counted toward the article word count."""
+        article = tmp_path / "article.md"
+        body = "word " * 50
+        article.write_text(f"---\ntitle: test\n---\n\n{body}")
+
+        count = _word_count(article)
+        assert count == 50
+
+    def test_read_all_wiki_content_missing_index(self, tmp_path: Path) -> None:
+        """When no index exists, the reader emits a placeholder."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        concepts = kb / "concepts"
+        concepts.mkdir()
+        (concepts / "note.md").write_text("# Note")
+
+        content = _read_all_wiki_content(kb)
+        assert "## INDEX" in content
+        assert "(no index)" in content
+        assert "## concepts/note.md" in content
+
+    def test_read_all_wiki_content_missing_subdirs(self, tmp_path: Path) -> None:
+        """Missing KB subdirectories are silently skipped."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        (kb / "index.md").write_text("# Index")
+
+        content = _read_all_wiki_content(kb)
+        assert "## INDEX" in content
+        assert "## concepts/" not in content
+
+    def test_today_iso_invalid_timezone_fallback(self) -> None:
+        """An invalid timezone falls back to UTC."""
+        result = _today_iso("Not/A/Timezone")
+        assert len(result) == 10
+        assert result.count("-") == 2
+
+
+class TestLintStructuralEdgeCases:
+    """Additional structural check edge cases."""
+
+    def _repo_and_kb(self, tmp_path: Path) -> tuple[Path, Path]:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb_root = tmp_path / "kb"
+        kb_root.mkdir()
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {
+                    "repo_name": "repo",
+                    "repo_owner": "local",
+                    "kb_dir": str(kb_root),
+                    "daily_dir": "daily",
+                    "timezone": "UTC",
+                }
+            )
+        )
+        return repo, kb_root
+
+    @pytest.fixture(autouse=True)
+    def fixed_today(self) -> None:
+        with patch("claude_wiki.commands.lint._today_iso", return_value="2026-06-19"):
+            yield
+
+    def test_daily_links_are_ignored(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Wikilinks pointing into daily/ are treated as valid by design."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        (concepts / "note.md").write_text(long_text + "\n[[daily/2026-06-18]]")
+
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
+
+        exit_code = main(["lint", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "Results: 0 errors" in captured.out
+        assert "Broken link" not in captured.out
+
+
+class TestContradictionDetection:
+    """Tests for the LLM-based contradiction check."""
+
+    def _fake_sdk_module(self, response_text: str) -> Any:
+        """Return a fake claude_agent_sdk module."""
+
+        class TextBlock:
+            text = response_text
+
+        class AssistantMessage:
+            content = [TextBlock()]
+
+        class ClaudeAgentOptions:
+            def __init__(
+                self, *, cwd: str, allowed_tools: list[str], max_turns: int
+            ) -> None:
+                self.cwd = cwd
+                self.allowed_tools = allowed_tools
+                self.max_turns = max_turns
+
+        async def query(*, prompt: str, options: object) -> AsyncIterator[object]:
+            yield AssistantMessage()
+
+        module = type(sys)("claude_agent_sdk")
+        module.query = query
+        module.AssistantMessage = AssistantMessage
+        module.ClaudeAgentOptions = ClaudeAgentOptions
+        module.TextBlock = TextBlock
+        return module
+
+    @contextmanager
+    def _fake_sdk(self, response_text: str) -> Any:
+        """Temporarily install a fake claude_agent_sdk into sys.modules."""
+        fake_module = self._fake_sdk_module(response_text)
+        original = sys.modules.get("claude_agent_sdk")
+        sys.modules["claude_agent_sdk"] = fake_module
+        try:
+            yield fake_module
+        finally:
+            if original is None:
+                sys.modules.pop("claude_agent_sdk", None)
+            else:
+                sys.modules["claude_agent_sdk"] = original
+
+    @contextmanager
+    def _sdk_unavailable(self) -> None:
+        """Make claude_agent_sdk imports fail during the context."""
+        original_import = builtins.__import__
+        real_sdk = sys.modules.pop("claude_agent_sdk", None)
+
+        def fake_import(name: str, *args: object, **kwargs: object) -> Any:
+            if name == "claude_agent_sdk":
+                raise ImportError("No module named 'claude_agent_sdk'")
+            return original_import(name, *args, **kwargs)
+
+        builtins.__import__ = fake_import
+        try:
+            yield
+        finally:
+            builtins.__import__ = original_import
+            if real_sdk is not None:
+                sys.modules["claude_agent_sdk"] = real_sdk
+
+    def test_no_issues_response_returns_empty(self, tmp_path: Path) -> None:
+        """NO_ISSUES in the LLM response produces no contradiction issues."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        (kb / "index.md").write_text("# Index")
+
+        with self._fake_sdk("NO_ISSUES"):
+            issues = _run_llm_checks(kb)
+
+        assert issues == []
+
+    def test_contradiction_parsed(self, tmp_path: Path) -> None:
+        """A CONTRADICTION line is turned into a warning issue."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        (kb / "index.md").write_text("# Index")
+
+        with self._fake_sdk("CONTRADICTION: a vs b - conflicting advice"):
+            issues = _run_llm_checks(kb)
+
+        assert len(issues) == 1
+        assert issues[0].severity == "warning"
+        assert issues[0].check == "contradiction"
+        assert "CONTRADICTION: a vs b" in issues[0].detail
+
+    def test_inconsistency_parsed(self, tmp_path: Path) -> None:
+        """An INCONSISTENCY line is turned into a warning issue."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        (kb / "index.md").write_text("# Index")
+
+        with self._fake_sdk("INCONSISTENCY: a - description here"):
+            issues = _run_llm_checks(kb)
+
+        assert len(issues) == 1
+        assert issues[0].severity == "warning"
+        assert "INCONSISTENCY: a" in issues[0].detail
+
+    def test_multiple_and_ignored_lines(self, tmp_path: Path) -> None:
+        """Only formatted lines are parsed; other output is ignored."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        (kb / "index.md").write_text("# Index")
+        response = (
+            "Preamble that should be ignored\n"
+            "CONTRADICTION: a vs b - one\n"
+            "INCONSISTENCY: c - two\n"
+            "random line"
+        )
+
+        with self._fake_sdk(response):
+            issues = _run_llm_checks(kb)
+
+        assert len(issues) == 2
+        details = {issue.detail for issue in issues}
+        assert "CONTRADICTION: a vs b - one" in details
+        assert "INCONSISTENCY: c - two" in details
+
+    def test_sdk_import_error(self, tmp_path: Path) -> None:
+        """Missing claude_agent_sdk produces a system error issue."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+
+        with self._sdk_unavailable():
+            issues = _run_llm_checks(kb)
+
+        assert len(issues) == 1
+        assert issues[0].severity == "error"
+        assert issues[0].file == "(system)"
+        assert "LLM check unavailable" in issues[0].detail
+
+    def test_check_contradictions_async(self, tmp_path: Path) -> None:
+        """_check_contradictions can be awaited and returns parsed issues."""
+        import asyncio
+
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        (kb / "index.md").write_text("# Index")
+
+        with self._fake_sdk("CONTRADICTION: x vs y - async path"):
+            issues = asyncio.run(_check_contradictions(kb))
+
+        assert len(issues) == 1
+        assert "async path" in issues[0].detail
+
+    def test_full_lint_runs_contradictions_with_sdk(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Full CLI lint invokes the real contradiction path via the SDK."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb_root = tmp_path / "kb"
+        kb_root.mkdir()
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {
+                    "repo_name": "repo",
+                    "repo_owner": "local",
+                    "kb_dir": str(kb_root),
+                    "daily_dir": "daily",
+                    "timezone": "UTC",
+                }
+            )
+        )
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        (concepts / "a.md").write_text(long_text + "\n[[concepts/b]]")
+        (concepts / "b.md").write_text(long_text + "\n[[concepts/a]]")
+
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
+
+        with (
+            patch("claude_wiki.commands.lint._today_iso", return_value="2026-06-19"),
+            self._fake_sdk("CONTRADICTION: a vs b - conflict"),
+        ):
+            exit_code = main(["lint"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "1 warnings" in captured.out
+        report = (kb_root / "reports" / "lint-2026-06-19.md").read_text()
+        assert "CONTRADICTION: a vs b - conflict" in report
