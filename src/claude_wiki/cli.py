@@ -11,11 +11,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from claude_wiki import interactive
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
 from claude_wiki.factories import DefaultConfigResolver
 from claude_wiki.global_index import GlobalIndexManager
-from claude_wiki.models import MigrationResult, ProjectConfig
+from claude_wiki.models import MigrationResult
 
 _Handler = Callable[[argparse.Namespace], int]
 
@@ -84,6 +85,15 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+def _is_interactive(args: argparse.Namespace) -> bool:
+    """Return True when stdin is a TTY and no config-disabling flags are set."""
+    if not sys.stdin.isatty():
+        return False
+    if args.global_flag:
+        return False
+    return True
+
+
 def _register_commands(
     subparsers: Any,
     handlers: dict[str, _Handler],
@@ -105,7 +115,9 @@ def _register_commands(
 
 def _init(args: argparse.Namespace) -> int:
     """Orchestrate ConfigManager + HookRegistrar to bootstrap a repo."""
-    detector, loader, registrar, migrator = DefaultConfigResolver.build()
+    detector, loader, registrar, migrator, owner_resolver = (
+        DefaultConfigResolver.build()
+    )
     assert isinstance(detector, ConfigManager)
 
     start = args.path if args.path else Path.cwd()
@@ -124,16 +136,29 @@ def _init(args: argparse.Namespace) -> int:
         )
         return 0
 
-    config = loader.load(repo_root)
+    defaults = loader.load(repo_root)
     if args.force or not marker.exists():
-        config = ProjectConfig(
+        defaults = dataclasses.replace(
+            defaults,
             repo_name=repo_root.name,
-            repo_owner=config.repo_owner,
-            kb_dir=config.kb_dir,
-            daily_dir=config.daily_dir,
-            reports_dir=config.reports_dir,
-            timezone=config.timezone,
+            repo_owner=owner_resolver.infer_repo_owner(repo_root),
         )
+
+    interactive_mode = _is_interactive(args)
+    if interactive_mode and marker.exists() and args.force:
+        if not interactive.confirm("Overwrite existing .claude-wiki.lock"):
+            print("Aborted.", file=sys.stderr)
+            return 1
+
+    if interactive_mode:
+        try:
+            config, use_global_hooks = interactive.configure(repo_root, defaults)
+        except KeyboardInterrupt:
+            print("\nAborted.", file=sys.stderr)
+            return 1
+    else:
+        config = defaults
+        use_global_hooks = args.global_flag
 
     # On first init there is no previous state, so no migration is attempted.
     result = migrator.check_and_migrate(repo_root, config, None, dry_run=False)
@@ -145,14 +170,14 @@ def _init(args: argparse.Namespace) -> int:
 
     loader.write(repo_root, config)
 
-    if args.global_flag:
+    if use_global_hooks:
         settings_path = Path.home() / ".claude" / "settings.json"
     else:
         settings_path = repo_root / ".claude" / "settings.local.json"
 
     registrar.install_hooks(repo_root, config, settings_path=settings_path)
 
-    target_label = "global" if args.global_flag else "repo-local"
+    target_label = "global" if use_global_hooks else "repo-local"
     print(f"Installed hooks into {target_label} settings: {settings_path}")
 
     kb_root = detector.get_kb_root(repo_root, config)
@@ -166,7 +191,9 @@ def _init(args: argparse.Namespace) -> int:
 
 def _migrate(args: argparse.Namespace) -> int:
     """Check for path changes and migrate data."""
-    detector, loader, _registrar, migrator = DefaultConfigResolver.build()
+    detector, loader, _registrar, migrator, _owner_resolver = (
+        DefaultConfigResolver.build()
+    )
 
     start = args.path if args.path else Path.cwd()
 
@@ -203,7 +230,9 @@ def _migrate(args: argparse.Namespace) -> int:
 
     if not result.migrated and not result.errors:
         print("No migration needed — paths are unchanged.")
-        if not args.dry_run and overrides:
+        # If moves were skipped because destinations were occupied, do not persist the
+        # new paths; the user must resolve the conflict first.
+        if not args.dry_run and overrides and not result.warnings:
             loader.write(repo_root, config)
             print("State updated.")
         return 0

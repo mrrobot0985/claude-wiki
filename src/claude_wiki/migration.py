@@ -4,20 +4,19 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+from claude_wiki.config import ConfigManager
 from claude_wiki.interfaces import Migrator
 from claude_wiki.models import MigrationResult, ProjectConfig
-
-if TYPE_CHECKING:
-    from claude_wiki.config import ConfigManager
 
 
 class MigrationManager(Migrator):
     """Detects path changes between config versions and migrates data."""
 
     def __init__(self, config_manager: ConfigManager | None = None) -> None:
-        self.config_manager = config_manager
+        self.config_manager = (
+            config_manager if config_manager is not None else ConfigManager()
+        )
 
     def check_and_migrate(
         self,
@@ -38,10 +37,14 @@ class MigrationManager(Migrator):
         if previous is None:
             return MigrationResult(migrated=False)
 
-        old_kb = self._resolve_kb_dir(previous, repo_root)
-        new_kb = self._resolve_kb_dir(current, repo_root)
-        old_daily = self._resolve_dir(previous.daily_dir, repo_root)
-        new_daily = self._resolve_dir(current.daily_dir, repo_root)
+        old_kb = self._resolve_kb_dir(previous, repo_root).resolve(strict=False)
+        new_kb = self._resolve_kb_dir(current, repo_root).resolve(strict=False)
+        old_daily = self._resolve_dir(previous.daily_dir, repo_root).resolve(
+            strict=False
+        )
+        new_daily = self._resolve_dir(current.daily_dir, repo_root).resolve(
+            strict=False
+        )
 
         kb_changed = old_kb != new_kb
         daily_changed = old_daily != new_daily
@@ -57,21 +60,45 @@ class MigrationManager(Migrator):
             new_daily_dir=new_daily if daily_changed else None,
         )
 
-        # Validate: never migrate into each other
+        # Validate: never migrate into each other (equality or containment)
         if kb_changed and daily_changed:
-            if new_kb == new_daily or old_kb == new_daily or old_daily == new_kb:
+            if (
+                self._paths_overlap(new_kb, new_daily)
+                or self._paths_overlap(old_kb, new_daily)
+                or self._paths_overlap(old_daily, new_kb)
+            ):
                 return MigrationResult(
                     migrated=False,
                     errors=["Migration refused: kb_dir and daily_dir would overlap."],
                 )
 
+        completed_moves: list[tuple[str, Path, Path]] = []
+
         if kb_changed:
-            result = self._migrate_dir(
+            result, moved = self._migrate_dir(
                 old_kb, new_kb, result, label="kb_dir", dry_run=dry_run
             )
-        if daily_changed:
-            result = self._migrate_dir(
+            if moved:
+                completed_moves.append(("kb_dir", old_kb, new_kb))
+
+        if daily_changed and not result.errors:
+            result, moved = self._migrate_dir(
                 old_daily, new_daily, result, label="daily_dir", dry_run=dry_run
+            )
+            if moved:
+                completed_moves.append(("daily_dir", old_daily, new_daily))
+
+        if result.errors and completed_moves and not dry_run:
+            rollback_errors = self._rollback(completed_moves)
+            result = MigrationResult(
+                migrated=False,
+                old_kb_dir=result.old_kb_dir,
+                new_kb_dir=result.new_kb_dir,
+                old_daily_dir=result.old_daily_dir,
+                new_daily_dir=result.new_daily_dir,
+                errors=[*result.errors, *rollback_errors],
+                warnings=result.warnings,
+                rolled_back=[(label, src, dst) for label, src, dst in completed_moves],
             )
 
         return result
@@ -84,61 +111,96 @@ class MigrationManager(Migrator):
         *,
         label: str,
         dry_run: bool,
-    ) -> MigrationResult:
-        """Move contents from src to dst, collecting warnings/errors."""
+    ) -> tuple[MigrationResult, bool]:
+        """Move contents from src to dst, collecting warnings/errors.
+
+        Returns:
+            A tuple of (updated result, bool indicating whether a move happened or would happen).
+        """
         if not src.exists():
             # Nothing to migrate
-            return result
+            return result, False
 
         if dst.exists():
-            if any(dst.iterdir()):
-                # Destination already has data — warn but do not overwrite
+            if not dst.is_dir() or any(dst.iterdir()):
+                # Destination already exists and is not an empty dir — warn but do not overwrite
                 warnings = [
                     *result.warnings,
                     f"{label}: destination {dst} already exists and is not empty — skipping.",
                 ]
-                return MigrationResult(
-                    migrated=result.migrated,
-                    old_kb_dir=result.old_kb_dir,
-                    new_kb_dir=result.new_kb_dir,
-                    old_daily_dir=result.old_daily_dir,
-                    new_daily_dir=result.new_daily_dir,
-                    errors=result.errors,
-                    warnings=warnings,
+                return (
+                    MigrationResult(
+                        migrated=False,
+                        old_kb_dir=result.old_kb_dir,
+                        new_kb_dir=result.new_kb_dir,
+                        old_daily_dir=result.old_daily_dir,
+                        new_daily_dir=result.new_daily_dir,
+                        errors=result.errors,
+                        warnings=warnings,
+                    ),
+                    False,
                 )
             elif not dry_run:
-                # Empty destination — remove so shutil.move places src at dst root
+                # Empty destination directory — remove so shutil.move places src at dst root
                 dst.rmdir()
 
         if dry_run:
             print(f"[dry-run] Would move {label}: {src} -> {dst}")
-            return result
+            return result, True
 
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(src), str(dst))
         except OSError as exc:
             errors = [*result.errors, f"{label}: failed to move {src} -> {dst}: {exc}"]
-            return MigrationResult(
-                migrated=result.migrated,
-                old_kb_dir=result.old_kb_dir,
-                new_kb_dir=result.new_kb_dir,
-                old_daily_dir=result.old_daily_dir,
-                new_daily_dir=result.new_daily_dir,
-                errors=errors,
-                warnings=result.warnings,
+            return (
+                MigrationResult(
+                    migrated=False,
+                    old_kb_dir=result.old_kb_dir,
+                    new_kb_dir=result.new_kb_dir,
+                    old_daily_dir=result.old_daily_dir,
+                    new_daily_dir=result.new_daily_dir,
+                    errors=errors,
+                    warnings=result.warnings,
+                ),
+                False,
             )
 
-        return result
+        return result, True
+
+    def _rollback(self, completed_moves: list[tuple[str, Path, Path]]) -> list[str]:
+        """Reverse already-completed moves in LIFO order.
+
+        Returns a list of error messages for any rollback failures.
+        """
+        errors: list[str] = []
+        for label, src, dst in reversed(completed_moves):
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(dst), str(src))
+            except OSError as exc:
+                errors.append(f"{label}: rollback failed {dst} -> {src}: {exc}")
+        return errors
+
+    @staticmethod
+    def _paths_overlap(a: Path, b: Path) -> bool:
+        """Return True if a and b are the same path or one is inside the other."""
+        if a == b:
+            return True
+        try:
+            a.relative_to(b)
+            return True
+        except ValueError:
+            pass
+        try:
+            b.relative_to(a)
+            return True
+        except ValueError:
+            return False
 
     def _resolve_kb_dir(self, config: ProjectConfig, repo_root: Path) -> Path:
-        """Resolve kb_dir using ConfigManager when available.
-
-        Falls back to anchoring relative paths at repo_root.
-        """
-        if self.config_manager is not None:
-            return self.config_manager.get_kb_root(repo_root, config)
-        return self._resolve_dir(config.kb_dir, repo_root)
+        """Resolve kb_dir using ConfigManager."""
+        return self.config_manager.get_kb_root(repo_root, config)
 
     @staticmethod
     def _resolve_dir(path: Path, repo_root: Path) -> Path:
