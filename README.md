@@ -50,7 +50,7 @@ claude-wiki-hook PreCompact
 
 ```text
 my-project/
-├── .claude-wiki.json            # per-repo config
+├── .claude-wiki.lock            # per-repo config (machine-managed)
 ├── daily/                     # conversation logs (commit these)
 ├── knowledge/                 # compiled articles (gitignored by default)
 └── ~/.claude/settings.json    # global hook registration
@@ -58,7 +58,7 @@ my-project/
 
 ## Configuration
 
-`.claude-wiki.json` fields:
+`.claude-wiki.lock` fields:
 
 ```json
 {
@@ -76,8 +76,11 @@ Set `CLAUDE_WIKI_PROJECT_DIR` to override the knowledge base location.
 ## Development
 
 ```bash
-uv pip install -e . --group dev
-uv run pytest
-uvx ruff check .
-uvx mypy --strict src tests
+make dev        # install with dev dependencies
+make test       # run pytest
+make lint       # ruff check
+make format     # ruff format + mdformat
+make typecheck  # mypy
+make precommit  # all pre-commit hooks
+make all        # full CI gate (format, lint, typecheck, test, precommit)
 ```
