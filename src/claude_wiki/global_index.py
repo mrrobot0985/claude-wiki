@@ -19,6 +19,7 @@ class RegistryEntry:
     kb_root: str
     articles: int = 0
     last_compiled: str | None = None
+    repo_root: str | None = None
 
 
 class GlobalIndexManager:
@@ -71,14 +72,45 @@ class GlobalIndexManager:
             lines.append("")
         return "\n".join(lines)
 
+    def sanitize(self) -> list[RegistryEntry]:
+        """Evict entries whose repo root no longer contains a .claude-wiki.lock.
+
+        Legacy entries (missing repo_root) are skipped.
+        Returns the evicted entries.
+        """
+        entries = self._load_registry()
+        survivors: list[RegistryEntry] = []
+        evicted: list[RegistryEntry] = []
+        for e in entries:
+            if e.repo_root is None:
+                survivors.append(e)
+                continue
+            root = Path(e.repo_root)
+            marker = root / ".claude-wiki.lock"
+            if root.exists() and marker.exists():
+                survivors.append(e)
+            else:
+                evicted.append(e)
+        if evicted:
+            self._save_registry(survivors)
+            self._index_path().write_text(
+                self._generate_markdown(survivors), encoding="utf-8"
+            )
+        return evicted
+
     def register(
         self,
         repo_name: str,
         repo_owner: str,
         kb_root: Path,
+        *,
+        repo_root: Path | None = None,
         **kwargs: Any,
     ) -> None:
-        """Upsert a registry entry. Preserves existing fields not overridden."""
+        """Upsert a registry entry. Preserves existing fields not overridden.
+
+        Also sanitizes the registry, evicting stale entries.
+        """
         entries = self._load_registry()
         old = next(
             (
@@ -100,6 +132,8 @@ class GlobalIndexManager:
             kb_root=str(kb_root),
         )
         new.kb_root = str(kb_root)
+        if repo_root is not None:
+            new.repo_root = str(repo_root)
         for k, v in kwargs.items():
             if hasattr(new, k):
                 setattr(new, k, str(v) if isinstance(v, Path) else v)
@@ -109,6 +143,8 @@ class GlobalIndexManager:
         self._index_path().write_text(
             self._generate_markdown(entries), encoding="utf-8"
         )
+
+        self.sanitize()
 
     def unregister(self, repo_name: str, repo_owner: str) -> None:
         """Remove a repo from the global registry."""
