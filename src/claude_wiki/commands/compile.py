@@ -21,7 +21,7 @@ _KB_SUBDIRS = ("concepts", "connections", "qa")
 
 _DEFAULT_SCHEMA = """# Knowledge Base Schema
 
-## `knowledge/index.md`
+## `knowledge/{repo_name}.md`
 
 Master catalog table:
 
@@ -165,13 +165,13 @@ def _read_schema() -> str:
         return _DEFAULT_SCHEMA
 
 
-def _read_index(kb_root: Path) -> str:
+def _read_index(kb_root: Path, repo_name: str) -> str:
     """Read the current index, returning a default header if absent."""
-    index_file = kb_root / "index.md"
+    index_file = kb_root / f"{repo_name}.md"
     if index_file.exists():
         return index_file.read_text(encoding="utf-8")
     return (
-        "# Knowledge Base Index\n\n"
+        f"# {repo_name} Knowledge Base\n\n"
         "| Article | Summary | Compiled From | Updated |\n"
         "|---------|---------|---------------|---------|"
     )
@@ -204,7 +204,7 @@ async def _compile_daily_log_async(
 
     log_content = log_path.read_text(encoding="utf-8")
     schema = _read_schema()
-    wiki_index = _read_index(kb_root)
+    wiki_index = _read_index(kb_root, config.repo_name)
     existing = _list_existing_articles(kb_root)
 
     existing_context = "(No existing articles yet)"
@@ -240,7 +240,7 @@ async def _compile_daily_log_async(
 1. Extract 3-7 key concepts and create one article per concept in `{kb_root / "concepts"}`.
 2. Create connection articles in `{kb_root / "connections"}` when the log reveals non-obvious relationships between 2+ concepts.
 3. Update existing articles if the log adds new information.
-4. Update `{kb_root / "index.md"}` with a row for every new or updated article.
+4. Update `{kb_root / f"{config.repo_name}.md"}` with a row for every new or updated article.
 5. Append a timestamped entry to `{kb_root / "log.md"}`.
 
 Every concept article must have YAML frontmatter, at least two wikilinks, 3-5 key points, and cite `daily/{log_path.name}` in its sources.
