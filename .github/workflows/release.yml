@@ -5,11 +5,6 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      publish:
-        description: "Publish to PyPI (requires trusted publisher setup)"
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -42,7 +37,6 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && inputs.publish == true
     environment:
       name: pypi
       url: https://pypi.org/project/claude-wiki/${{ github.ref_name }}
