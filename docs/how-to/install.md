@@ -27,7 +27,7 @@ uvx claude-wiki init
 ```bash
 git clone https://github.com/mrrobot0985/claude-wiki
 cd claude-wiki
-uv pip install -e ".[dev]"
+uv sync --extra dev --frozen
 ```
 
 ______________________________________________________________________

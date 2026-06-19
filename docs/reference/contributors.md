@@ -12,7 +12,7 @@ ______________________________________________________________________
 ## Setup
 
 ```bash
-uv pip install -e ".[dev]"
+uv sync --extra dev --frozen
 ```
 
 ## Common Commands
@@ -45,6 +45,10 @@ make typecheck  # mypy
 make precommit  # all pre-commit hooks
 make all        # full CI gate
 ```
+
+## CI/CD
+
+See [CI/CD Reference](ci-cd.md) for the full security model, SHA pinning strategy, and PyPI trusted publishing setup.
 
 ## Adding a Command
 
