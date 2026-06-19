@@ -42,63 +42,96 @@ jobs:
 
   test:
     needs: detect-changes
-    if: needs.detect-changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
     steps:
+      - name: Evaluate if tests are needed
+        id: evaluate
+        run: echo "run=${{ needs.detect-changes.outputs.code }}" >> "$GITHUB_OUTPUT"
+
+      - name: No-op — no code changes
+        if: steps.evaluate.outputs.run == 'false'
+        run: echo "No code changes detected. Skipping test suite." && exit 0
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: steps.evaluate.outputs.run == 'true'
 
       - name: Install uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        if: steps.evaluate.outputs.run == 'true'
         with:
           version: "latest"
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        if: steps.evaluate.outputs.run == 'true'
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Sync dependencies
+        if: steps.evaluate.outputs.run == 'true'
         run: uv sync --extra dev --frozen
 
       - name: Run tests
+        if: steps.evaluate.outputs.run == 'true'
         run: uv run pytest tests/ -v
 
       - name: Run ruff check
+        if: steps.evaluate.outputs.run == 'true'
         run: uvx ruff check .
 
       - name: Run ruff format check
+        if: steps.evaluate.outputs.run == 'true'
         run: uvx ruff format --check .
 
       - name: Run mypy
+        if: steps.evaluate.outputs.run == 'true'
         run: uv run mypy src/
 
       - name: Check markdown formatting
+        if: steps.evaluate.outputs.run == 'true'
         run: |
           uvx --with mdformat-frontmatter --with mdformat-gfm mdformat --check \
             .claude/skills/ docs/ README.md CHANGELOG.md src/claude_wiki/AGENTS.md
 
   precommit:
     needs: detect-changes
-    if: needs.detect-changes.outputs.code == 'true' || needs.detect-changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Evaluate if pre-commit is needed
+        id: evaluate
+        run: |
+          if [ "${{ needs.detect-changes.outputs.code }}" == "true" ] || [ "${{ needs.detect-changes.outputs.docs }}" == "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: No-op — no relevant changes
+        if: steps.evaluate.outputs.run == 'false'
+        run: echo "No relevant changes detected. Skipping pre-commit." && exit 0
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: steps.evaluate.outputs.run == 'true'
 
       - name: Install uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        if: steps.evaluate.outputs.run == 'true'
         with:
           version: "latest"
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        if: steps.evaluate.outputs.run == 'true'
         with:
           python-version: "3.12"
 
       - name: Sync dependencies
+        if: steps.evaluate.outputs.run == 'true'
         run: uv sync --extra dev --frozen
 
       - name: Run pre-commit
+        if: steps.evaluate.outputs.run == 'true'
         run: uv run pre-commit run --all-files
