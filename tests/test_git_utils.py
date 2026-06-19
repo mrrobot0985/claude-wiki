@@ -77,3 +77,21 @@ class TestInferRepoOwner:
         result = self._mock_run("https://user@github.com/mrrobot0985/claude-wiki.git")
         with patch("claude_wiki.git_utils.subprocess.run", return_value=result):
             assert infer_repo_owner(Path("/tmp/repo")) == "mrrobot0985"
+
+    def test_ssh_url_no_separator(self) -> None:
+        """SSH URL lacking ':' or '/' falls back to local."""
+        result = self._mock_run("git@github.com")
+        with patch("claude_wiki.git_utils.subprocess.run", return_value=result):
+            assert infer_repo_owner(Path("/tmp/repo")) == "local"
+
+    def test_ssh_url_missing_owner(self) -> None:
+        """SSH URL with only a repo segment and no owner falls back to local."""
+        result = self._mock_run("git@github.com:claude-wiki.git")
+        with patch("claude_wiki.git_utils.subprocess.run", return_value=result):
+            assert infer_repo_owner(Path("/tmp/repo")) == "local"
+
+    def test_ssh_url_empty_owner(self) -> None:
+        """SSH URL with a leading '/' and empty owner falls back to local."""
+        result = self._mock_run("git@github.com:/claude-wiki.git")
+        with patch("claude_wiki.git_utils.subprocess.run", return_value=result):
+            assert infer_repo_owner(Path("/tmp/repo")) == "local"
