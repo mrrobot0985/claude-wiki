@@ -133,11 +133,11 @@ def write_context_file(
     return context_file
 
 
-def get_scripts_dir(config: ProjectConfig, repo_root: Path) -> Path:
-    """Return the per-machine scripts directory used for logs and state."""
+def get_logs_dir(config: ProjectConfig, repo_root: Path) -> Path:
+    """Return the per-machine logs directory used for logs and state."""
     manager = ConfigManager()
     kb_root = manager.get_kb_root(config)
-    return kb_root / "scripts"
+    return kb_root / "logs"
 
 
 def spawn_flush(
@@ -313,9 +313,9 @@ def flush_main(
     manager = ConfigManager()
     config = manager.load(repo_root)
 
-    scripts_dir = get_scripts_dir(config, repo_root)
-    scripts_dir.mkdir(parents=True, exist_ok=True)
-    configure_logging(scripts_dir / "flush.log")
+    logs_dir = get_logs_dir(config, repo_root)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    configure_logging(logs_dir / "flush.log")
 
     logger.info(
         "flush.py started for session %s, context: %s", session_id, context_file
@@ -325,7 +325,7 @@ def flush_main(
         logger.error("Context file not found: %s", context_file)
         return 1
 
-    state_file = scripts_dir / "last-flush.json"
+    state_file = logs_dir / "last-flush.json"
     state = load_flush_state(state_file)
     if (
         state.get("session_id") == session_id

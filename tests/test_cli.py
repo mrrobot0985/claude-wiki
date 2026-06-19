@@ -1,5 +1,6 @@
 """CLI-level integration tests — orchestration of ConfigManager + HookRegistrar."""
 
+import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -73,5 +74,78 @@ class TestInitCommand:
                 exit_code = main(["init", "--path", str(repo), "--force"])
                 assert exit_code == 0
 
-            data = __import__("json").loads((repo / ".claude-wiki.lock").read_text())
+            data = json.loads((repo / ".claude-wiki.lock").read_text())
             assert data["repo_name"] == "my-project"
+
+
+class TestMigrateCommand:
+    """Tests for claude-wiki migrate with path override flags."""
+
+    def _bootstrap_repo(self, repo: Path) -> None:
+        """Create lock, knowledge, and daily directories."""
+        config = {
+            "repo_name": repo.name,
+            "repo_owner": "local",
+            "kb_dir": "knowledge",
+            "daily_dir": "daily",
+            "reports_dir": "reports",
+            "timezone": "UTC",
+        }
+        (repo / ".claude-wiki.lock").write_text(json.dumps(config))
+        (repo / "knowledge").mkdir()
+        (repo / "knowledge" / "index.md").write_text("# Index")
+        (repo / "daily").mkdir()
+        (repo / "daily" / "2024-01-01.md").write_text("log")
+
+    def test_migrate_kb_dir_flag(self):
+        """--kb-dir overrides the knowledge base path and moves data."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            self._bootstrap_repo(repo)
+
+            with patch("claude_wiki.cli.GlobalIndexManager"):
+                exit_code = main(["migrate", "--path", str(repo), "--kb-dir", "wiki"])
+
+            assert exit_code == 0
+            assert not (repo / "knowledge").exists()
+            assert (repo / "wiki" / "index.md").exists()
+            lock = json.loads((repo / ".claude-wiki.lock").read_text())
+            assert lock["kb_dir"] == "wiki"
+
+    def test_migrate_daily_dir_flag(self):
+        """--daily-dir overrides the daily log path and moves data."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            self._bootstrap_repo(repo)
+
+            with patch("claude_wiki.cli.GlobalIndexManager"):
+                exit_code = main(
+                    ["migrate", "--path", str(repo), "--daily-dir", "logs"]
+                )
+
+            assert exit_code == 0
+            assert not (repo / "daily").exists()
+            assert (repo / "logs" / "2024-01-01.md").exists()
+            lock = json.loads((repo / ".claude-wiki.lock").read_text())
+            assert lock["daily_dir"] == "logs"
+
+    def test_migrate_reports_dir_flag(self):
+        """--reports-dir overrides the reports path and persists to config."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            self._bootstrap_repo(repo)
+
+            with patch("claude_wiki.cli.GlobalIndexManager"):
+                exit_code = main(
+                    ["migrate", "--path", str(repo), "--reports-dir", "custom-reports"]
+                )
+
+            assert exit_code == 0
+            lock = json.loads((repo / ".claude-wiki.lock").read_text())
+            assert lock["reports_dir"] == "custom-reports"

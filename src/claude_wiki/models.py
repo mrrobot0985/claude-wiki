@@ -16,6 +16,7 @@ class ProjectConfig:
     repo_owner: str = "local"
     kb_dir: Path = Path("knowledge")
     daily_dir: Path = Path("daily")
+    reports_dir: Path = Path("reports")
     timezone: str = "UTC"
     compile_after_hour: int = 18
 
@@ -28,7 +29,7 @@ class ProjectConfig:
             if val is None:
                 kwargs[f.name] = None
                 continue
-            if f.name in ("kb_dir", "daily_dir"):
+            if f.name in ("kb_dir", "daily_dir", "reports_dir"):
                 kwargs[f.name] = Path(val) if not isinstance(val, Path) else val
             else:
                 kwargs[f.name] = val

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
+from claude_wiki import flush
 from claude_wiki.config import ConfigManager
 
 _spawn_flush: Any = None
@@ -26,10 +27,10 @@ MAX_CONTEXT_CHARS = 15_000
 MIN_TURNS_TO_FLUSH = 5
 
 
-def _setup_logging(scripts_dir: Path) -> None:
-    """Configure file logging under scripts/flush.log."""
-    scripts_dir.mkdir(parents=True, exist_ok=True)
-    log_file = scripts_dir / "flush.log"
+def _setup_logging(logs_dir: Path) -> None:
+    """Configure file logging under logs/flush.log."""
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_file = logs_dir / "flush.log"
 
     logger.setLevel(logging.INFO)
     for handler in list(logger.handlers):
@@ -114,13 +115,15 @@ def handler(_args: list[str]) -> int:
         return 0
 
     try:
-        repo_root = ConfigManager().find_repo_root(Path.cwd())
+        manager = ConfigManager()
+        repo_root = manager.find_repo_root(Path.cwd())
+        config = manager.load(repo_root)
     except Exception as exc:
         logging.error("Failed to locate repo root: %s", exc)
         return 1
 
-    scripts_dir = repo_root / "scripts"
-    _setup_logging(scripts_dir)
+    logs_dir = flush.get_logs_dir(config, repo_root)
+    _setup_logging(logs_dir)
 
     try:
         hook_input = _read_hook_input()
@@ -157,7 +160,7 @@ def handler(_args: list[str]) -> int:
         return 0
 
     timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d-%H%M%S")
-    context_file = scripts_dir / f"flush-context-{session_id}-{timestamp}.md"
+    context_file = logs_dir / f"flush-context-{session_id}-{timestamp}.md"
     context_file.write_text(context, encoding="utf-8")
 
     if _spawn_flush is None:

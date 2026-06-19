@@ -12,11 +12,8 @@ build/
 *.whl
 .DS_Store
 *.log
-scripts/state.json
-scripts/last-flush.json
-scripts/flush.log
-.claude-wiki.state.json
-!.claude/skills/
-.claude/
+.claude/worktrees/
+.claude/settings.local.json
 reports/
 bin/
+*.code-workspace

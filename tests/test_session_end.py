@@ -174,8 +174,8 @@ class TestFlushMain:
         """Flush main appends runner output to today's daily log."""
         monkeypatch.delenv("CLAUDE_INVOKED_BY", raising=False)
         repo = self._repo_with_config(tmp_path)
-        scripts_dir = tmp_path / "kb-scripts"
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(scripts_dir))
+        kb_root = tmp_path / "kb-root"
+        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         ctx = tmp_path / "ctx.md"
         ctx.write_text("User asked a question.\nAssistant answered.", encoding="utf-8")
@@ -198,8 +198,8 @@ class TestFlushMain:
         """A FLUSH_OK response still creates an entry in the daily log."""
         monkeypatch.delenv("CLAUDE_INVOKED_BY", raising=False)
         repo = self._repo_with_config(tmp_path)
-        scripts_dir = tmp_path / "kb-scripts"
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(scripts_dir))
+        kb_root = tmp_path / "kb-root"
+        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         ctx = tmp_path / "ctx.md"
         ctx.write_text("context", encoding="utf-8")
@@ -219,8 +219,8 @@ class TestFlushMain:
         """Second flush of the same session within 60s is skipped."""
         monkeypatch.delenv("CLAUDE_INVOKED_BY", raising=False)
         repo = self._repo_with_config(tmp_path)
-        scripts_dir = tmp_path / "kb-scripts"
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(scripts_dir))
+        kb_root = tmp_path / "kb-root"
+        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         ctx = tmp_path / "ctx.md"
         ctx.write_text("context", encoding="utf-8")
@@ -325,7 +325,7 @@ class TestSessionEndHandler:
         assert context_file.exists()
         assert "hello" in context_file.read_text(encoding="utf-8")
 
-        log_path = xdg / "claude-wiki" / "owner" / "repo" / "scripts" / "flush.log"
+        log_path = xdg / "claude-wiki" / "owner" / "repo" / "logs" / "flush.log"
         assert log_path.exists()
         log_text = log_path.read_text(encoding="utf-8")
         assert "SessionEnd fired: session=xyz" in log_text
