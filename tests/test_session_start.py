@@ -77,8 +77,8 @@ class TestSessionStart:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            daily = repo / "daily"
-            daily.mkdir()
+            daily = repo / ".claude" / "daily"
+            daily.mkdir(parents=True)
 
             yesterday = datetime.now(timezone.utc).astimezone() - timedelta(days=1)
             (daily / f"{yesterday.strftime('%Y-%m-%d')}.md").write_text(

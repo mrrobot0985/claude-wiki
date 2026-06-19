@@ -56,6 +56,16 @@ class TestProjectConfigValidation:
         with pytest.raises(ConfigError):
             ProjectConfig(repo_name="test", repo_owner=123)
 
+    def test_post_init_rejects_non_string_layout_version(self):
+        """A non-string layout_version raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig(repo_name="test", layout_version=123)
+
+    def test_post_init_rejects_empty_layout_version(self):
+        """An empty layout_version string raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig(repo_name="test", layout_version="  ")
+
     def test_post_init_rejects_empty_timezone(self):
         """An empty timezone string raises ConfigError."""
         with pytest.raises(ConfigError):
@@ -113,6 +123,35 @@ class TestProjectConfigValidation:
                     "compile_after_hour": 18,
                 }
             )
+
+    def test_from_dict_rejects_empty_layout_version(self):
+        """Empty layout_version from dict raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "test",
+                    "repo_owner": "local",
+                    "compile_after_hour": 18,
+                    "layout_version": "  ",
+                }
+            )
+
+    def test_from_dict_preserves_layout_version(self):
+        """An explicit layout_version in dict is preserved."""
+        config = ProjectConfig.from_dict(
+            {
+                "repo_name": "test",
+                "repo_owner": "local",
+                "compile_after_hour": 18,
+                "layout_version": "2",
+            }
+        )
+        assert config.layout_version == "2"
+
+    def test_default_layout_version_is_two(self):
+        """Default layout_version for a fresh ProjectConfig is '2'."""
+        config = ProjectConfig(repo_name="test")
+        assert config.layout_version == "2"
 
     def test_from_dict_converts_string_path(self):
         """String path values in dict are converted to Path."""

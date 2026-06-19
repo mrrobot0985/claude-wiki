@@ -31,15 +31,15 @@ class TestLintStructural:
         repo = tmp_path / "repo"
         repo.mkdir()
         (repo / ".git").mkdir()
-        kb_root = tmp_path / "kb"
-        kb_root.mkdir()
+        kb_root = repo / ".claude" / "knowledge"
+        kb_root.mkdir(parents=True)
         marker = repo / ".claude-wiki.lock"
         marker.write_text(
             json.dumps(
                 {
                     "repo_name": "repo",
                     "repo_owner": "local",
-                    "kb_dir": str(kb_root),
+                    "kb_dir": "project",
                     "daily_dir": "daily",
                     "timezone": "UTC",
                 }
@@ -62,14 +62,13 @@ class TestLintStructural:
         (concepts / "python.md").write_text("See [[missing-target]] for details.")
 
         monkeypatch.chdir(repo)
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         exit_code = main(["lint", "--structural-only"])
         captured = capsys.readouterr()
 
         assert exit_code == 1
         assert "Results: 1 errors" in captured.out
-        report = (kb_root / "reports" / "lint-2026-06-19.md").read_text()
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
         assert "Broken link:" in report
         assert "[[missing-target]]" in report
 
@@ -84,14 +83,13 @@ class TestLintStructural:
         (concepts / "orphan.md").write_text(long_text)
 
         monkeypatch.chdir(repo)
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         exit_code = main(["lint", "--structural-only"])
         captured = capsys.readouterr()
 
         assert exit_code == 0
         assert "Results: 0 errors, 1 warnings" in captured.out
-        report = (kb_root / "reports" / "lint-2026-06-19.md").read_text()
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
         assert "Orphan page:" in report
 
     def test_orphan_sources(
@@ -102,14 +100,14 @@ class TestLintStructural:
         daily = repo / "daily"
         daily.mkdir()
         (daily / "2026-06-18.md").write_text("# Log")
-        (kb_root / "state.json").write_text('{"ingested": {}}')
+        (repo / ".claude" / "state").mkdir(parents=True, exist_ok=True)
+        (repo / ".claude" / "state" / "state.json").write_text('{"ingested": {}}')
 
         monkeypatch.chdir(repo)
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         main(["lint", "--structural-only"])
 
-        report = (kb_root / "reports" / "lint-2026-06-19.md").read_text()
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
         assert "Uncompiled daily log:" in report
 
     def test_stale_articles(
@@ -121,14 +119,14 @@ class TestLintStructural:
         daily.mkdir()
         (daily / "2026-06-18.md").write_text("# Log")
         state = {"ingested": {"2026-06-18.md": {"hash": "0000000000000000"}}}
-        (kb_root / "state.json").write_text(json.dumps(state))
+        (repo / ".claude" / "state").mkdir(parents=True, exist_ok=True)
+        (repo / ".claude" / "state" / "state.json").write_text(json.dumps(state))
 
         monkeypatch.chdir(repo)
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         main(["lint", "--structural-only"])
 
-        report = (kb_root / "reports" / "lint-2026-06-19.md").read_text()
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
         assert "Stale:" in report
 
     def test_sparse_articles(
@@ -141,12 +139,11 @@ class TestLintStructural:
         (concepts / "short.md").write_text("Too few words.")
 
         monkeypatch.chdir(repo)
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         exit_code = main(["lint", "--structural-only"])
 
         assert exit_code == 0
-        report = (kb_root / "reports" / "lint-2026-06-19.md").read_text()
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
         assert "Sparse article:" in report
 
     def test_clean_kb_returns_zero(
@@ -161,25 +158,23 @@ class TestLintStructural:
         (concepts / "b.md").write_text(long_text + "\n[[concepts/a]]")
 
         monkeypatch.chdir(repo)
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         exit_code = main(["lint", "--structural-only"])
         captured = capsys.readouterr()
 
         assert exit_code == 0
         assert "Results: 0 errors, 0 warnings, 0 suggestions" in captured.out
-        report = (kb_root / "reports" / "lint-2026-06-19.md").read_text()
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
         assert "All checks passed" in report
 
     def test_report_saved_location(self, monkeypatch, tmp_path: Path) -> None:
         """The report is written to reports/lint-YYYY-MM-DD.md under the KB root."""
         repo, kb_root = self._repo_and_kb(tmp_path)
         monkeypatch.chdir(repo)
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         main(["lint", "--structural-only"])
 
-        report_path = kb_root / "reports" / "lint-2026-06-19.md"
+        report_path = repo / ".claude" / "reports" / "lint-2026-06-19.md"
         assert report_path.exists()
 
 
@@ -190,15 +185,15 @@ class TestLintLLM:
         repo = tmp_path / "repo"
         repo.mkdir()
         (repo / ".git").mkdir()
-        kb_root = tmp_path / "kb"
-        kb_root.mkdir()
+        kb_root = repo / ".claude" / "knowledge"
+        kb_root.mkdir(parents=True)
         marker = repo / ".claude-wiki.lock"
         marker.write_text(
             json.dumps(
                 {
                     "repo_name": "repo",
                     "repo_owner": "local",
-                    "kb_dir": str(kb_root),
+                    "kb_dir": "project",
                     "daily_dir": "daily",
                     "timezone": "UTC",
                 }
@@ -215,7 +210,6 @@ class TestLintLLM:
         """--structural-only never invokes the LLM check."""
         repo, kb_root = self._repo_and_kb(tmp_path)
         monkeypatch.chdir(repo)
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         with patch("claude_wiki.commands.lint._run_llm_checks") as mock_llm:
             main(["lint", "--structural-only"])
@@ -233,7 +227,6 @@ class TestLintLLM:
         (concepts / "b.md").write_text(long_text + "\n[[concepts/a]]")
 
         monkeypatch.chdir(repo)
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         fake_issue = _Issue(
             severity="warning",
@@ -249,7 +242,7 @@ class TestLintLLM:
         captured = capsys.readouterr()
         assert exit_code == 0
         assert "2 warnings" in captured.out
-        report = (kb_root / "reports" / "lint-2026-06-19.md").read_text()
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
         assert "CONTRADICTION: a vs b" in report
 
 
@@ -318,15 +311,15 @@ class TestLintStructuralEdgeCases:
         repo = tmp_path / "repo"
         repo.mkdir()
         (repo / ".git").mkdir()
-        kb_root = tmp_path / "kb"
-        kb_root.mkdir()
+        kb_root = repo / ".claude" / "knowledge"
+        kb_root.mkdir(parents=True)
         marker = repo / ".claude-wiki.lock"
         marker.write_text(
             json.dumps(
                 {
                     "repo_name": "repo",
                     "repo_owner": "local",
-                    "kb_dir": str(kb_root),
+                    "kb_dir": "project",
                     "daily_dir": "daily",
                     "timezone": "UTC",
                 }
@@ -350,7 +343,6 @@ class TestLintStructuralEdgeCases:
         (concepts / "note.md").write_text(long_text + "\n[[daily/2026-06-18]]")
 
         monkeypatch.chdir(repo)
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         exit_code = main(["lint", "--structural-only"])
         captured = capsys.readouterr()
@@ -536,7 +528,6 @@ class TestContradictionDetection:
         (concepts / "b.md").write_text(long_text + "\n[[concepts/a]]")
 
         monkeypatch.chdir(repo)
-        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
         with (
             patch("claude_wiki.commands.lint._today_iso", return_value="2026-06-19"),
@@ -547,5 +538,5 @@ class TestContradictionDetection:
         captured = capsys.readouterr()
         assert exit_code == 0
         assert "1 warnings" in captured.out
-        report = (kb_root / "reports" / "lint-2026-06-19.md").read_text()
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
         assert "CONTRADICTION: a vs b - conflict" in report

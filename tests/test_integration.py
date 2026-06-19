@@ -147,8 +147,8 @@ class TestKBWorkflow:
         assert (repo / ".claude" / "settings.local.json").exists()
         assert not (Path.home() / ".claude" / "settings.json").exists()
 
-        daily = repo / "daily"
-        daily.mkdir()
+        daily = repo / ".claude" / "daily"
+        daily.mkdir(parents=True)
         (daily / "2026-06-19.md").write_text(
             "# Integration test\n\nA key idea for the knowledge base."
         )
