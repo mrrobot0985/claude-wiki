@@ -23,6 +23,7 @@ All notable changes to this project are documented in this file.
 - Audit and fix drift across all docs and skill
 - Update install and contributor guides for uv sync
 - Add CHANGELOG.md
+- Release v0.1.0
 
 ### Fixed
 
@@ -35,6 +36,7 @@ All notable changes to this project are documented in this file.
 - Add GitHub workflows, local PyPI registry, and act support
 - Update workflows to 2026 standards with SHA pinning
 - Add mypy to dev dependencies for CI type-check gate
+- Add cliff.toml for automated CHANGELOG generation
 
 ## Earlier Work
 
