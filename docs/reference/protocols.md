@@ -12,7 +12,7 @@ class RepoDetector(Protocol):
     def find_repo_root(self, start: Path) -> Path: ...
 ```
 
-Walks upward from `start` looking for `.git` or `.claude-wiki.json`.
+Walks upward from `start` looking for `.git` or `.claude-wiki.lock`.
 
 ## `ConfigLoader`
 
@@ -21,9 +21,11 @@ Walks upward from `start` looking for `.git` or `.claude-wiki.json`.
 class ConfigLoader(Protocol):
     def load(self, repo_root: Path) -> ProjectConfig: ...
     def write(self, repo_root: Path, config: ProjectConfig) -> None: ...
+    def save_state(self, repo_root: Path, config: ProjectConfig) -> None: ...
+    def load_state(self, repo_root: Path) -> ProjectConfig | None: ...
 ```
 
-Reads and writes the repo-local marker file.
+Reads and writes the repo-local marker file. Persists a snapshot of the current config to `.claude-wiki.state.json` for future migration comparison.
 
 ## `HookRegistrar`
 
@@ -34,6 +36,25 @@ class HookRegistrar(Protocol):
 ```
 
 Idempotently merges hook definitions into `~/.claude/settings.json`.
+
+## `Migrator`
+
+```python
+@runtime_checkable
+class Migrator(Protocol):
+    def check_and_migrate(
+        self,
+        repo_root: Path,
+        current: ProjectConfig,
+        previous: ProjectConfig | None,
+        *,
+        dry_run: bool = False,
+    ) -> MigrationResult: ...
+    def save_state(self, repo_root: Path, config: ProjectConfig) -> None: ...
+    def load_state(self, repo_root: Path) -> ProjectConfig | None: ...
+```
+
+Detects path changes between config versions and moves data safely.
 
 ## Future Protocols (reserved)
 

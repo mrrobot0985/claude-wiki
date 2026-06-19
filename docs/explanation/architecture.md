@@ -29,14 +29,27 @@ Conversation -> SessionEnd/PreCompact hooks -> flush.py
 - `query.py` reads index, routes questions to relevant articles
 - `lint.py` checks structural integrity and contradictions
 
+## Layer 4: Global Registry
+
+- `~/.local/share/claude-wiki/.registry.json` — machine-managed list of all repos
+- `~/.local/share/claude-wiki/index.md` — human-readable global catalog linking every repo's `index.md`
+- Updated automatically by `init`, `compile`, and `migrate`
+- Injected into SessionStart context so the agent knows about other knowledge bases
+
 ## Configuration Resolution
 
 Priority chain for KB root (highest wins):
 
 1. `CLAUDE_WIKI_PROJECT_DIR` env var
-2. `.claude-wiki.json` with absolute `kb_dir`
+2. `.claude-wiki.lock` with absolute `kb_dir`
 3. XDG default: `~/.local/share/claude-wiki/<owner>/<repo>/`
 4. Fallback: `~/.local/share/claude-wiki/local/<repo-name>/`
+
+## State Tracking
+
+- `.claude-wiki.state.json` — snapshot of the last known config in each repo root
+- Used by `migrate` to detect path changes between runs
+- Do not commit; it is machine-managed
 
 ## Dependency Direction
 

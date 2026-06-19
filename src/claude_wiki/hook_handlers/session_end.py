@@ -9,18 +9,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from claude_kb import flush
-from claude_kb.config import ConfigManager
-from claude_kb.errors import ClaudeKBError
+from claude_wiki import flush
+from claude_wiki.config import ConfigManager
+from claude_wiki.errors import ClaudeKBError
 
-logger = logging.getLogger("claude_kb.session_end")
+logger = logging.getLogger("claude_wiki.session_end")
 
 
 def _handle_session_end(argv: list[str]) -> int:
     """Handle a Claude Code SessionEnd hook invocation.
 
     Reads JSON from stdin, extracts the last conversation turns from the
-    transcript, and spawns ``claude_kb.flush`` in the background to do the
+    transcript, and spawns ``claude_wiki.flush`` in the background to do the
     LLM work.
     """
     # Recursion guard: if a nested Claude invocation triggered by the Agent SDK

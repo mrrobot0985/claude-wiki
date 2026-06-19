@@ -53,6 +53,22 @@ class LintResult:
     suggestions: list[str]
 ```
 
+## `MigrationResult`
+
+```python
+@dataclass(frozen=True)
+class MigrationResult:
+    migrated: bool
+    old_kb_dir: Path | None = None
+    new_kb_dir: Path | None = None
+    old_daily_dir: Path | None = None
+    new_daily_dir: Path | None = None
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+```
+
+Returned by `MigrationManager.check_and_migrate`. Indicates what moved and whether any warnings or errors occurred.
+
 ## `FlushResult`
 
 ```python

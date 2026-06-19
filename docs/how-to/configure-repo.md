@@ -6,7 +6,7 @@ Control where knowledge lives and how it is compiled.
 
 ## The Marker File
 
-`claude-wiki init` creates `.claude-wiki.json` in the repository root:
+`claude-wiki init` creates `.claude-wiki.lock` in the repository root:
 
 ```json
 {
@@ -34,13 +34,28 @@ export CLAUDE_WIKI_PROJECT_DIR=/mnt/fast-data/knowledge
 claude-wiki compile
 ```
 
-Or use an absolute path in `.claude-wiki.json`:
+Or use an absolute path in `.claude-wiki.lock`:
 
 ```json
 {
   "kb_dir": "/mnt/fast-data/knowledge"
 }
 ```
+
+## Moving Knowledge Base Data
+
+If you change `kb_dir` or `daily_dir`, always run `migrate` so data is moved to the new location:
+
+```bash
+claude-wiki migrate --dry-run  # preview
+claude-wiki migrate            # execute
+```
+
+The `migrate` command compares the current `.claude-wiki.lock` against `.claude-wiki.state.json` and moves directories only when paths differ.
+
+## Global Registry
+
+Every initialised repo is recorded in `~/.local/share/claude-wiki/index.md` — a machine-managed registry linking all your knowledge bases. It updates automatically on `init`, `compile`, and `migrate`.
 
 ## Idempotent Reconfiguration
 

@@ -13,8 +13,8 @@ from typing import Any
 
 import pytest
 
-from claude_kb import flush
-from claude_kb.hook_handlers import session_end
+from claude_wiki import flush
+from claude_wiki.hook_handlers import session_end
 
 
 class TestReadHookInput:
@@ -140,7 +140,7 @@ class TestSpawnFlush:
         cmd, kwargs = calls[0]
         assert cmd[0] == sys.executable
         assert cmd[1] == "-m"
-        assert cmd[2] == "claude_kb.flush"
+        assert cmd[2] == "claude_wiki.flush"
         assert cmd[3] == str(ctx)
         assert cmd[4] == "s1"
         assert cmd[5] == str(repo)
@@ -160,7 +160,7 @@ class TestFlushMain:
         repo = tmp_path / "repo"
         repo.mkdir()
         (repo / ".git").mkdir()
-        marker = repo / ".claude-wiki.json"
+        marker = repo / ".claude-wiki.lock"
         marker.write_text(
             json.dumps(
                 {"repo_name": "repo", "repo_owner": "owner", "daily_dir": "daily"}
@@ -246,7 +246,7 @@ class TestSessionEndHandler:
         repo = tmp_path / "repo"
         repo.mkdir()
         (repo / ".git").mkdir()
-        marker = repo / ".claude-wiki.json"
+        marker = repo / ".claude-wiki.lock"
         marker.write_text(json.dumps({"repo_name": "repo", "repo_owner": "owner"}))
         return repo
 
@@ -313,7 +313,7 @@ class TestSessionEndHandler:
             return types.SimpleNamespace(pid=999)
 
         monkeypatch.setattr(
-            "claude_kb.hook_handlers.session_end.flush.spawn_flush", fake_spawn
+            "claude_wiki.hook_handlers.session_end.flush.spawn_flush", fake_spawn
         )
 
         assert session_end._handle_session_end([]) == 0

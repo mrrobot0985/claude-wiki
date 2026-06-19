@@ -30,7 +30,7 @@ claude-wiki init
 
 This creates three things:
 
-1. `.claude-wiki.json` — per-repo configuration
+1. `.claude-wiki.lock` — per-repo configuration
 2. `daily/` — conversation logs (commit these)
 3. `~/.claude/settings.json` — global hook registration for Claude Code
 
@@ -52,6 +52,19 @@ Run health checks:
 
 ```bash
 claude-wiki lint
+```
+
+## Cross-Repository Awareness
+
+If you have multiple repos with claude-wiki, `~/.local/share/claude-wiki/index.md` links them all. The `SessionStart` hook shows a compact summary of other knowledge bases alongside the current repo's index.
+
+## Moving Data Safely
+
+If you change `kb_dir` or `daily_dir`, migrate the data:
+
+```bash
+claude-wiki migrate --dry-run
+claude-wiki migrate
 ```
 
 ---

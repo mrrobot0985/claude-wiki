@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-from claude_kb.cli import main
-from claude_kb.commands.lint import _Issue
+from claude_wiki.cli import main
+from claude_wiki.commands.lint import _Issue
 
 
 class TestLintStructural:
@@ -21,7 +21,7 @@ class TestLintStructural:
         (repo / ".git").mkdir()
         kb_root = tmp_path / "kb"
         kb_root.mkdir()
-        marker = repo / ".claude-wiki.json"
+        marker = repo / ".claude-wiki.lock"
         marker.write_text(
             json.dumps(
                 {
@@ -37,7 +37,7 @@ class TestLintStructural:
 
     @pytest.fixture(autouse=True)
     def fixed_today(self) -> None:
-        with patch("claude_kb.commands.lint._today_iso", return_value="2026-06-19"):
+        with patch("claude_wiki.commands.lint._today_iso", return_value="2026-06-19"):
             yield
 
     def test_broken_links(
@@ -180,7 +180,7 @@ class TestLintLLM:
         (repo / ".git").mkdir()
         kb_root = tmp_path / "kb"
         kb_root.mkdir()
-        marker = repo / ".claude-wiki.json"
+        marker = repo / ".claude-wiki.lock"
         marker.write_text(
             json.dumps(
                 {
@@ -196,7 +196,7 @@ class TestLintLLM:
 
     @pytest.fixture(autouse=True)
     def fixed_today(self) -> None:
-        with patch("claude_kb.commands.lint._today_iso", return_value="2026-06-19"):
+        with patch("claude_wiki.commands.lint._today_iso", return_value="2026-06-19"):
             yield
 
     def test_structural_only_skips_llm(self, monkeypatch, tmp_path: Path) -> None:
@@ -205,7 +205,7 @@ class TestLintLLM:
         monkeypatch.chdir(repo)
         monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
 
-        with patch("claude_kb.commands.lint._run_llm_checks") as mock_llm:
+        with patch("claude_wiki.commands.lint._run_llm_checks") as mock_llm:
             main(["lint", "--structural-only"])
             mock_llm.assert_not_called()
 
@@ -230,7 +230,7 @@ class TestLintLLM:
             detail="CONTRADICTION: a vs b - conflicting advice",
         )
         with patch(
-            "claude_kb.commands.lint._run_llm_checks", return_value=[fake_issue]
+            "claude_wiki.commands.lint._run_llm_checks", return_value=[fake_issue]
         ):
             exit_code = main(["lint"])
 

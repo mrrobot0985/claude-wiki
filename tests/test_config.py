@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-from claude_kb.config import ConfigManager
-from claude_kb.models import ProjectConfig
+from claude_wiki.config import ConfigManager
+from claude_wiki.models import ProjectConfig
 
 
 class TestConfigManager:
@@ -29,11 +29,11 @@ class TestConfigManager:
             assert found == repo.resolve()
 
     def test_find_repo_root_from_marker(self):
-        """Find repo root by walking up to .claude-wiki.json marker."""
+        """Find repo root by walking up to .claude-wiki.lock marker."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir) / "my-project"
             repo.mkdir()
-            (repo / ".claude-wiki.json").write_text('{"repo_name": "test"}')
+            (repo / ".claude-wiki.lock").write_text('{"repo_name": "test"}')
             subdir = repo / "src" / "deep"
             subdir.mkdir(parents=True)
 
@@ -49,11 +49,11 @@ class TestConfigManager:
                 manager.find_repo_root(Path(tmpdir))
 
     def test_load_existing_marker(self):
-        """Load config from existing .claude-wiki.json."""
+        """Load config from existing .claude-wiki.lock."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir) / "my-project"
             repo.mkdir()
-            marker = repo / ".claude-wiki.json"
+            marker = repo / ".claude-wiki.lock"
             marker.write_text(
                 json.dumps(
                     {
@@ -92,7 +92,7 @@ class TestConfigManager:
             assert config.timezone == "UTC"
 
     def test_write_marker(self):
-        """Write .claude-wiki.json marker file."""
+        """Write .claude-wiki.lock marker file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir) / "my-project"
             repo.mkdir()
@@ -107,7 +107,7 @@ class TestConfigManager:
             )
             manager.write(repo, config)
 
-            marker = repo / ".claude-wiki.json"
+            marker = repo / ".claude-wiki.lock"
             assert marker.exists()
             data = json.loads(marker.read_text())
             assert data["repo_name"] == "my-project"

@@ -1,7 +1,7 @@
 """Core flush logic shared by the SessionEnd and PreCompact hooks.
 
 The hook handlers perform only fast local I/O and spawn a background process
-that imports this module via ``python -m claude_kb.flush``.  Keeping the core
+that imports this module via ``python -m claude_wiki.flush``.  Keeping the core
 logic in one place makes it easy to test and reuse for both hook events.
 """
 
@@ -21,10 +21,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from claude_kb.config import ConfigManager
-from claude_kb.models import ProjectConfig
+from claude_wiki.config import ConfigManager
+from claude_wiki.models import ProjectConfig
 
-logger = logging.getLogger("claude_kb.flush")
+logger = logging.getLogger("claude_wiki.flush")
 
 DEFAULT_MAX_TURNS = 30
 DEFAULT_MAX_CONTEXT_CHARS = 15_000
@@ -147,14 +147,14 @@ def spawn_flush(
     *,
     executable: str | None = None,
 ) -> subprocess.Popen[Any]:
-    """Spawn ``python -m claude_kb.flush`` as a detached background process."""
+    """Spawn ``python -m claude_wiki.flush`` as a detached background process."""
     if executable is None:
         executable = sys.executable
 
     cmd = [
         str(executable),
         "-m",
-        "claude_kb.flush",
+        "claude_wiki.flush",
         str(context_file),
         session_id,
         str(repo_root),
@@ -295,8 +295,8 @@ def flush_main(
     *,
     runner: Callable[[str, Path], str] | None = None,
 ) -> int:
-    """Background entry point: ``python -m claude_kb.flush <ctx> <session> <repo>``."""
-    parser = argparse.ArgumentParser(prog="claude_kb.flush")
+    """Background entry point: ``python -m claude_wiki.flush <ctx> <session> <repo>``."""
+    parser = argparse.ArgumentParser(prog="claude_wiki.flush")
     parser.add_argument("context_file", type=Path)
     parser.add_argument("session_id")
     parser.add_argument("repo_root", type=Path)

@@ -37,7 +37,7 @@ Edit `~/.claude/settings.json`:
 
 ## Writing Custom Handlers
 
-Create a module under `src/claude_kb/hook_handlers/` that exports a `register` function:
+Create a module under `src/claude_wiki/hook_handlers/` that exports a `register` function:
 
 ```python
 def register(handlers: dict[str, Any]) -> None:

@@ -10,7 +10,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ProjectConfig:
-    """Per-repository configuration persisted in .claude-wiki.json."""
+    """Per-repository configuration persisted in .claude-wiki.lock."""
 
     repo_name: str
     repo_owner: str = "local"
