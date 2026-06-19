@@ -86,13 +86,54 @@ make all        # format + lint + typecheck + test + precommit (full CI gate)
 - Migration compares current lock against previous by loading it as `previous`
 - XDG data dir: `~/.local/share/claude-wiki/<owner>/<repo>/`
 
-## Release
+## Branching & CI
+
+All changes go through a feature branch + PR. Never commit directly to `main`.
 
 ```bash
-make build      # uv build (wheel in dist/)
-make pypi-start # local PyPI registry on :8080 for smoke testing
-make pypi-stop  # tear down local registry
+git checkout -b fix/short-description    # or feat/, chore/, docs/, refactor/
+# ... work ...
+git push -u origin fix/short-description
+gh pr create --base main --title "fix: descriptive title" --body "..."
 ```
+
+**CI gate** (must pass before merge):
+
+1. `uv run pytest tests/ -v`
+1. `uvx ruff check .`
+1. `uvx ruff format --check .`
+1. `uv run mypy src/`
+1. `uvx --with mdformat-frontmatter --with mdformat-gfm mdformat --check ...`
+1. Pre-commit hooks (`uv run pre-commit run --all-files`)
+
+Verify with `make all` locally before pushing, then confirm `gh pr checks --watch` on the PR.
+
+## Release
+
+Version is tag-driven. Do **not** bump version in a PR.
+
+**Current project setup** (static versioning in `pyproject.toml`):
+
+1. Merge PR to `main`
+1. Checkout `main`, pull latest
+1. Edit `pyproject.toml` version
+1. Commit: `chore: bump version to 0.x.y`
+1. Tag: `git tag -a v0.x.y -m "Release v0.x.y"`
+1. Push tag: `git push origin v0.x.y`
+1. GitHub Actions builds and publishes to PyPI
+
+**Industry recommendation** (SCM-derived versioning):
+Use `hatch-vcs` or `setuptools-scm` so the version is derived from git tags automatically. This eliminates manual bump commits and merge conflicts.
+
+```toml
+[project]
+dynamic = ["version"]
+
+[tool.hatch.version]
+source = "vcs"
+```
+
+With SCM-derived versioning, the workflow simplifies to: merge PRs → tag → release.
 
 ## Conventions
 
