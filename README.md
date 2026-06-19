@@ -73,11 +73,12 @@ Set `CLAUDE_WIKI_PROJECT_DIR` to override the knowledge base location.
 ## Development
 
 ```bash
-make dev        # install with dev dependencies
-make test       # run pytest
-make lint       # ruff check
-make format     # ruff format + mdformat
-make typecheck  # mypy
-make precommit  # all pre-commit hooks
-make all        # full CI gate (format, lint, typecheck, test, precommit)
+make dev              # install with dev dependencies
+make install-precommit # install git hooks (run once per clone)
+make test             # run pytest
+make lint             # ruff check
+make format           # ruff format + mdformat
+make typecheck        # mypy
+make precommit        # all pre-commit hooks
+make all              # full CI gate (format, lint, typecheck, test, precommit)
 ```
