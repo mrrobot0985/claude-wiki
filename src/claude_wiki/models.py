@@ -25,6 +25,7 @@ class ProjectConfig:
 
     repo_name: str
     repo_owner: str = "local"
+    layout_version: str = "2"
     kb_dir: Path = field(default_factory=lambda: Path("project"))
     daily_dir: Path = field(default_factory=lambda: Path("daily"))
     reports_dir: Path = field(default_factory=lambda: Path("reports"))
@@ -33,7 +34,7 @@ class ProjectConfig:
 
     def __post_init__(self) -> None:
         """Validate all fields after construction."""
-        for name in ("repo_name", "repo_owner", "timezone"):
+        for name in ("repo_name", "repo_owner", "layout_version", "timezone"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ConfigError(f"{name} must be a non-empty string")
@@ -65,7 +66,7 @@ class ProjectConfig:
             else:
                 val = _field_default(f)
 
-            if f.name in ("repo_name", "repo_owner", "timezone"):
+            if f.name in ("repo_name", "repo_owner", "layout_version", "timezone"):
                 if not isinstance(val, str) or not val.strip():
                     raise ConfigError(f"{f.name} must be a non-empty string")
             elif f.name == "compile_after_hour":

@@ -16,7 +16,6 @@ from zoneinfo import ZoneInfo
 
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
-from claude_wiki.models import ProjectConfig
 
 
 KB_SUBDIRS = ("concepts", "connections", "qa")
@@ -56,14 +55,17 @@ def _lint_handler(args: argparse.Namespace) -> int:
 
     config = manager.load(repo_root)
     kb_root = manager.get_kb_root(repo_root, config)
+    machine_state_dir = manager.get_machine_state_dir(repo_root, config)
+    cache_dir = manager.get_cache_dir(repo_root, config)
 
-    issues = _run_structural_checks(repo_root, config, kb_root)
+    daily_dir = repo_root / config.daily_dir
+    issues = _run_structural_checks(machine_state_dir, kb_root, daily_dir)
     if not args.structural_only:
         issues.extend(_run_llm_checks(kb_root))
 
     today = _today_iso(config.timezone)
-    report_path = _save_report(kb_root, config.reports_dir, issues, today)
-    _update_state(kb_root)
+    report_path = _save_report(cache_dir, issues, today)
+    _update_state(machine_state_dir)
 
     errors = sum(1 for issue in issues if issue.severity == "error")
     warnings = sum(1 for issue in issues if issue.severity == "warning")
@@ -76,15 +78,15 @@ def _lint_handler(args: argparse.Namespace) -> int:
 
 
 def _run_structural_checks(
-    repo_root: Path, config: ProjectConfig, kb_root: Path
+    state_dir: Path, kb_root: Path, daily_dir: Path
 ) -> list[_Issue]:
     """Run all non-LLM health checks."""
-    state = _load_state(kb_root)
+    state = _load_state(state_dir)
     issues: list[_Issue] = []
     issues.extend(_check_broken_links(kb_root))
     issues.extend(_check_orphan_pages(kb_root))
-    issues.extend(_check_orphan_sources(repo_root, config, state))
-    issues.extend(_check_stale_articles(repo_root, config, state))
+    issues.extend(_check_orphan_sources(daily_dir, state))
+    issues.extend(_check_stale_articles(daily_dir, state))
     issues.extend(_check_sparse_articles(kb_root))
     return issues
 
@@ -131,10 +133,9 @@ def _check_orphan_pages(kb_root: Path) -> list[_Issue]:
 
 
 def _check_orphan_sources(
-    repo_root: Path, config: ProjectConfig, state: dict[str, Any]
+    daily_dir: Path, state: dict[str, Any]
 ) -> list[_Issue]:
     """Find daily logs that have not been compiled yet."""
-    daily_dir = repo_root / config.daily_dir
     ingested = state.get("ingested", {})
     issues: list[_Issue] = []
     for log_path in _list_daily_files(daily_dir):
@@ -151,10 +152,9 @@ def _check_orphan_sources(
 
 
 def _check_stale_articles(
-    repo_root: Path, config: ProjectConfig, state: dict[str, Any]
+    daily_dir: Path, state: dict[str, Any]
 ) -> list[_Issue]:
     """Find daily logs that changed since last compilation."""
-    daily_dir = repo_root / config.daily_dir
     ingested = state.get("ingested", {})
     issues: list[_Issue] = []
     for log_path in _list_daily_files(daily_dir):
@@ -352,25 +352,26 @@ def _read_all_wiki_content(kb_root: Path) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def _load_state(kb_root: Path) -> dict[str, Any]:
+def _load_state(state_dir: Path) -> dict[str, Any]:
     """Load the persisted compilation state."""
-    state_file = kb_root / "state.json"
+    state_file = state_dir / "state.json"
     if state_file.exists():
         return cast(dict[str, Any], json.loads(state_file.read_text(encoding="utf-8")))
     return {"ingested": {}}
 
 
-def _save_state(kb_root: Path, state: dict[str, Any]) -> None:
+def _save_state(state_dir: Path, state: dict[str, Any]) -> None:
     """Persist the compilation state."""
-    state_file = kb_root / "state.json"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    state_file = state_dir / "state.json"
     state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
-def _update_state(kb_root: Path) -> None:
+def _update_state(state_dir: Path) -> None:
     """Record that a lint was run."""
-    state = _load_state(kb_root)
+    state = _load_state(state_dir)
     state["last_lint"] = datetime.now(ZoneInfo("UTC")).isoformat(timespec="seconds")
-    _save_state(kb_root, state)
+    _save_state(state_dir, state)
 
 
 def _today_iso(timezone: str = "UTC") -> str:
@@ -383,10 +384,10 @@ def _today_iso(timezone: str = "UTC") -> str:
 
 
 def _save_report(
-    kb_root: Path, reports_dir: Path, issues: list[_Issue], today: str
+    cache_dir: Path, issues: list[_Issue], today: str
 ) -> Path:
     """Write the markdown lint report and return its path."""
-    report_dir = kb_root / reports_dir
+    report_dir = cache_dir / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / f"lint-{today}.md"
 

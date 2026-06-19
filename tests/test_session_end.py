@@ -325,7 +325,7 @@ class TestSessionEndHandler:
         assert context_file.exists()
         assert "hello" in context_file.read_text(encoding="utf-8")
 
-        log_path = repo / ".claude" / "knowledge" / "logs" / "flush.log"
+        log_path = repo / ".claude" / "state" / "logs" / "flush.log"
         assert log_path.exists()
         log_text = log_path.read_text(encoding="utf-8")
         assert "SessionEnd fired: session=xyz" in log_text
@@ -380,7 +380,7 @@ class TestSessionEndErrorPaths:
 
         assert session_end._handle_session_end([]) == 0
 
-        log_path = repo / ".claude" / "knowledge" / "logs" / "flush.log"
+        log_path = repo / ".claude" / "state" / "logs" / "flush.log"
         assert log_path.exists()
         assert "SKIP: transcript missing" in log_path.read_text(encoding="utf-8")
 
@@ -400,7 +400,7 @@ class TestSessionEndErrorPaths:
 
         assert session_end._handle_session_end([]) == 0
 
-        log_path = repo / ".claude" / "knowledge" / "logs" / "flush.log"
+        log_path = repo / ".claude" / "state" / "logs" / "flush.log"
         assert log_path.exists()
         assert "Context extraction failed" in log_path.read_text(encoding="utf-8")
 
@@ -425,7 +425,7 @@ class TestSessionEndErrorPaths:
 
         assert session_end._handle_session_end([]) == 0
 
-        log_path = repo / ".claude" / "knowledge" / "logs" / "flush.log"
+        log_path = repo / ".claude" / "state" / "logs" / "flush.log"
         assert log_path.exists()
         assert "SKIP: empty context" in log_path.read_text(encoding="utf-8")
 
@@ -453,7 +453,7 @@ class TestSessionEndErrorPaths:
 
         assert session_end._handle_session_end([]) == 0
 
-        log_path = repo / ".claude" / "knowledge" / "logs" / "flush.log"
+        log_path = repo / ".claude" / "state" / "logs" / "flush.log"
         assert log_path.exists()
         assert "SKIP: only 2 turns (min 5)" in log_path.read_text(encoding="utf-8")
 
@@ -485,7 +485,7 @@ class TestSessionEndErrorPaths:
 
         assert session_end._handle_session_end([]) == 0
 
-        log_path = repo / ".claude" / "knowledge" / "logs" / "flush.log"
+        log_path = repo / ".claude" / "state" / "logs" / "flush.log"
         assert log_path.exists()
         assert "Failed to spawn flush.py" in log_path.read_text(encoding="utf-8")
 

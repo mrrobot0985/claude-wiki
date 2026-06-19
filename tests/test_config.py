@@ -91,7 +91,7 @@ class TestConfigManager:
             assert config.repo_name == "my-project"
             assert config.repo_owner == "local"
             assert config.kb_dir == Path("project")
-            assert config.daily_dir == Path("daily")
+            assert config.daily_dir == Path(".claude/daily")
             assert config.timezone == "UTC"
 
     def test_write_marker(self):
@@ -137,7 +137,7 @@ class TestConfigManager:
                     repo_name="my-project", repo_owner="owner", kb_dir=Path("user")
                 )
                 kb_root = manager.get_kb_root(repo, config)
-                expected = Path(tmpdir) / "claude-wiki" / "owner" / "my-project"
+                expected = Path(tmpdir) / "claude-wiki-vault" / "owner" / "my-project"
                 assert kb_root == expected
 
     def test_get_kb_root_env_override(self):
@@ -211,7 +211,7 @@ class TestConfigManager:
                 )
                 result = manager.get_kb_root(repo, config)
                 assert result.is_absolute()
-                assert result == (base / "claude-wiki" / "o" / "r").resolve(
+                assert result == (base / "claude-wiki-vault" / "o" / "r").resolve(
                     strict=False
                 )
 
@@ -486,3 +486,210 @@ class TestProjectConfig:
         assert config.kb_dir == Path("custom-kb")
         assert config.daily_dir == Path("custom-daily")
         assert config.reports_dir == Path("custom-reports")
+
+
+class TestLazyMigration:
+    """Transparent layout_version 1 -> 2 migration in ConfigManager.load()."""
+
+    def test_migrate_legacy_vault(self):
+        """User-mode vault moves from the old namespace to the new XDG path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            repo = tmpdir_path / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "1",
+                        "kb_dir": "user",
+                    }
+                )
+            )
+
+            env = {
+                "XDG_DATA_HOME": str(tmpdir_path / "data"),
+                "XDG_STATE_HOME": str(tmpdir_path / "state"),
+                "XDG_CACHE_HOME": str(tmpdir_path / "cache"),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                old_kb = (
+                    tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
+                )
+                old_kb.mkdir(parents=True)
+                (old_kb / "article.md").write_text("knowledge")
+                (old_kb / "state.json").write_text("{}")
+                (old_kb / "logs").mkdir()
+                (old_kb / "logs" / "flush.log").write_text("log")
+                (old_kb / "reports").mkdir()
+                (old_kb / "reports" / "report.md").write_text("report")
+
+                manager = ConfigManager()
+                config = manager.load(repo)
+
+                assert config.layout_version == "2"
+                new_kb = (
+                    tmpdir_path
+                    / "data"
+                    / "claude-wiki-vault"
+                    / "owner"
+                    / "my-project"
+                )
+                assert (new_kb / "article.md").exists()
+                state_dir = (
+                    tmpdir_path
+                    / "state"
+                    / "claude-wiki"
+                    / "repos"
+                    / "owner"
+                    / "my-project"
+                )
+                assert (state_dir / "state.json").exists()
+                assert (state_dir / "logs" / "flush.log").exists()
+                cache_dir = (
+                    tmpdir_path
+                    / "cache"
+                    / "claude-wiki"
+                    / "repos"
+                    / "owner"
+                    / "my-project"
+                )
+                assert (cache_dir / "reports" / "report.md").exists()
+                assert not old_kb.exists()
+
+                data = json.loads(marker.read_text())
+                assert data["layout_version"] == "2"
+
+    def test_migrate_legacy_project_mode(self):
+        """Project-mode state.json moves from kb_root to .claude/state/."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            repo = tmpdir_path / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "1",
+                        "kb_dir": "project",
+                    }
+                )
+            )
+
+            manager = ConfigManager()
+            kb_root = manager.get_kb_root(
+                repo,
+                ProjectConfig(
+                    repo_name="my-project",
+                    repo_owner="owner",
+                    kb_dir=Path("project"),
+                ),
+            )
+            kb_root.mkdir(parents=True)
+            (kb_root / "state.json").write_text('{"hash": "abc"}')
+
+            config = manager.load(repo)
+
+            assert config.layout_version == "2"
+            state_dir = repo / ".claude" / "state"
+            assert (state_dir / "state.json").read_text() == '{"hash": "abc"}'
+            assert not (kb_root / "state.json").exists()
+
+            data = json.loads(marker.read_text())
+            assert data["layout_version"] == "2"
+
+    def test_migrate_legacy_idempotent(self):
+        """Second load() is a no-op after files are already migrated."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            repo = tmpdir_path / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "1",
+                        "kb_dir": "user",
+                    }
+                )
+            )
+
+            env = {
+                "XDG_DATA_HOME": str(tmpdir_path / "data"),
+                "XDG_STATE_HOME": str(tmpdir_path / "state"),
+                "XDG_CACHE_HOME": str(tmpdir_path / "cache"),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                old_kb = (
+                    tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
+                )
+                old_kb.mkdir(parents=True)
+                (old_kb / "note.md").write_text("note")
+
+                manager = ConfigManager()
+                config1 = manager.load(repo)
+                assert config1.layout_version == "2"
+                new_kb = (
+                    tmpdir_path
+                    / "data"
+                    / "claude-wiki-vault"
+                    / "owner"
+                    / "my-project"
+                )
+                assert (new_kb / "note.md").exists()
+
+                config2 = manager.load(repo)
+                assert config2.layout_version == "2"
+                assert (new_kb / "note.md").exists()
+                assert not old_kb.exists()
+
+                data = json.loads(marker.read_text())
+                assert data["layout_version"] == "2"
+
+    def test_migrate_legacy_partial_failure(self):
+        """Any move failure prevents the layout_version bump."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            repo = tmpdir_path / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "1",
+                        "kb_dir": "user",
+                    }
+                )
+            )
+
+            env = {
+                "XDG_DATA_HOME": str(tmpdir_path / "data"),
+                "XDG_STATE_HOME": str(tmpdir_path / "state"),
+                "XDG_CACHE_HOME": str(tmpdir_path / "cache"),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                old_kb = (
+                    tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
+                )
+                old_kb.mkdir(parents=True)
+                (old_kb / "note.md").write_text("note")
+
+                manager = ConfigManager()
+                with patch(
+                    "claude_wiki.config.shutil.move",
+                    side_effect=OSError("locked"),
+                ):
+                    config = manager.load(repo)
+
+                assert config.layout_version == "1"
+                assert (old_kb / "note.md").exists()
+                data = json.loads(marker.read_text())
+                assert data["layout_version"] == "1"
