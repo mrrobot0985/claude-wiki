@@ -12,7 +12,7 @@ from typing import Any
 
 from claude_kb.errors import RepoNotFoundError
 from claude_kb.factories import DefaultConfigResolver
-from claude_kb.models import ProjectConfig
+from claude_kb.models import MigrationResult, ProjectConfig
 
 _Handler = Callable[[argparse.Namespace], int]
 
@@ -30,6 +30,17 @@ def main(argv: list[str] | None = None) -> int:
         "--force", action="store_true", help="Overwrite existing marker"
     )
 
+    # migrate
+    migrate_parser = subparsers.add_parser(
+        "migrate", help="Check and migrate data when config paths change"
+    )
+    migrate_parser.add_argument(
+        "--path", type=Path, help="Repo root (default: auto-detect)"
+    )
+    migrate_parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would move without touching disk"
+    )
+
     # Dynamically register subcommands from commands/ modules
     handlers: dict[str, _Handler] = {}
     _register_commands(subparsers, handlers)
@@ -42,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "init":
         return _init(args)
+    if args.command == "migrate":
+        return _migrate(args)
 
     handler = handlers.get(args.command)
     if handler:
@@ -72,7 +85,7 @@ def _register_commands(
 
 def _init(args: argparse.Namespace) -> int:
     """Orchestrate ConfigManager + HookRegistrar to bootstrap a repo."""
-    detector, loader, registrar = DefaultConfigResolver.build()
+    detector, loader, registrar, migrator = DefaultConfigResolver.build()
 
     start = args.path if args.path else Path.cwd()
 
@@ -100,11 +113,78 @@ def _init(args: argparse.Namespace) -> int:
             timezone=config.timezone,
         )
 
+    previous = loader.load_state(repo_root)
+    result = migrator.check_and_migrate(repo_root, config, previous, dry_run=False)
+    if result.migrated:
+        _print_migration_result(result)
+    elif result.errors:
+        for err in result.errors:
+            print(f"Error: {err}", file=sys.stderr)
+
     loader.write(repo_root, config)
+    loader.save_state(repo_root, config)
     registrar.install_hooks(repo_root, config)
 
     print(f"Initialised KB for {config.repo_name} at {repo_root}")
     return 0
+
+
+def _migrate(args: argparse.Namespace) -> int:
+    """Check for path changes and migrate data."""
+    detector, loader, _registrar, migrator = DefaultConfigResolver.build()
+
+    start = args.path if args.path else Path.cwd()
+
+    try:
+        repo_root = detector.find_repo_root(start)
+    except RepoNotFoundError:
+        print("Error: Not in a git repository.", file=sys.stderr)
+        return 1
+
+    if not (repo_root / ".claude-wiki.json").exists():
+        print("Error: No .claude-wiki.json found. Run 'claude-wiki init' first.", file=sys.stderr)
+        return 1
+
+    config = loader.load(repo_root)
+    previous = loader.load_state(repo_root)
+
+    if previous is None:
+        print("No previous state found. Saving current state.")
+        loader.save_state(repo_root, config)
+        return 0
+
+    result = migrator.check_and_migrate(
+        repo_root, config, previous, dry_run=args.dry_run
+    )
+
+    if not result.migrated and not result.errors:
+        print("No migration needed — paths are unchanged.")
+        return 0
+
+    _print_migration_result(result)
+
+    if result.errors:
+        return 1
+
+    if not args.dry_run:
+        loader.save_state(repo_root, config)
+        print("State updated.")
+
+    return 0
+
+
+def _print_migration_result(result: MigrationResult) -> None:
+    """Pretty-print migration result."""
+    if result.migrated:
+        print("Migration performed:")
+        if result.old_kb_dir and result.new_kb_dir:
+            print(f"  kb_dir: {result.old_kb_dir} -> {result.new_kb_dir}")
+        if result.old_daily_dir and result.new_daily_dir:
+            print(f"  daily_dir: {result.old_daily_dir} -> {result.new_daily_dir}")
+    for w in result.warnings:
+        print(f"  Warning: {w}")
+    for e in result.errors:
+        print(f"  Error: {e}")
 
 
 if __name__ == "__main__":

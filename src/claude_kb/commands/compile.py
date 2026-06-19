@@ -287,7 +287,7 @@ def _find_files_to_compile(
 
 def _handle_compile(args: argparse.Namespace) -> int:
     """Entry point for ``kb compile``."""
-    detector, loader, _registrar = DefaultConfigResolver.build()
+    detector, loader, _registrar, _migrator = DefaultConfigResolver.build()
     assert isinstance(detector, ConfigManager)
 
     start = args.path if args.path else Path.cwd()

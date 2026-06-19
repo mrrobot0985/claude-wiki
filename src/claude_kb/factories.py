@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from claude_kb.config import ConfigManager
-from claude_kb.interfaces import ConfigLoader, HookRegistrar, RepoDetector
+from claude_kb.interfaces import ConfigLoader, HookRegistrar, Migrator, RepoDetector
+from claude_kb.migration import MigrationManager
 from claude_kb.models import ProjectConfig
 
 
@@ -79,8 +80,9 @@ class DefaultConfigResolver:
     """Factory convenience — holds the production wiring."""
 
     @staticmethod
-    def build() -> tuple[RepoDetector, ConfigLoader, HookRegistrar]:
+    def build() -> tuple[RepoDetector, ConfigLoader, HookRegistrar, Migrator]:
         detector = ConfigManager()
         loader = detector  # same object implements both protocols
         registrar = DefaultHookRegistrar()
-        return detector, loader, registrar
+        migrator = MigrationManager()
+        return detector, loader, registrar, migrator
