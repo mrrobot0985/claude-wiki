@@ -46,7 +46,7 @@ def _inject_fake_commands(monkeypatch: pytest.MonkeyPatch) -> None:
             files = sorted(daily_dir.glob("*.md")) if daily_dir.exists() else []
             for file in files:
                 text = file.read_text()
-                (kb_dir / "index.md").write_text(text)
+                (kb_dir / f"{config.repo_name}.md").write_text(text)
                 concepts_dir = kb_dir / "concepts"
                 concepts_dir.mkdir(parents=True, exist_ok=True)
                 (concepts_dir / f"{file.stem}.md").write_text(text)
@@ -67,7 +67,7 @@ def _inject_fake_commands(monkeypatch: pytest.MonkeyPatch) -> None:
             repo = ConfigManager().find_repo_root(Path.cwd())
             config = ConfigManager().load(repo)
             kb_dir = ConfigManager().get_kb_root(repo, config)
-            index = kb_dir / "index.md"
+            index = kb_dir / f"{config.repo_name}.md"
             question = " ".join(args.question)
 
             if index.exists():
@@ -92,7 +92,7 @@ def _inject_fake_commands(monkeypatch: pytest.MonkeyPatch) -> None:
 
             if not (repo / config.daily_dir).exists():
                 errors.append("daily directory missing")
-            if not (kb_dir / "index.md").exists():
+            if not (kb_dir / f"{config.repo_name}.md").exists():
                 errors.append("knowledge index missing")
 
             if errors:
@@ -155,7 +155,7 @@ class TestKBWorkflow:
 
         assert kb_main(["compile"]) == 0
         kb = repo / ".claude" / "knowledge"
-        assert (kb / "index.md").exists()
+        assert (kb / "demo-repo.md").exists()
         assert (kb / "concepts" / "2026-06-19.md").exists()
 
         assert kb_main(["query", "key idea"]) == 0

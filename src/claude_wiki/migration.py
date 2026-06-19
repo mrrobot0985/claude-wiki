@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from claude_wiki.catalog_utils import rewrite_index_wikilinks
 from claude_wiki.config import ConfigManager
 from claude_wiki.interfaces import Migrator
 from claude_wiki.models import MigrationResult, ProjectConfig
@@ -80,6 +81,8 @@ class MigrationManager(Migrator):
             )
             if moved:
                 completed_moves.append(("kb_dir", old_kb, new_kb))
+                if not dry_run and not result.errors:
+                    self._post_process_kb_rename(new_kb, current.repo_name)
 
         if daily_changed and not result.errors:
             result, moved = self._migrate_dir(
@@ -167,6 +170,23 @@ class MigrationManager(Migrator):
             )
 
         return result, True
+
+    def _post_process_kb_rename(self, kb_root: Path, repo_name: str) -> None:
+        """After a kb_dir move, rename index.md to {repo_name}.md and rewrite wikilinks."""
+        legacy = kb_root / "index.md"
+        primary = kb_root / f"{repo_name}.md"
+        if not legacy.exists() or primary.exists():
+            return
+        legacy.rename(primary)
+        for subdir_name in ("concepts", "connections", "qa"):
+            subdir = kb_root / subdir_name
+            if not subdir.exists():
+                continue
+            for article in subdir.glob("*.md"):
+                content = article.read_text(encoding="utf-8")
+                new_content = rewrite_index_wikilinks(content, repo_name)
+                if new_content != content:
+                    article.write_text(new_content, encoding="utf-8")
 
     def _rollback(self, completed_moves: list[tuple[str, Path, Path]]) -> list[str]:
         """Reverse already-completed moves in LIFO order.

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
+from claude_wiki.catalog_utils import resolve_catalog
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
 
@@ -61,7 +62,7 @@ def _lint_handler(args: argparse.Namespace) -> int:
     daily_dir = repo_root / config.daily_dir
     issues = _run_structural_checks(machine_state_dir, kb_root, daily_dir)
     if not args.structural_only:
-        issues.extend(_run_llm_checks(kb_root))
+        issues.extend(_run_llm_checks(kb_root, repo_name=config.repo_name))
 
     today = _today_iso(config.timezone)
     report_path = _save_report(cache_dir, issues, today)
@@ -188,10 +189,10 @@ def _check_sparse_articles(kb_root: Path) -> list[_Issue]:
     return issues
 
 
-def _run_llm_checks(kb_root: Path) -> list[_Issue]:
+def _run_llm_checks(kb_root: Path, repo_name: str | None = None) -> list[_Issue]:
     """Run LLM-based checks, returning a system error if unavailable."""
     try:
-        return asyncio.run(_check_contradictions(kb_root))
+        return asyncio.run(_check_contradictions(kb_root, repo_name))
     except ImportError as exc:
         return [
             _Issue(
@@ -212,7 +213,9 @@ def _run_llm_checks(kb_root: Path) -> list[_Issue]:
         ]
 
 
-async def _check_contradictions(kb_root: Path) -> list[_Issue]:
+async def _check_contradictions(
+    kb_root: Path, repo_name: str | None = None
+) -> list[_Issue]:
     """Ask an LLM to detect contradictions across the knowledge base."""
     try:
         sdk = __import__("claude_agent_sdk")
@@ -224,7 +227,7 @@ async def _check_contradictions(kb_root: Path) -> list[_Issue]:
     ClaudeAgentOptions = sdk.ClaudeAgentOptions
     TextBlock = sdk.TextBlock
 
-    content = _read_all_wiki_content(kb_root)
+    content = _read_all_wiki_content(kb_root, repo_name)
     prompt = f"""Review this knowledge base for contradictions, inconsistencies, or conflicting claims across articles.
 
 ## Knowledge Base
@@ -327,10 +330,10 @@ def _word_count(path: Path) -> int:
     return len(content.split())
 
 
-def _read_all_wiki_content(kb_root: Path) -> str:
+def _read_all_wiki_content(kb_root: Path, repo_name: str | None = None) -> str:
     """Return index + all articles as one string for LLM context."""
     parts: list[str] = []
-    index_file = kb_root / "index.md"
+    index_file = resolve_catalog(kb_root, repo_name)
     if index_file.exists():
         parts.append(f"## INDEX\n\n{index_file.read_text(encoding='utf-8')}")
     else:
