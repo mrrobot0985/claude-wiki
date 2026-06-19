@@ -60,7 +60,7 @@ claude-wiki lint
 
 ## Cross-Repository Awareness
 
-If you have multiple repos with claude-wiki, `~/.local/share/claude-wiki/index.md` links them all. The `SessionStart` hook shows a compact summary of other knowledge bases alongside the current repo's index.
+If you have multiple repos with claude-wiki, `~/.local/share/claude-wiki/core.md` links them all. The `SessionStart` hook shows a compact summary of other knowledge bases alongside the current repo's index.
 
 ## Moving Data Safely
 

@@ -23,10 +23,10 @@ class RegistryEntry:
 
 
 class GlobalIndexManager:
-    """Maintains a machine-managed registry and generates a human-readable global index."""
+    """Maintains a machine-managed registry and generates a human-readable global core file."""
 
     _REGISTRY_NAME = ".registry.json"
-    _INDEX_NAME = "index.md"
+    _INDEX_NAME = "core.md"
 
     def __init__(self, base_dir: Path | None = None) -> None:
         if base_dir is None:

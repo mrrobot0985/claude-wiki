@@ -55,7 +55,7 @@ The `migrate` command compares the current `.claude-wiki.lock` against `.claude-
 
 ## Global Registry
 
-Every initialised repo is recorded in `~/.local/share/claude-wiki/index.md` — a machine-managed registry linking all your knowledge bases. It updates automatically on `init`, `compile`, and `migrate`.
+Every initialised repo is recorded in `~/.local/share/claude-wiki/core.md` — a machine-managed registry linking all your knowledge bases. It updates automatically on `init`, `compile`, and `migrate`.
 
 ## Hook Installation Scope
 
