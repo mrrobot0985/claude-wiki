@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.1] - 2026-06-19
+
+### Documentation
+
+- Update dev skill with branching, CI, and release procedures
+
+### Fixed
+
+- Migration respects kb_dir mode resolution (user/project)
+
+### Maintenance
+
+- Automate PyPI publish on tag push
+- Add release safeguard, optimize CI path filtering, and fix mdformat coverage
+
 ## [0.1.0] - 2026-06-19
 
 ### Added
@@ -23,6 +38,7 @@ All notable changes to this project are documented in this file.
 - Audit and fix drift across all docs and skill
 - Update install and contributor guides for uv sync
 - Add CHANGELOG.md
+- Release v0.1.0
 - Release v0.1.0
 
 ### Fixed
