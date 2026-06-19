@@ -8,6 +8,18 @@ from claude_wiki.migration import MigrationManager
 from claude_wiki.models import ProjectConfig
 
 
+class FakeConfigManager:
+    """Test double for ConfigManager that resolves 'user' to a fixed XDG-like path."""
+
+    def __init__(self, repo: Path) -> None:
+        self.repo = repo
+
+    def get_kb_root(self, _repo_root: Path, config: ProjectConfig) -> Path:
+        if str(config.kb_dir) == "user":
+            return Path.home() / ".local" / "share" / "claude-wiki" / "local" / "test"
+        return self.repo / "project"
+
+
 class TestMigrationManager:
     """Tests for migration detection and execution."""
 
@@ -181,7 +193,7 @@ class TestMigrationManager:
             assert not (new_kb / "knowledge").exists()  # must NOT be nested
 
     def test_warning_when_destination_exists(self):
-        """Warn when destination already exists and is not empty."""
+        """Warn and report not-migrated when destination already exists and is not empty."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)
             old_kb = repo / "knowledge"
@@ -201,10 +213,12 @@ class TestMigrationManager:
             mgr = MigrationManager()
             result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
 
-            assert result.migrated
+            assert not result.migrated
             assert result.warnings
             assert "already exists" in result.warnings[0].lower()
             assert old_kb.exists()
+            assert new_kb.exists()
+            assert (new_kb / "existing.md").exists()
 
     def test_absolute_path_migration(self):
         """Migrate when paths are absolute."""
@@ -240,13 +254,6 @@ class TestMigrationManager:
             xdg_kb.mkdir(parents=True, exist_ok=True)
             (xdg_kb / "index.md").write_text("# Index")
 
-            # Mock ConfigManager so get_kb_root returns the XDG path
-            class FakeConfigManager:
-                def get_kb_root(self, _repo_root: Path, config: ProjectConfig) -> Path:
-                    if str(config.kb_dir) == "user":
-                        return xdg_kb
-                    return repo / "project"
-
             current = ProjectConfig(
                 repo_name="test", kb_dir=Path("user"), daily_dir=Path("daily")
             )
@@ -254,7 +261,7 @@ class TestMigrationManager:
                 repo_name="test", kb_dir=Path("project"), daily_dir=Path("daily")
             )
 
-            mgr = MigrationManager(config_manager=FakeConfigManager())  # type: ignore[arg-type]
+            mgr = MigrationManager(config_manager=FakeConfigManager(repo))  # type: ignore[arg-type]
             result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
 
             assert result.migrated
@@ -263,18 +270,11 @@ class TestMigrationManager:
             assert not result.errors
 
     def test_kb_dir_user_mode_dry_run_shows_correct_path(self):
-        """--dry-run with kb_dir='user' previews the XDG path."""
+        """--dry-run with kb_dir='user' previews the XDG path when destination is empty."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)
             xdg_kb = Path.home() / ".local" / "share" / "claude-wiki" / "local" / "test"
             xdg_kb.mkdir(parents=True, exist_ok=True)
-            (xdg_kb / "index.md").write_text("# Index")
-
-            class FakeConfigManager:
-                def get_kb_root(self, _repo_root: Path, config: ProjectConfig) -> Path:
-                    if str(config.kb_dir) == "user":
-                        return xdg_kb
-                    return repo / "project"
 
             current = ProjectConfig(
                 repo_name="test", kb_dir=Path("user"), daily_dir=Path("daily")
@@ -283,7 +283,7 @@ class TestMigrationManager:
                 repo_name="test", kb_dir=Path("project"), daily_dir=Path("daily")
             )
 
-            mgr = MigrationManager(config_manager=FakeConfigManager())  # type: ignore[arg-type]
+            mgr = MigrationManager(config_manager=FakeConfigManager(repo))  # type: ignore[arg-type]
             result = mgr.check_and_migrate(repo, current, previous, dry_run=True)
 
             assert result.migrated
@@ -329,3 +329,175 @@ class TestMigrationManager:
             assert (new_kb / "index.md").exists()
             assert new_daily.exists()
             assert (new_daily / "2024-01-01.md").exists()
+
+    # ------------------------------------------------------------------
+    # Issue #13: path comparison and safety bugs
+    # ------------------------------------------------------------------
+
+    def test_paths_resolved_before_comparison(self):
+        """Equivalent paths written differently are not treated as a migration."""
+        repo = Path("/fake")
+        mgr = MigrationManager()
+        current = ProjectConfig(
+            repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+        )
+        previous = ProjectConfig(
+            repo_name="test", kb_dir=Path("repo/../knowledge"), daily_dir=Path("daily")
+        )
+
+        result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+        assert not result.migrated
+        assert not result.errors
+
+    def test_migration_refused_when_paths_contain_each_other(self):
+        """Refuse migration when new paths are nested, not only when equal."""
+        mgr = MigrationManager()
+        current = ProjectConfig(
+            repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("wiki/sub")
+        )
+        previous = ProjectConfig(
+            repo_name="test", kb_dir=Path("old-kb"), daily_dir=Path("old-daily")
+        )
+
+        result = mgr.check_and_migrate(Path("/fake"), current, previous, dry_run=False)
+        assert not result.migrated
+        assert result.errors
+        assert "overlap" in result.errors[0].lower()
+
+    def test_destination_file_does_not_crash_iterdir(self):
+        """A destination that exists as a file is treated as occupied, not crashed."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            old_kb = repo / "knowledge"
+            old_kb.mkdir()
+            (old_kb / "index.md").write_text("# Index")
+            new_kb = repo / "wiki"
+            new_kb.write_text("i am a file")
+
+            current = ProjectConfig(
+                repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+            )
+            previous = ProjectConfig(
+                repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+            )
+
+            mgr = MigrationManager()
+            result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+            assert not result.migrated
+            assert result.warnings
+            assert "already exists" in result.warnings[0].lower()
+            assert old_kb.exists()
+
+    def test_kb_dir_mode_resolved_without_explicit_config_manager(self, monkeypatch):
+        """MigrationManager() without an explicit config manager still resolves modes."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            xdg_base = Path(tmpdir) / "xdg"
+            xdg_kb = xdg_base / "local" / "test"
+            xdg_kb.mkdir(parents=True, exist_ok=True)
+            old_kb = repo / "knowledge"
+            old_kb.mkdir()
+            (old_kb / "old.md").write_text("old")
+
+            monkeypatch.setattr(
+                "claude_wiki.config.user_data_dir",
+                lambda app, appauthor=False: xdg_base,
+            )
+
+            current = ProjectConfig(
+                repo_name="test", kb_dir=Path("user"), daily_dir=Path("daily")
+            )
+            previous = ProjectConfig(
+                repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+            )
+
+            mgr = MigrationManager()
+            result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+            assert result.migrated
+            assert result.new_kb_dir == xdg_kb
+            assert result.old_kb_dir == old_kb
+            assert not result.errors
+
+    # ------------------------------------------------------------------
+    # Issue #14: destination non-empty must report migrated=False
+    # ------------------------------------------------------------------
+
+    def test_migrated_false_when_destination_non_empty(self):
+        """A skipped move because the destination exists leaves migrated=False."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            old_kb = repo / "knowledge"
+            old_kb.mkdir()
+            (old_kb / "index.md").write_text("# Index")
+            new_kb = repo / "wiki"
+            new_kb.mkdir()
+            (new_kb / "existing.md").write_text("existing")
+
+            current = ProjectConfig(
+                repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+            )
+            previous = ProjectConfig(
+                repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+            )
+
+            mgr = MigrationManager()
+            result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+            assert not result.migrated
+            assert result.warnings
+            assert not result.errors
+            assert old_kb.exists()
+            assert (new_kb / "existing.md").exists()
+
+    # ------------------------------------------------------------------
+    # Issue #15: rollback on partial failure
+    # ------------------------------------------------------------------
+
+    def test_rollback_on_partial_failure(self, monkeypatch):
+        """A failed second move rolls back an already-completed first move."""
+        import shutil as _shutil
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            old_kb = repo / "knowledge"
+            old_kb.mkdir()
+            (old_kb / "kb.md").write_text("kb content")
+            new_kb = repo / "wiki"
+
+            old_daily = repo / "daily"
+            old_daily.mkdir()
+            (old_daily / "2024-01-01.md").write_text("daily content")
+            new_daily = repo / "logs"
+            new_daily.mkdir()
+
+            original_move = _shutil.move
+
+            def _failing_move(src, dst, **kwargs):
+                if Path(dst).name == "logs":
+                    raise PermissionError(f"mock failure moving {src} -> {dst}")
+                return original_move(src, dst, **kwargs)
+
+            monkeypatch.setattr(_shutil, "move", _failing_move)
+
+            current = ProjectConfig(
+                repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("logs")
+            )
+            previous = ProjectConfig(
+                repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+            )
+
+            mgr = MigrationManager()
+            result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+            assert not result.migrated
+            assert result.errors
+            assert result.rolled_back
+            # kb move was completed then rolled back
+            assert old_kb.exists()
+            assert (old_kb / "kb.md").exists()
+            assert not new_kb.exists()
+            # daily move failed
+            assert old_daily.exists()
+            assert (old_daily / "2024-01-01.md").exists()
