@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from claude_wiki.interfaces import Migrator
 from claude_wiki.models import MigrationResult, ProjectConfig
 
+if TYPE_CHECKING:
+    from claude_wiki.config import ConfigManager
+
 
 class MigrationManager(Migrator):
     """Detects path changes between config versions and migrates data."""
+
+    def __init__(self, config_manager: ConfigManager | None = None) -> None:
+        self.config_manager = config_manager
 
     def check_and_migrate(
         self,
@@ -31,8 +38,8 @@ class MigrationManager(Migrator):
         if previous is None:
             return MigrationResult(migrated=False)
 
-        old_kb = self._resolve_dir(previous.kb_dir, repo_root)
-        new_kb = self._resolve_dir(current.kb_dir, repo_root)
+        old_kb = self._resolve_kb_dir(previous, repo_root)
+        new_kb = self._resolve_kb_dir(current, repo_root)
         old_daily = self._resolve_dir(previous.daily_dir, repo_root)
         new_daily = self._resolve_dir(current.daily_dir, repo_root)
 
@@ -123,6 +130,15 @@ class MigrationManager(Migrator):
             )
 
         return result
+
+    def _resolve_kb_dir(self, config: ProjectConfig, repo_root: Path) -> Path:
+        """Resolve kb_dir using ConfigManager when available.
+
+        Falls back to anchoring relative paths at repo_root.
+        """
+        if self.config_manager is not None:
+            return self.config_manager.get_kb_root(repo_root, config)
+        return self._resolve_dir(config.kb_dir, repo_root)
 
     @staticmethod
     def _resolve_dir(path: Path, repo_root: Path) -> Path:

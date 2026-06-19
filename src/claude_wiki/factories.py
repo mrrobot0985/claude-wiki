@@ -88,5 +88,5 @@ class DefaultConfigResolver:
         detector = ConfigManager()
         loader = detector  # same object implements both protocols
         registrar = DefaultHookRegistrar()
-        migrator = MigrationManager()
+        migrator = MigrationManager(detector)
         return detector, loader, registrar, migrator
