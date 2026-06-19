@@ -32,10 +32,16 @@ Reads and writes the repo-local marker file. Persists a snapshot of the current 
 ```python
 @runtime_checkable
 class HookRegistrar(Protocol):
-    def install_hooks(self, repo_root: Path, config: ProjectConfig) -> None: ...
+    def install_hooks(
+        self,
+        repo_root: Path,
+        config: ProjectConfig,
+        *,
+        settings_path: Path,
+    ) -> None: ...
 ```
 
-Idempotently merges hook definitions into `~/.claude/settings.json`.
+Idempotently merges hook definitions into the given settings file path (`repo_root/.claude/settings.local.json` by default, or `~/.claude/settings.json` with `--global`).
 
 ## `Migrator`
 

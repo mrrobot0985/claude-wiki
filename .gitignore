@@ -15,6 +15,7 @@ build/
 scripts/state.json
 scripts/last-flush.json
 scripts/flush.log
+.claude-wiki.state.json
 !.claude/skills/
 .claude/
 reports/

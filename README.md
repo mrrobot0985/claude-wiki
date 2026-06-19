@@ -13,7 +13,7 @@ pip install claude-wiki
 With `uv`:
 
 ```bash
-uvx claude-wiki claude-wiki init
+uvx claude-wiki init
 ```
 
 From source in a clone of this repo:
@@ -36,9 +36,10 @@ Daily commands:
 claude-wiki compile
 claude-wiki query "your question"
 claude-wiki lint [--structural-only]
+claude-wiki migrate [--dry-run]
 ```
 
-Hook entry points (called by Claude Code via `~/.claude/settings.json`):
+Hook entry points (called by Claude Code via `.claude/settings.local.json` by default):
 
 ```bash
 claude-wiki-hook SessionStart
@@ -50,11 +51,13 @@ claude-wiki-hook PreCompact
 
 ```text
 my-project/
-├── .claude-wiki.lock            # per-repo config (machine-managed)
-├── daily/                     # conversation logs (commit these)
-├── knowledge/                 # compiled articles (gitignored by default)
-└── ~/.claude/settings.json    # global hook registration
+├── .claude-wiki.lock              # per-repo config (machine-managed)
+├── .claude-wiki.state.json       # migration checkpoint (do not commit)
+├── .claude/settings.local.json   # repo-local hook registration (default)
+└── daily/                         # conversation logs (created on first flush)
 ```
+
+Use `claude-wiki init --global` to write hooks to `~/.claude/settings.json` instead.
 
 ## Configuration
 
