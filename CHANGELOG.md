@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## [unreleased]
+## [0.1.0] - 2026-06-19
 
 ### Added
 
@@ -37,6 +37,13 @@ All notable changes to this project are documented in this file.
 - Update workflows to 2026 standards with SHA pinning
 - Add mypy to dev dependencies for CI type-check gate
 - Add cliff.toml for automated CHANGELOG generation
+- Make PyPI publish conditional on workflow_dispatch input
+- Fix actions/upload-artifact and download-artifact SHA pins
+- Fix uv publish command — remove invalid --from-dist flag
+
+### Reverted
+
+- Undo v0.1.0 release
 
 ## Earlier Work
 
