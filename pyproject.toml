@@ -21,6 +21,7 @@ dev = [
     "mdformat-frontmatter>=0.4",
     "mdformat-gfm>=0.3",
     "ruff>=0.5",
+    "pypiserver>=2.0",
 ]
 
 [project.urls]

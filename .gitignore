@@ -18,3 +18,4 @@ scripts/flush.log
 !.claude/skills/
 .claude/
 reports/
+bin/
