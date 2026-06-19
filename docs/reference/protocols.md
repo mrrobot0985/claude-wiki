@@ -2,7 +2,7 @@
 
 All protocols are runtime-checkable. Inner layers depend on these, not concrete implementations.
 
----
+______________________________________________________________________
 
 ## `RepoDetector`
 

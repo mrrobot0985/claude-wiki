@@ -4,18 +4,18 @@
 
 A companion file `.claude-wiki.state.json` is written automatically and tracks the last known configuration for change detection. Do not commit it — it is machine-managed.
 
----
+______________________________________________________________________
 
 ## Schema
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `repo_name` | `str` | directory name | Repository identifier |
-| `repo_owner` | `str` | `"local"` | Namespace for XDG path |
-| `kb_dir` | `str` or absolute path | `"knowledge"` | Knowledge base location |
-| `daily_dir` | `str` | `"daily"` | Source log directory |
-| `timezone` | `str` | `"UTC"` | Timezone for timestamps |
-| `compile_after_hour` | `int` | `18` | Earliest auto-compile hour |
+| Field                | Type                   | Default        | Description                |
+| -------------------- | ---------------------- | -------------- | -------------------------- |
+| `repo_name`          | `str`                  | directory name | Repository identifier      |
+| `repo_owner`         | `str`                  | `"local"`      | Namespace for XDG path     |
+| `kb_dir`             | `str` or absolute path | `"knowledge"`  | Knowledge base location    |
+| `daily_dir`          | `str`                  | `"daily"`      | Source log directory       |
+| `timezone`           | `str`                  | `"UTC"`        | Timezone for timestamps    |
+| `compile_after_hour` | `int`                  | `18`           | Earliest auto-compile hour |
 
 ## Changing Paths
 

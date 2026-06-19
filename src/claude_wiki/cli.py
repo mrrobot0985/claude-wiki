@@ -40,7 +40,9 @@ def main(argv: list[str] | None = None) -> int:
         "--path", type=Path, help="Repo root (default: auto-detect)"
     )
     migrate_parser.add_argument(
-        "--dry-run", action="store_true", help="Show what would move without touching disk"
+        "--dry-run",
+        action="store_true",
+        help="Show what would move without touching disk",
     )
 
     # Dynamically register subcommands from commands/ modules
@@ -148,7 +150,10 @@ def _migrate(args: argparse.Namespace) -> int:
         return 1
 
     if not (repo_root / ".claude-wiki.lock").exists():
-        print("Error: No .claude-wiki.lock found. Run 'claude-wiki init' first.", file=sys.stderr)
+        print(
+            "Error: No .claude-wiki.lock found. Run 'claude-wiki init' first.",
+            file=sys.stderr,
+        )
         return 1
 
     config = loader.load(repo_root)

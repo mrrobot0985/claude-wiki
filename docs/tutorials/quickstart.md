@@ -2,7 +2,7 @@
 
 Get a knowledge base running in your repository in under five minutes.
 
----
+______________________________________________________________________
 
 ## Prerequisites
 
@@ -31,8 +31,8 @@ claude-wiki init
 This creates three things:
 
 1. `.claude-wiki.lock` — per-repo configuration
-2. `daily/` — conversation logs (commit these)
-3. `~/.claude/settings.json` — global hook registration for Claude Code
+1. `daily/` — conversation logs (commit these)
+1. `~/.claude/settings.json` — global hook registration for Claude Code
 
 ## Step 3: Use Your Knowledge Base
 
@@ -67,6 +67,6 @@ claude-wiki migrate --dry-run
 claude-wiki migrate
 ```
 
----
+______________________________________________________________________
 
 That's it. The hooks fire automatically via Claude Code's `SessionStart`, `SessionEnd`, and `PreCompact` events.

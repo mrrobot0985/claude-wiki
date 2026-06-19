@@ -2,7 +2,7 @@
 
 Install `claude-wiki` via PyPI, uv, or from source.
 
----
+______________________________________________________________________
 
 ## From PyPI (recommended)
 
@@ -25,12 +25,12 @@ uvx claude-wiki claude-wiki init
 ## From Source
 
 ```bash
-git clone https://github.com/mrrobot0985/claude-wiki-package
+git clone https://github.com/mrrobot0985/claude-wiki
 cd claude-wiki
 uv pip install -e . --group dev
 ```
 
----
+______________________________________________________________________
 
 ## Verify Installation
 

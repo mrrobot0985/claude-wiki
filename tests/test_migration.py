@@ -3,7 +3,6 @@
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from claude_wiki.migration import MigrationManager
 from claude_wiki.models import ProjectConfig
