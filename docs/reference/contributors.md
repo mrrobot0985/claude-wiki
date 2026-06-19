@@ -12,7 +12,7 @@ ______________________________________________________________________
 ## Setup
 
 ```bash
-uv pip install -e . --group dev
+uv pip install -e ".[dev]"
 ```
 
 ## Common Commands
@@ -25,13 +25,25 @@ uv run pytest
 uv run pytest tests/test_config.py -v
 
 # Type check
-uvx mypy --strict src/
+uv run mypy src/
 
 # Lint
 uvx ruff check .
 
 # Format
 uvx ruff format .
+```
+
+Or use the Makefile:
+
+```bash
+make dev        # install with dev dependencies
+make test       # run pytest
+make lint       # ruff check
+make format     # ruff format + mdformat
+make typecheck  # mypy
+make precommit  # all pre-commit hooks
+make all        # full CI gate
 ```
 
 ## Adding a Command
@@ -54,16 +66,19 @@ Handlers are auto-discovered at runtime by `hooks.py`.
 
 Work is organised in end-to-end slices that cut through all layers. Each slice is a self-contained feature with tests.
 
-| Slice | Feature                             |
-| ----- | ----------------------------------- |
-| 1     | `claude-wiki init`                  |
-| 2     | `claude-wiki compile`               |
-| 3     | `claude-wiki query`                 |
-| 4     | `claude-wiki lint`                  |
-| 5     | \`\`claude-wiki-hook SessionEnd\`   |
-| 6     | \`\`claude-wiki-hook SessionStart\` |
-| 7     | `claude-wiki-hook PreCompact`       |
-| 8     | Package polish                      |
+| Slice | Feature                         |
+| ----- | ------------------------------- |
+| 1     | `claude-wiki init`              |
+| 2     | `claude-wiki compile`           |
+| 3     | `claude-wiki query`             |
+| 4     | `claude-wiki lint`              |
+| 5     | `claude-wiki migrate`           |
+| 6     | Global registry + auto-eviction |
+| 7     | `claude-wiki-hook SessionEnd`   |
+| 8     | `claude-wiki-hook SessionStart` |
+| 9     | `claude-wiki-hook PreCompact`   |
+| 10    | Pre-commit hooks + CI workflows |
+| 11    | Package polish                  |
 
 ## Commit Messages
 

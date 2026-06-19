@@ -12,7 +12,7 @@ ______________________________________________________________________
 ## Step 1: Install
 
 ```bash
-uvx claude-wiki claude-wiki init
+uvx claude-wiki init
 ```
 
 Or with pip:
@@ -31,10 +31,12 @@ claude-wiki init
 This creates three things:
 
 1. `.claude-wiki.lock` — per-repo configuration
-1. `daily/` — conversation logs (commit these)
+1. `.claude-wiki.state.json` — migration checkpoint (do not commit)
 1. `.claude/settings.local.json` — repo-local hook registration for Claude Code
 
 Use `claude-wiki init --global` to write hooks to `~/.claude/settings.json` instead (affects all sessions).
+
+`daily/` is created automatically when the first conversation is flushed.
 
 ## Step 3: Use Your Knowledge Base
 

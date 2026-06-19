@@ -13,22 +13,23 @@ usage: claude-wiki [-h] {init,migrate,compile,lint,query} ...
 Initialise KB for the current repository.
 
 ```
-claude-wiki init [--path PATH] [--force]
+claude-wiki init [--path PATH] [--force] [--global]
 ```
 
-| Option    | Description                                    |
-| --------- | ---------------------------------------------- |
-| `--path`  | Repo root to initialise (default: auto-detect) |
-| `--force` | Overwrite existing `.claude-wiki.lock`         |
+| Option     | Description                                    |
+| ---------- | ---------------------------------------------- |
+| `--path`   | Repo root to initialise (default: auto-detect) |
+| `--force`  | Overwrite existing `.claude-wiki.lock`         |
+| `--global` | Install hooks into `~/.claude/settings.json`   |
 
-Creates `.claude-wiki.lock`, `daily/`, and merges hooks into `~/.claude/settings.json`.
+Creates `.claude-wiki.lock`, `.claude-wiki.state.json`, and merges hooks into `.claude/settings.local.json` (or `~/.claude/settings.json` with `--global`).
 
 ### `claude-wiki compile`
 
 Compile daily logs into the knowledge base.
 
 ```
-claude-wiki compile [--all] [--file FILE] [--dry-run]
+claude-wiki compile [--all] [--file FILE] [--dry-run] [--path PATH]
 ```
 
 | Option      | Description                             |

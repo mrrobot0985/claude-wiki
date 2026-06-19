@@ -1,6 +1,6 @@
 # Customise Hook Behaviour
 
-The three hooks are registered automatically by `claude-wiki init`. You can adjust their behaviour via the global `settings.json` or by extending the handler modules.
+The three hooks are registered automatically by `claude-wiki init` into the repo-local `.claude/settings.local.json`. You can adjust their behaviour via that file, or via `~/.claude/settings.json` if you used `init --global`.
 
 ______________________________________________________________________
 
@@ -14,7 +14,7 @@ ______________________________________________________________________
 
 ## Adjust Timeouts
 
-Edit `~/.claude/settings.json`:
+Edit `.claude/settings.local.json` (or `~/.claude/settings.json` if you used `init --global`):
 
 ```json
 {
@@ -25,7 +25,7 @@ Edit `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "uvx claude-wiki claude-wiki-hook SessionStart",
+            "command": "uvx --from claude-wiki claude-wiki-hook SessionStart",
             "timeout": 30
           }
         ]

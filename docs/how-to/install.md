@@ -19,7 +19,7 @@ uv pip install claude-wiki
 Run CLI tools without installing permanently:
 
 ```bash
-uvx claude-wiki claude-wiki init
+uvx claude-wiki init
 ```
 
 ## From Source
@@ -27,7 +27,7 @@ uvx claude-wiki claude-wiki init
 ```bash
 git clone https://github.com/mrrobot0985/claude-wiki
 cd claude-wiki
-uv pip install -e . --group dev
+uv pip install -e ".[dev]"
 ```
 
 ______________________________________________________________________
