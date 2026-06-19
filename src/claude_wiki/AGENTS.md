@@ -4,9 +4,9 @@
 
 Master catalog table:
 
-| Article | Summary | Compiled From | Updated |
-|---------|---------|---------------|---------|
-| [[concepts/example]] | One-line summary | daily/YYYY-MM-DD.md | YYYY-MM-DD |
+| Article                | Summary          | Compiled From       | Updated    |
+| ---------------------- | ---------------- | ------------------- | ---------- |
+| \[[concepts/example]\] | One-line summary | daily/YYYY-MM-DD.md | YYYY-MM-DD |
 
 ## Concept articles (`knowledge/concepts/`)
 

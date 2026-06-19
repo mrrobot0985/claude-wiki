@@ -6,7 +6,7 @@ Conversation -> SessionEnd/PreCompact hooks -> flush.py
         -> SessionStart hook injects index.md -> cycle repeats
 ```
 
----
+______________________________________________________________________
 
 ## Layer 1: Daily Logs (Source)
 
@@ -41,9 +41,9 @@ Conversation -> SessionEnd/PreCompact hooks -> flush.py
 Priority chain for KB root (highest wins):
 
 1. `CLAUDE_WIKI_PROJECT_DIR` env var
-2. `.claude-wiki.lock` with absolute `kb_dir`
-3. XDG default: `~/.local/share/claude-wiki/<owner>/<repo>/`
-4. Fallback: `~/.local/share/claude-wiki/local/<repo-name>/`
+1. `.claude-wiki.lock` with absolute `kb_dir`
+1. XDG default: `~/.local/share/claude-wiki/<owner>/<repo>/`
+1. Fallback: `~/.local/share/claude-wiki/local/<repo-name>/`
 
 ## State Tracking
 

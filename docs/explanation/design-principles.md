@@ -2,7 +2,7 @@
 
 Five invariants govern every change to this codebase.
 
----
+______________________________________________________________________
 
 ## 1. Dependency Inversion
 
@@ -10,14 +10,14 @@ Core logic depends on Protocols, not concrete implementations. `ConfigManager` i
 
 ## 2. Single Responsibility
 
-| Module | Concern |
-|--------|---------|
-| `interfaces.py` | Boundary contracts only |
-| `models.py` | Immutable data, no behaviour |
-| `config.py` | Path resolution and marker I/O |
-| `factories.py` | Single wiring point |
-| `cli.py` | argparse UI |
-| `hooks.py` | Hook entry and dispatch |
+| Module          | Concern                        |
+| --------------- | ------------------------------ |
+| `interfaces.py` | Boundary contracts only        |
+| `models.py`     | Immutable data, no behaviour   |
+| `config.py`     | Path resolution and marker I/O |
+| `factories.py`  | Single wiring point            |
+| `cli.py`        | argparse UI                    |
+| `hooks.py`      | Hook entry and dispatch        |
 
 ## 3. Stdlib First
 

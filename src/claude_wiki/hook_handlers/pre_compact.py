@@ -161,7 +161,9 @@ def handler(_args: list[str]) -> int:
     context_file.write_text(context, encoding="utf-8")
 
     if _spawn_flush is None:
-        logger.error("Shared flush logic unavailable: claude_wiki.flush is not installed")
+        logger.error(
+            "Shared flush logic unavailable: claude_wiki.flush is not installed"
+        )
         return 1
 
     try:

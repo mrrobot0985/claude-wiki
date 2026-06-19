@@ -2,7 +2,7 @@
 
 Knowledge base system for Claude Code — installable Python package providing hooks and CLI.
 
----
+______________________________________________________________________
 
 ## Getting Started
 

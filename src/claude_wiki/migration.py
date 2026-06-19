@@ -91,7 +91,10 @@ class MigrationManager(Migrator):
 
         if dst.exists() and any(dst.iterdir()):
             # Destination already has data — warn but do not overwrite
-            warnings = [*result.warnings, f"{label}: destination {dst} already exists and is not empty — skipping."]
+            warnings = [
+                *result.warnings,
+                f"{label}: destination {dst} already exists and is not empty — skipping.",
+            ]
             return MigrationResult(
                 migrated=result.migrated,
                 old_kb_dir=result.old_kb_dir,

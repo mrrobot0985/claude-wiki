@@ -106,7 +106,9 @@ class GlobalIndexManager:
 
         entries.append(new)
         self._save_registry(entries)
-        self._index_path().write_text(self._generate_markdown(entries), encoding="utf-8")
+        self._index_path().write_text(
+            self._generate_markdown(entries), encoding="utf-8"
+        )
 
     def unregister(self, repo_name: str, repo_owner: str) -> None:
         """Remove a repo from the global registry."""
@@ -117,7 +119,9 @@ class GlobalIndexManager:
             if not (e.repo_name == repo_name and e.repo_owner == repo_owner)
         ]
         self._save_registry(entries)
-        self._index_path().write_text(self._generate_markdown(entries), encoding="utf-8")
+        self._index_path().write_text(
+            self._generate_markdown(entries), encoding="utf-8"
+        )
 
     def list_entries(self) -> list[RegistryEntry]:
         """Return all registry entries, sorted by owner then name."""
@@ -134,8 +138,7 @@ class GlobalIndexManager:
             e
             for e in entries
             if not (
-                e.repo_name == exclude_repo_name
-                and e.repo_owner == exclude_repo_owner
+                e.repo_name == exclude_repo_name and e.repo_owner == exclude_repo_owner
             )
         ]
         if not filtered:

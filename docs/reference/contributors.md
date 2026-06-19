@@ -2,7 +2,7 @@
 
 Development workflow for the claude-wiki package.
 
----
+______________________________________________________________________
 
 ## Prerequisites
 
@@ -37,16 +37,16 @@ uvx ruff format .
 ## Adding a Command
 
 1. Create `src/claude_wiki/commands/<name>.py`
-2. Export `def register(subparsers, handlers) -> None: ...`
-3. Add tests in `tests/test_<name>.py`
+1. Export `def register(subparsers, handlers) -> None: ...`
+1. Add tests in `tests/test_<name>.py`
 
 Commands are auto-discovered at runtime by `cli.py`.
 
 ## Adding a Hook Handler
 
 1. Create `src/claude_wiki/hook_handlers/<event>.py`
-2. Export `def register(handlers) -> None: ...`
-3. Add tests in `tests/test_<event>.py`
+1. Export `def register(handlers) -> None: ...`
+1. Add tests in `tests/test_<event>.py`
 
 Handlers are auto-discovered at runtime by `hooks.py`.
 
@@ -54,16 +54,16 @@ Handlers are auto-discovered at runtime by `hooks.py`.
 
 Work is organised in end-to-end slices that cut through all layers. Each slice is a self-contained feature with tests.
 
-| Slice | Feature |
-|-------|---------|
-| 1 | `claude-wiki init` |
-| 2 | `claude-wiki compile` |
-| 3 | `claude-wiki query` |
-| 4 | `claude-wiki lint` |
-| 5 | ``claude-wiki-hook SessionEnd` |
-| 6 | ``claude-wiki-hook SessionStart` |
-| 7 | `claude-wiki-hook PreCompact` |
-| 8 | Package polish |
+| Slice | Feature                             |
+| ----- | ----------------------------------- |
+| 1     | `claude-wiki init`                  |
+| 2     | `claude-wiki compile`               |
+| 3     | `claude-wiki query`                 |
+| 4     | `claude-wiki lint`                  |
+| 5     | \`\`claude-wiki-hook SessionEnd\`   |
+| 6     | \`\`claude-wiki-hook SessionStart\` |
+| 7     | `claude-wiki-hook PreCompact`       |
+| 8     | Package polish                      |
 
 ## Commit Messages
 

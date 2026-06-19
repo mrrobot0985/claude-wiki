@@ -2,15 +2,15 @@
 
 The three hooks are registered automatically by `claude-wiki init`. You can adjust their behaviour via the global `settings.json` or by extending the handler modules.
 
----
+______________________________________________________________________
 
 ## Hook Events
 
-| Event | Trigger | Default Timeout |
-|-------|---------|-----------------|
-| `SessionStart` | New Claude Code session begins | 15s |
-| `SessionEnd` | Session ends or user exits | 10s |
-| `PreCompact` | Before auto-compaction | 10s |
+| Event          | Trigger                        | Default Timeout |
+| -------------- | ------------------------------ | --------------- |
+| `SessionStart` | New Claude Code session begins | 15s             |
+| `SessionEnd`   | Session ends or user exits     | 10s             |
+| `PreCompact`   | Before auto-compaction         | 10s             |
 
 ## Adjust Timeouts
 

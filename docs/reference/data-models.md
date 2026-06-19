@@ -2,7 +2,7 @@
 
 All models are frozen dataclasses with no behaviour.
 
----
+______________________________________________________________________
 
 ## `ProjectConfig`
 

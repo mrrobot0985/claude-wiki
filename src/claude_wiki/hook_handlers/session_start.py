@@ -88,9 +88,7 @@ def _build_context(repo_root: Path | None, config: ProjectConfig | None) -> str:
         except Exception:
             parts.append("## Recent Daily Log\n\n(no recent daily log)")
 
-        global_summary = _get_global_summary(
-            config.repo_name, config.repo_owner
-        )
+        global_summary = _get_global_summary(config.repo_name, config.repo_owner)
         if global_summary:
             parts.append(f"## Global Knowledge Bases\n\n{global_summary}")
     else:

@@ -1,0 +1,10 @@
+title = "claude-wiki gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+    '''\.gitleaks\.toml''',
+    '''\.claude-wiki\.state\.json''',
+]

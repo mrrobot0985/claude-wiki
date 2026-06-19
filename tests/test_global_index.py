@@ -3,9 +3,8 @@
 import tempfile
 from pathlib import Path
 
-import pytest
 
-from claude_wiki.global_index import GlobalIndexManager, RegistryEntry
+from claude_wiki.global_index import GlobalIndexManager
 
 
 class TestGlobalIndexManager:
