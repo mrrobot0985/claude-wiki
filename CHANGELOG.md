@@ -4,6 +4,32 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-19
+
+### Added
+
+- ADR-005: KB directory redesign with XDG-compliant paths
+- `layout_version` field to `.claude-wiki.lock` for migration tracking
+- Lazy migration from layout v1 to v2 with automatic data relocation
+- `make install-precommit` target for git hook setup
+- Documentation for pre-commit hook installation in README and install guide
+
+### Changed
+
+- User-wide vault namespace renamed to `claude-wiki-vault`
+- Machine state files moved to XDG state/cache directories
+- Daily logs relocated to XDG data directory in user mode
+- `repo_owner` inference now always re-infers from git remotes during init
+
+### Removed
+
+- Daily backlink mutation and symlink creation (daily logs are immutable)
+- `reports_dir` deprecation warning in CLI
+
+### Fixed
+
+- ruff formatting consistency across source and test files
+
 ## [0.2.0] - 2026-06-19
 
 ### Added
