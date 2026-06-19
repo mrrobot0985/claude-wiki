@@ -119,16 +119,16 @@ def extract_conversation_context(
 
 
 def write_context_file(
-    state_dir: Path,
+    cache_dir: Path,
     session_id: str,
     context: str,
     *,
     prefix: str = "session-flush",
 ) -> Path:
     """Persist extracted context for the background flush process."""
-    state_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d-%H%M%S")
-    context_file = state_dir / f"{prefix}-{session_id}-{timestamp}.md"
+    context_file = cache_dir / f"{prefix}-{session_id}-{timestamp}.md"
     context_file.write_text(context, encoding="utf-8")
     return context_file
 
@@ -136,8 +136,8 @@ def write_context_file(
 def get_logs_dir(config: ProjectConfig, repo_root: Path) -> Path:
     """Return the per-machine logs directory used for logs and state."""
     manager = ConfigManager()
-    kb_root = manager.get_kb_root(repo_root, config)
-    return kb_root / "logs"
+    state_dir = manager.get_machine_state_dir(repo_root, config)
+    return state_dir / "logs"
 
 
 def spawn_flush(

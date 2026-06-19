@@ -192,7 +192,10 @@ def _file_back(
     if not consulted_lines:
         consulted_lines = '  - "none"'
 
-    sources_lines = "\n".join(f"- [[{citation}]]" for citation in result.citations)
+    sources_lines = "\n".join(
+        f"- {citation}" if citation.startswith("daily/") else f"- [[{citation}]]"
+        for citation in result.citations
+    )
     if not sources_lines:
         sources_lines = "- No sources available"
 
@@ -256,7 +259,10 @@ def _append_log(
         return
 
     consulted = (
-        ", ".join(f"[[{citation}]]" for citation in citations)
+        ", ".join(
+            f"{citation}" if citation.startswith("daily/") else f"[[{citation}]]"
+            for citation in citations
+        )
         if citations
         else "(none)"
     )

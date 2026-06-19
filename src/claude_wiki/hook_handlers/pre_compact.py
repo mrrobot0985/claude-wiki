@@ -159,8 +159,10 @@ def handler(_args: list[str]) -> int:
         logger.info("SKIP: only %d turns (min %d)", turn_count, MIN_TURNS_TO_FLUSH)
         return 0
 
+    cache_dir = manager.get_cache_dir(repo_root, config)
+    cache_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d-%H%M%S")
-    context_file = logs_dir / f"flush-context-{session_id}-{timestamp}.md"
+    context_file = cache_dir / f"flush-context-{session_id}-{timestamp}.md"
     context_file.write_text(context, encoding="utf-8")
 
     if _spawn_flush is None:

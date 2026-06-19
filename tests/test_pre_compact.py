@@ -127,8 +127,8 @@ class TestPreCompactHandler:
         result = pre_compact.handler([])
 
         assert result == 0
-        logs_dir = tmp_path / "kb-root" / "logs"
-        context_files = list(logs_dir.glob("flush-context-*.md"))
+        cache_dir = tmp_path / ".claude"
+        context_files = list(cache_dir.glob("flush-context-*.md"))
         assert len(context_files) == 1
         context = context_files[0].read_text(encoding="utf-8")
         assert "user 2" in context
@@ -160,8 +160,8 @@ class TestPreCompactHandler:
 
         assert result == 0
         assert pre_compact._spawn_flush.called
-        logs_dir = tmp_path / "kb-root" / "logs"
-        context_files = list(logs_dir.glob("flush-context-blk-*.md"))
+        cache_dir = tmp_path / ".claude"
+        context_files = list(cache_dir.glob("flush-context-blk-*.md"))
         assert len(context_files) == 1
         context = context_files[0].read_text(encoding="utf-8")
         assert "first" in context
@@ -224,7 +224,7 @@ class TestPreCompactHandler:
 
         pre_compact.handler([])
 
-        log_file = tmp_path / "kb-root" / "logs" / "flush.log"
+        log_file = tmp_path / ".claude" / "state" / "logs" / "flush.log"
         assert log_file.exists()
         assert "PreCompact fired" in log_file.read_text(encoding="utf-8")
 
@@ -297,8 +297,8 @@ class TestPreCompactEdgeCases:
         result = pre_compact.handler([])
 
         assert result == 0
-        logs_dir = tmp_path / "kb-root" / "logs"
-        context_files = list(logs_dir.glob("flush-context-long-*.md"))
+        cache_dir = tmp_path / ".claude"
+        context_files = list(cache_dir.glob("flush-context-long-*.md"))
         assert len(context_files) == 1
         context = context_files[0].read_text(encoding="utf-8")
         assert len(context) <= 15_000
