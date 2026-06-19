@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from claude_kb.config import ConfigManager
+from claude_kb.global_index import GlobalIndexManager
 from claude_kb.models import ProjectConfig
 
 MAX_CONTEXT_CHARS = 20_000
@@ -53,6 +54,16 @@ def _get_recent_daily_log(daily_dir: Path) -> str:
     return "(no recent daily log)"
 
 
+def _get_global_summary(
+    repo_name: str | None = None, repo_owner: str | None = None
+) -> str:
+    """Return a compact summary of other registered knowledge bases."""
+    try:
+        return GlobalIndexManager().compact_summary(repo_name, repo_owner)
+    except Exception:
+        return ""
+
+
 def _build_context(repo_root: Path | None, config: ProjectConfig | None) -> str:
     """Assemble the context injected into the conversation."""
     parts = []
@@ -76,6 +87,12 @@ def _build_context(repo_root: Path | None, config: ProjectConfig | None) -> str:
             parts.append(f"## Recent Daily Log\n\n{recent_log}")
         except Exception:
             parts.append("## Recent Daily Log\n\n(no recent daily log)")
+
+        global_summary = _get_global_summary(
+            config.repo_name, config.repo_owner
+        )
+        if global_summary:
+            parts.append(f"## Global Knowledge Bases\n\n{global_summary}")
     else:
         parts.append("## Knowledge Base Index\n\n(empty - no articles compiled yet)")
         parts.append("## Recent Daily Log\n\n(no recent daily log)")
