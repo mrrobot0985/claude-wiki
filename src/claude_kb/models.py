@@ -72,3 +72,16 @@ class FlushResult:
     concepts_extracted: int = 0
     connections_found: int = 0
     qa_filed: int = 0
+
+
+@dataclass(frozen=True)
+class MigrationResult:
+    """Result of a config migration operation."""
+
+    migrated: bool
+    old_kb_dir: Path | None = None
+    new_kb_dir: Path | None = None
+    old_daily_dir: Path | None = None
+    new_daily_dir: Path | None = None
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)

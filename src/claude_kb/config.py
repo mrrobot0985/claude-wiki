@@ -16,6 +16,8 @@ from claude_kb.models import ProjectConfig
 class ConfigManager(RepoDetector, ConfigLoader):
     """Concrete implementation: walks filesystem, resolves XDG paths."""
 
+    _STATE_NAME = ".claude-wiki.state.json"
+
     def find_repo_root(self, start: Path) -> Path:
         """Walk upward looking for .git or .claude-wiki.json."""
         current = start.resolve()
@@ -60,3 +62,19 @@ class ConfigManager(RepoDetector, ConfigLoader):
         # Priority 3: XDG default
         base = Path(user_data_dir("claude-wiki", appauthor=False))
         return base / config.repo_owner / config.repo_name
+
+    def save_state(self, repo_root: Path, config: ProjectConfig) -> None:
+        """Persist a snapshot of the current config for future comparison."""
+        state_file = repo_root / self._STATE_NAME
+        state_file.write_text(json.dumps(config.to_dict(), indent=2))
+
+    def load_state(self, repo_root: Path) -> ProjectConfig | None:
+        """Load the previously saved config snapshot, if any."""
+        state_file = repo_root / self._STATE_NAME
+        if not state_file.exists():
+            return None
+        try:
+            data = json.loads(state_file.read_text())
+            return ProjectConfig.from_dict(data)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
