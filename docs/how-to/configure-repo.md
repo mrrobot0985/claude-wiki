@@ -12,34 +12,29 @@ ______________________________________________________________________
 {
   "repo_name": "my-project",
   "repo_owner": "local",
-  "kb_dir": "knowledge",
+  "kb_dir": "project",
   "daily_dir": "daily",
+  "reports_dir": "reports",
   "timezone": "UTC",
   "compile_after_hour": 18
 }
 ```
 
-## Override Knowledge Base Location
+## Knowledge Base Location Modes
 
-By default the compiled KB goes to an XDG directory:
+`kb_dir` supports three modes:
 
-```
-~/.local/share/claude-wiki/<owner>/<repo>/
-```
+| Mode                | Value                      | Resolved path                                |
+| ------------------- | -------------------------- | -------------------------------------------- |
+| `project` (default) | `"project"`                | `<repo>/.claude/knowledge/`                  |
+| `user`              | `"user"`                   | `~/.local/share/claude-wiki/<owner>/<repo>/` |
+| Custom              | `"my-kb"` or `"/abs/path"` | `<repo>/my-kb/` or exact path                |
 
-Set an environment variable to override:
+Set an environment variable to override everything:
 
 ```bash
 export CLAUDE_WIKI_PROJECT_DIR=/mnt/fast-data/knowledge
 claude-wiki compile
-```
-
-Or use an absolute path in `.claude-wiki.lock`:
-
-```json
-{
-  "kb_dir": "/mnt/fast-data/knowledge"
-}
 ```
 
 ## Moving Knowledge Base Data
@@ -51,7 +46,7 @@ claude-wiki migrate --dry-run  # preview
 claude-wiki migrate            # execute
 ```
 
-The `migrate` command compares the current `.claude-wiki.lock` against `.claude-wiki.state.json` and moves directories only when paths differ.
+The `migrate` command detects changes between the previous and current `.claude-wiki.lock` configurations (including any `--kb-dir`, `--daily-dir`, or `--reports-dir` overrides) and safely moves data to the new locations.
 
 ## Global Registry
 

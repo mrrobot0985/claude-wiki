@@ -68,3 +68,25 @@ class TestHookRegistrar:
 
             settings = json.loads(settings_path.read_text())
             assert len(settings["hooks"]) == 3
+
+    def test_hook_command_uses_valid_uvx_syntax(self):
+        """Commands must use `uvx --from <pkg> <cmd>` syntax, not bare `uvx <pkg> <cmd>`."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            settings_path = repo / ".claude" / "settings.local.json"
+
+            registrar = DefaultHookRegistrar()
+            config = ProjectConfig(repo_name="my-project")
+            registrar.install_hooks(repo, config, settings_path=settings_path)
+
+            settings = json.loads(settings_path.read_text())
+            for event in ("SessionStart", "SessionEnd", "PreCompact"):
+                command = settings["hooks"][event][0]["hooks"][0]["command"]
+                parts = command.split()
+                # Expect: uvx --from claude-wiki claude-wiki-hook <Event>
+                assert parts[0] == "uvx"
+                assert parts[1] == "--from"
+                assert parts[2] == "claude-wiki"
+                assert parts[3] == "claude-wiki-hook"
+                assert parts[4] == event

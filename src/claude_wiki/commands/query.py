@@ -1,4 +1,4 @@
-"""kb query — answer questions using the knowledge base."""
+"""`claude-wiki query` — answer questions using the knowledge base."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def register(
     subparsers: argparse._SubParsersAction,  # type: ignore[type-arg]
     handlers: dict[str, Callable[[argparse.Namespace], int]],
 ) -> None:
-    """Register the `kb query` subcommand."""
+    """Register the `claude-wiki query` subcommand."""
     parser = subparsers.add_parser("query", help="Query the knowledge base")
     parser.add_argument("question", help="The question to ask")
     parser.add_argument(
@@ -42,7 +42,7 @@ def _handle_query(args: argparse.Namespace) -> int:
         return 1
 
     config = detector.load(repo_root)
-    kb_root = detector.get_kb_root(config)
+    kb_root = detector.get_kb_root(repo_root, config)
 
     result = asyncio.run(_run_query(kb_root, args.question, file_back=args.file_back))
 
@@ -69,14 +69,14 @@ async def _run_query(
     """Query the knowledge base and return a cited answer."""
     if _is_kb_empty(kb_root):
         return QueryResult(
-            answer="No knowledge base found. Run `kb compile` first.",
+            answer="No knowledge base found. Run `claude-wiki compile` first.",
             citations=[],
             confidence=0.0,
         )
 
     content = _read_kb_content(kb_root)
     prompt = _build_prompt(content, question)
-    options: object = {}
+    options: ClaudeAgentOptions | None = None
 
     if query_func is None:
         from claude_agent_sdk import ClaudeAgentOptions, query

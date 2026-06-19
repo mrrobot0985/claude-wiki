@@ -4,22 +4,18 @@ Install `claude-wiki` via PyPI, uv, or from source.
 
 ______________________________________________________________________
 
-## From PyPI (recommended)
-
-```bash
-pip install claude-wiki
-```
-
-## With uv
-
-```bash
-uv pip install claude-wiki
-```
+## With uv (recommended)
 
 Run CLI tools without installing permanently:
 
 ```bash
 uvx claude-wiki init
+```
+
+Or install into a project:
+
+```bash
+uv pip install claude-wiki
 ```
 
 ## From Source

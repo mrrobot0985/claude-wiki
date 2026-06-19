@@ -6,6 +6,7 @@ __pycache__/
 .env
 .mypy_cache/
 .pytest_cache/
+.ruff_cache/
 dist/
 build/
 *.egg
@@ -14,6 +15,6 @@ build/
 *.log
 .claude/worktrees/
 .claude/settings.local.json
-reports/
+reports/lint-*.md
 bin/
 *.code-workspace

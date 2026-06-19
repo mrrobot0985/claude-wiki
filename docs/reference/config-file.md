@@ -2,20 +2,32 @@
 
 `.claude-wiki.lock` — per-repository marker file. Machine-managed via `claude-wiki init` and `claude-wiki migrate`.
 
-A companion file `.claude-wiki.state.json` is written automatically and tracks the last known configuration for change detection. Do not commit it — it is machine-managed.
+The lock file itself serves as the migration checkpoint: `claude-wiki migrate` compares the previously saved config against the current config (including any CLI overrides) to detect path changes.
 
 ______________________________________________________________________
 
 ## Schema
 
-| Field                | Type                   | Default        | Description                |
-| -------------------- | ---------------------- | -------------- | -------------------------- |
-| `repo_name`          | `str`                  | directory name | Repository identifier      |
-| `repo_owner`         | `str`                  | `"local"`      | Namespace for XDG path     |
-| `kb_dir`             | `str` or absolute path | `"knowledge"`  | Knowledge base location    |
-| `daily_dir`          | `str`                  | `"daily"`      | Source log directory       |
-| `timezone`           | `str`                  | `"UTC"`        | Timezone for timestamps    |
-| `compile_after_hour` | `int`                  | `18`           | Earliest auto-compile hour |
+| Field                | Type                           | Default        | Description                   |
+| -------------------- | ------------------------------ | -------------- | ----------------------------- |
+| `repo_name`          | `str`                          | directory name | Repository identifier         |
+| `repo_owner`         | `str`                          | `"local"`      | Namespace for XDG path        |
+| `kb_dir`             | `"project"`, `"user"`, or path | `"project"`    | KB location (see modes below) |
+| `daily_dir`          | `str`                          | `"daily"`      | Source log directory          |
+| `timezone`           | `str`                          | `"UTC"`        | Timezone for timestamps       |
+| `reports_dir`        | `str`                          | `"reports"`    | Lint report directory         |
+| `compile_after_hour` | `int`                          | `18`           | Earliest auto-compile hour    |
+
+## `kb_dir` Modes
+
+| Mode                | Value         | Resolved path                                                                        |
+| ------------------- | ------------- | ------------------------------------------------------------------------------------ |
+| `project` (default) | `"project"`   | `<repo>/.claude/knowledge/` — colocated with the repo, easy to gitignore or commit   |
+| `user`              | `"user"`      | `~/.local/share/claude-wiki/<owner>/<repo>/` — XDG directory, shared across machines |
+| Custom relative     | `"my-kb"`     | `<repo>/my-kb/`                                                                      |
+| Custom absolute     | `"/abs/path"` | Exact path                                                                           |
+
+`CLAUDE_WIKI_PROJECT_DIR` overrides any mode.
 
 ## Changing Paths
 

@@ -22,7 +22,7 @@ claude-wiki init [--path PATH] [--force] [--global]
 | `--force`  | Overwrite existing `.claude-wiki.lock`         |
 | `--global` | Install hooks into `~/.claude/settings.json`   |
 
-Creates `.claude-wiki.lock`, `.claude-wiki.state.json`, and merges hooks into `.claude/settings.local.json` (or `~/.claude/settings.json` with `--global`).
+Creates `.claude-wiki.lock` and merges hooks into `.claude/settings.local.json` (or `~/.claude/settings.json` with `--global`).
 
 ### `claude-wiki compile`
 
@@ -56,13 +56,16 @@ claude-wiki query QUESTION [--file-back]
 Check and migrate data when config paths change.
 
 ```
-claude-wiki migrate [--path PATH] [--dry-run]
+claude-wiki migrate [--path PATH] [--dry-run] [--kb-dir PATH] [--daily-dir PATH] [--reports-dir PATH]
 ```
 
-| Option      | Description                                |
-| ----------- | ------------------------------------------ |
-| `--path`    | Repo root to check (default: auto-detect)  |
-| `--dry-run` | Show what would move without touching disk |
+| Option          | Description                                    |
+| --------------- | ---------------------------------------------- |
+| `--path`        | Repo root to check (default: auto-detect)      |
+| `--dry-run`     | Show what would move without touching disk     |
+| `--kb-dir`      | Override knowledge base directory for this run |
+| `--daily-dir`   | Override daily log directory for this run      |
+| `--reports-dir` | Override lint reports directory for this run   |
 
 Use after editing `kb_dir` or `daily_dir` in `.claude-wiki.lock`. Always run `--dry-run` first.
 

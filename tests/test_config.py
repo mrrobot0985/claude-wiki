@@ -87,7 +87,7 @@ class TestConfigManager:
 
             assert config.repo_name == "my-project"
             assert config.repo_owner == "local"
-            assert config.kb_dir == Path("knowledge")
+            assert config.kb_dir == Path("project")
             assert config.daily_dir == Path("daily")
             assert config.timezone == "UTC"
 
@@ -113,35 +113,65 @@ class TestConfigManager:
             assert data["repo_name"] == "my-project"
             assert data["kb_dir"] == "kb"
 
-    def test_get_kb_root_xdg_default(self):
-        """Get KB root using XDG default."""
+    def test_get_kb_root_project_mode(self):
+        """Default 'project' mode resolves to repo_root/.claude/knowledge."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            manager = ConfigManager()
+            config = ProjectConfig(repo_name="my-project", repo_owner="owner")
+            kb_root = manager.get_kb_root(repo, config)
+            assert kb_root == repo / ".claude" / "knowledge"
+
+    def test_get_kb_root_user_mode(self):
+        """Explicit 'user' mode resolves to XDG path."""
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.dict(os.environ, {"XDG_DATA_HOME": tmpdir}, clear=False):
+                repo = Path(tmpdir) / "my-project"
+                repo.mkdir()
                 manager = ConfigManager()
-                config = ProjectConfig(repo_name="my-project", repo_owner="owner")
-                kb_root = manager.get_kb_root(config)
+                config = ProjectConfig(
+                    repo_name="my-project", repo_owner="owner", kb_dir=Path("user")
+                )
+                kb_root = manager.get_kb_root(repo, config)
                 expected = Path(tmpdir) / "claude-wiki" / "owner" / "my-project"
                 assert kb_root == expected
 
     def test_get_kb_root_env_override(self):
         """CLAUDE_WIKI_PROJECT_DIR env var overrides KB root."""
         with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
             override = Path(tmpdir) / "custom-kb"
             with patch.dict(
                 os.environ, {"CLAUDE_WIKI_PROJECT_DIR": str(override)}, clear=False
             ):
                 manager = ConfigManager()
                 config = ProjectConfig(repo_name="test", repo_owner="owner")
-                kb_root = manager.get_kb_root(config)
+                kb_root = manager.get_kb_root(repo, config)
                 assert kb_root == override
 
     def test_get_kb_root_absolute_in_config(self):
-        """Absolute kb_dir in config takes precedence over XDG."""
+        """Absolute kb_dir in config is used verbatim."""
         with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
             absolute_kb = Path(tmpdir) / "absolute-kb"
             manager = ConfigManager()
             config = ProjectConfig(
                 repo_name="test", repo_owner="owner", kb_dir=absolute_kb
             )
-            kb_root = manager.get_kb_root(config)
+            kb_root = manager.get_kb_root(repo, config)
             assert kb_root == absolute_kb
+
+    def test_get_kb_root_relative_path(self):
+        """Custom relative kb_dir is anchored at repo_root."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            manager = ConfigManager()
+            config = ProjectConfig(
+                repo_name="test", repo_owner="owner", kb_dir=Path("custom-kb")
+            )
+            kb_root = manager.get_kb_root(repo, config)
+            assert kb_root == repo / "custom-kb"

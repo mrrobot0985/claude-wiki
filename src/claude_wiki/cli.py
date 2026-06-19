@@ -155,7 +155,7 @@ def _init(args: argparse.Namespace) -> int:
     target_label = "global" if args.global_flag else "repo-local"
     print(f"Installed hooks into {target_label} settings: {settings_path}")
 
-    kb_root = detector.get_kb_root(config)
+    kb_root = detector.get_kb_root(repo_root, config)
     GlobalIndexManager().register(
         config.repo_name, config.repo_owner, kb_root, repo_root=repo_root
     )

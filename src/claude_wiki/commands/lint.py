@@ -55,7 +55,7 @@ def _lint_handler(args: argparse.Namespace) -> int:
         return 1
 
     config = manager.load(repo_root)
-    kb_root = manager.get_kb_root(config)
+    kb_root = manager.get_kb_root(repo_root, config)
 
     issues = _run_structural_checks(repo_root, config, kb_root)
     if not args.structural_only:

@@ -325,7 +325,7 @@ class TestSessionEndHandler:
         assert context_file.exists()
         assert "hello" in context_file.read_text(encoding="utf-8")
 
-        log_path = xdg / "claude-wiki" / "owner" / "repo" / "logs" / "flush.log"
+        log_path = repo / ".claude" / "knowledge" / "logs" / "flush.log"
         assert log_path.exists()
         log_text = log_path.read_text(encoding="utf-8")
         assert "SessionEnd fired: session=xyz" in log_text

@@ -41,7 +41,7 @@ class DefaultHookRegistrar(HookRegistrar):
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "uvx claude-wiki claude-wiki-hook SessionStart",
+                            "command": "uvx --from claude-wiki claude-wiki-hook SessionStart",
                             "timeout": 15,
                         }
                     ],
@@ -53,7 +53,7 @@ class DefaultHookRegistrar(HookRegistrar):
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "uvx claude-wiki claude-wiki-hook SessionEnd",
+                            "command": "uvx --from claude-wiki claude-wiki-hook SessionEnd",
                             "timeout": 10,
                         }
                     ],
@@ -65,7 +65,7 @@ class DefaultHookRegistrar(HookRegistrar):
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "uvx claude-wiki claude-wiki-hook PreCompact",
+                            "command": "uvx --from claude-wiki claude-wiki-hook PreCompact",
                             "timeout": 10,
                         }
                     ],

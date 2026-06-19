@@ -46,8 +46,15 @@ class ConfigManager(RepoDetector, ConfigLoader):
         marker = repo_root / ".claude-wiki.lock"
         marker.write_text(json.dumps(config.to_dict(), indent=2))
 
-    def get_kb_root(self, config: ProjectConfig) -> Path:
-        """Resolve KB directory: env > absolute config > XDG."""
+    def get_kb_root(self, repo_root: Path, config: ProjectConfig) -> Path:
+        """Resolve KB directory: env > absolute config > mode-based.
+
+        Modes:
+          - "user"    → XDG: ~/.local/share/claude-wiki/<owner>/<repo>/
+          - "project" → repo-relative: <repo>/.claude/knowledge/
+          - absolute  → exact path
+          - relative  → repo_root / path
+        """
         # Priority 1: environment override
         env_dir = os.environ.get("CLAUDE_WIKI_PROJECT_DIR")
         if env_dir:
@@ -57,6 +64,13 @@ class ConfigManager(RepoDetector, ConfigLoader):
         if config.kb_dir.is_absolute():
             return config.kb_dir
 
-        # Priority 3: XDG default
-        base = Path(user_data_dir("claude-wiki", appauthor=False))
-        return base / config.repo_owner / config.repo_name
+        # Priority 3: mode-based resolution
+        kb_str = str(config.kb_dir)
+        if kb_str == "user":
+            base = Path(user_data_dir("claude-wiki", appauthor=False))
+            return base / config.repo_owner / config.repo_name
+        if kb_str == "project":
+            return repo_root / ".claude" / "knowledge"
+
+        # Fallback: relative path anchored at repo_root
+        return repo_root / config.kb_dir

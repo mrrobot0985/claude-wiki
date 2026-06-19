@@ -73,7 +73,7 @@ def _build_context(repo_root: Path | None, config: ProjectConfig | None) -> str:
 
     if repo_root is not None and config is not None:
         try:
-            kb_root = ConfigManager().get_kb_root(config)
+            kb_root = ConfigManager().get_kb_root(repo_root, config)
             index = _get_kb_index(kb_root)
             parts.append(f"## Knowledge Base Index\n\n{index}")
         except Exception:

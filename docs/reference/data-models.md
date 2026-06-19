@@ -11,8 +11,9 @@ ______________________________________________________________________
 class ProjectConfig:
     repo_name: str
     repo_owner: str = "local"
-    kb_dir: Path = Path("knowledge")
+    kb_dir: Path = Path("project")
     daily_dir: Path = Path("daily")
+    reports_dir: Path = Path("reports")
     timezone: str = "UTC"
     compile_after_hour: int = 18
 ```
