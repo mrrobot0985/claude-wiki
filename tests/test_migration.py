@@ -232,6 +232,64 @@ class TestMigrationManager:
             assert new_kb.exists()
             assert not old_kb.exists()
 
+    def test_kb_dir_user_mode_resolves_to_xdg(self):
+        """kb_dir='user' resolves to XDG path, not repo-relative."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            xdg_kb = Path.home() / ".local" / "share" / "claude-wiki" / "local" / "test"
+            xdg_kb.mkdir(parents=True, exist_ok=True)
+            (xdg_kb / "index.md").write_text("# Index")
+
+            # Mock ConfigManager so get_kb_root returns the XDG path
+            class FakeConfigManager:
+                def get_kb_root(self, _repo_root: Path, config: ProjectConfig) -> Path:
+                    if str(config.kb_dir) == "user":
+                        return xdg_kb
+                    return repo / "project"
+
+            current = ProjectConfig(
+                repo_name="test", kb_dir=Path("user"), daily_dir=Path("daily")
+            )
+            previous = ProjectConfig(
+                repo_name="test", kb_dir=Path("project"), daily_dir=Path("daily")
+            )
+
+            mgr = MigrationManager(config_manager=FakeConfigManager())  # type: ignore[arg-type]
+            result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+            assert result.migrated
+            assert result.old_kb_dir == repo / "project"
+            assert result.new_kb_dir == xdg_kb
+            assert not result.errors
+
+    def test_kb_dir_user_mode_dry_run_shows_correct_path(self):
+        """--dry-run with kb_dir='user' previews the XDG path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            xdg_kb = Path.home() / ".local" / "share" / "claude-wiki" / "local" / "test"
+            xdg_kb.mkdir(parents=True, exist_ok=True)
+            (xdg_kb / "index.md").write_text("# Index")
+
+            class FakeConfigManager:
+                def get_kb_root(self, _repo_root: Path, config: ProjectConfig) -> Path:
+                    if str(config.kb_dir) == "user":
+                        return xdg_kb
+                    return repo / "project"
+
+            current = ProjectConfig(
+                repo_name="test", kb_dir=Path("user"), daily_dir=Path("daily")
+            )
+            previous = ProjectConfig(
+                repo_name="test", kb_dir=Path("project"), daily_dir=Path("daily")
+            )
+
+            mgr = MigrationManager(config_manager=FakeConfigManager())  # type: ignore[arg-type]
+            result = mgr.check_and_migrate(repo, current, previous, dry_run=True)
+
+            assert result.migrated
+            assert result.new_kb_dir == xdg_kb
+            assert not result.errors
+
     def test_flag_driven_migration_with_reports_dir(self):
         """A config built from CLI flags migrates kb_dir and daily_dir and round-trips reports_dir."""
         with tempfile.TemporaryDirectory() as tmpdir:
