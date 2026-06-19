@@ -20,7 +20,8 @@ lint: ## Run ruff lint
 
 format: ## Run ruff format and mdformat
 	uvx ruff format .
-	uvx --with mdformat-frontmatter --with mdformat-gfm mdformat docs/ .claude/skills/claude-wiki/SKILL.md README.md src/claude_wiki/AGENTS.md
+	uvx --with mdformat-frontmatter --with mdformat-gfm mdformat \
+	  .claude/skills/ docs/ README.md CHANGELOG.md src/claude_wiki/AGENTS.md
 
 typecheck: ## Run mypy
 	uv run mypy src/
