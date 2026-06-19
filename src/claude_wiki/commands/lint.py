@@ -62,7 +62,7 @@ def _lint_handler(args: argparse.Namespace) -> int:
         issues.extend(_run_llm_checks(kb_root))
 
     today = _today_iso(config.timezone)
-    report_path = _save_report(kb_root, issues, today)
+    report_path = _save_report(kb_root, config.reports_dir, issues, today)
     _update_state(kb_root)
 
     errors = sum(1 for issue in issues if issue.severity == "error")
@@ -382,9 +382,11 @@ def _today_iso(timezone: str = "UTC") -> str:
     return datetime.now(tz).date().isoformat()
 
 
-def _save_report(kb_root: Path, issues: list[_Issue], today: str) -> Path:
+def _save_report(
+    kb_root: Path, reports_dir: Path, issues: list[_Issue], today: str
+) -> Path:
     """Write the markdown lint report and return its path."""
-    report_dir = kb_root / "reports"
+    report_dir = kb_root / reports_dir
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / f"lint-{today}.md"
 

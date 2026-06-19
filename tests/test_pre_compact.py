@@ -25,6 +25,8 @@ def pre_compact():
 def repo(tmp_path, monkeypatch):
     """Create a fake repo root and make it the current working directory."""
     (tmp_path / ".git").mkdir()
+    kb_root = tmp_path / "kb-root"
+    monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -111,7 +113,7 @@ class TestPreCompactHandler:
         pre_compact._spawn_flush.assert_not_called()
 
     def test_valid_transcript_spawns_flush(
-        self, pre_compact, repo, monkeypatch, caplog
+        self, pre_compact, repo, monkeypatch, caplog, tmp_path
     ):
         """Extract context, write file, and spawn shared flush logic."""
         caplog.set_level(logging.INFO)
@@ -124,8 +126,8 @@ class TestPreCompactHandler:
         result = pre_compact.handler([])
 
         assert result == 0
-        scripts_dir = repo / "scripts"
-        context_files = list(scripts_dir.glob("flush-context-*.md"))
+        logs_dir = tmp_path / "kb-root" / "logs"
+        context_files = list(logs_dir.glob("flush-context-*.md"))
         assert len(context_files) == 1
         context = context_files[0].read_text(encoding="utf-8")
         assert "user 2" in context
@@ -138,7 +140,7 @@ class TestPreCompactHandler:
         assert args[2] == repo
         assert "Spawned flush" in caplog.text
 
-    def test_text_block_content(self, pre_compact, repo, monkeypatch, caplog):
+    def test_text_block_content(self, pre_compact, repo, monkeypatch, caplog, tmp_path):
         """Extract text from structured content blocks."""
         caplog.set_level(logging.INFO)
         transcript = repo / "transcript.jsonl"
@@ -157,8 +159,8 @@ class TestPreCompactHandler:
 
         assert result == 0
         assert pre_compact._spawn_flush.called
-        scripts_dir = repo / "scripts"
-        context_files = list(scripts_dir.glob("flush-context-blk-*.md"))
+        logs_dir = tmp_path / "kb-root" / "logs"
+        context_files = list(logs_dir.glob("flush-context-blk-*.md"))
         assert len(context_files) == 1
         context = context_files[0].read_text(encoding="utf-8")
         assert "first" in context
@@ -215,13 +217,13 @@ class TestPreCompactHandler:
         assert result == 1
         assert "Failed to spawn flush" in caplog.text
 
-    def test_logs_to_scripts_flush_log(self, pre_compact, repo, monkeypatch):
-        """Log messages are appended to scripts/flush.log."""
+    def test_logs_to_logs_flush_log(self, pre_compact, repo, monkeypatch, tmp_path):
+        """Log messages are appended to logs/flush.log."""
         _stdin(monkeypatch, {"session_id": "log", "transcript_path": ""})
 
         pre_compact.handler([])
 
-        log_file = repo / "scripts" / "flush.log"
+        log_file = tmp_path / "kb-root" / "logs" / "flush.log"
         assert log_file.exists()
         assert "PreCompact fired" in log_file.read_text(encoding="utf-8")
 

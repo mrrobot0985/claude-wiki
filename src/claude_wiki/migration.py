@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 from pathlib import Path
 
@@ -12,8 +11,6 @@ from claude_wiki.models import MigrationResult, ProjectConfig
 
 class MigrationManager(Migrator):
     """Detects path changes between config versions and migrates data."""
-
-    _STATE_NAME = ".claude-wiki.state.json"
 
     def check_and_migrate(
         self,
@@ -28,7 +25,7 @@ class MigrationManager(Migrator):
         Args:
             repo_root: Repository root containing .claude-wiki.lock.
             current: The freshly loaded/current config.
-            previous: The last known config (from state file), or None.
+            previous: The last known config (from the lock file), or None.
             dry_run: When True, report what would move without touching disk.
         """
         if previous is None:
@@ -69,9 +66,6 @@ class MigrationManager(Migrator):
             result = self._migrate_dir(
                 old_daily, new_daily, result, label="daily_dir", dry_run=dry_run
             )
-
-        if not dry_run and not result.errors:
-            self.save_state(repo_root, current)
 
         return result
 
@@ -125,22 +119,6 @@ class MigrationManager(Migrator):
             )
 
         return result
-
-    def save_state(self, repo_root: Path, config: ProjectConfig) -> None:
-        """Persist a snapshot of the current config for future comparison."""
-        state_file = repo_root / self._STATE_NAME
-        state_file.write_text(json.dumps(config.to_dict(), indent=2))
-
-    def load_state(self, repo_root: Path) -> ProjectConfig | None:
-        """Load the previously saved config snapshot, if any."""
-        state_file = repo_root / self._STATE_NAME
-        if not state_file.exists():
-            return None
-        try:
-            data = json.loads(state_file.read_text())
-            return ProjectConfig.from_dict(data)
-        except (json.JSONDecodeError, TypeError, ValueError):
-            return None
 
     @staticmethod
     def _resolve_dir(path: Path, repo_root: Path) -> Path:

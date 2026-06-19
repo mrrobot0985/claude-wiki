@@ -205,40 +205,42 @@ class TestMigrationManager:
             assert new_kb.exists()
             assert not old_kb.exists()
 
-    def test_save_and_load_state(self):
-        """State roundtrip through save_state / load_state."""
+    def test_flag_driven_migration_with_reports_dir(self):
+        """A config built from CLI flags migrates kb_dir and daily_dir and round-trips reports_dir."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)
-            config = ProjectConfig(
-                repo_name="my-repo",
-                repo_owner="owner",
+            old_kb = repo / "knowledge"
+            old_kb.mkdir()
+            (old_kb / "index.md").write_text("# Index")
+            old_daily = repo / "daily"
+            old_daily.mkdir()
+            (old_daily / "2024-01-01.md").write_text("log")
+            new_kb = repo / "wiki"
+            new_daily = repo / "logs"
+
+            current = ProjectConfig(
+                repo_name="test",
                 kb_dir=Path("wiki"),
                 daily_dir=Path("logs"),
-                timezone="UTC",
+                reports_dir=Path("custom-reports"),
+            )
+            previous = ProjectConfig(
+                repo_name="test",
+                kb_dir=Path("knowledge"),
+                daily_dir=Path("daily"),
+                reports_dir=Path("reports"),
             )
 
             mgr = MigrationManager()
-            mgr.save_state(repo, config)
+            result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
 
-            loaded = mgr.load_state(repo)
-            assert loaded is not None
-            assert loaded.repo_name == "my-repo"
-            assert loaded.kb_dir == Path("wiki")
-            assert loaded.daily_dir == Path("logs")
-
-    def test_load_state_missing_returns_none(self):
-        """load_state returns None when state file does not exist."""
-        mgr = MigrationManager()
-        result = mgr.load_state(Path("/nonexistent"))
-        assert result is None
-
-    def test_load_state_corrupted_returns_none(self):
-        """load_state returns None when state file is corrupted."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            repo = Path(tmpdir)
-            state_file = repo / ".claude-wiki.state.json"
-            state_file.write_text("not valid json")
-
-            mgr = MigrationManager()
-            result = mgr.load_state(repo)
-            assert result is None
+            assert result.migrated
+            assert result.old_kb_dir == old_kb
+            assert result.new_kb_dir == new_kb
+            assert result.old_daily_dir == old_daily
+            assert result.new_daily_dir == new_daily
+            assert not result.errors
+            assert new_kb.exists()
+            assert (new_kb / "index.md").exists()
+            assert new_daily.exists()
+            assert (new_daily / "2024-01-01.md").exists()

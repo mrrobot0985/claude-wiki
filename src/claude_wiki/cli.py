@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import importlib
 import pkgutil
 import sys
@@ -49,6 +50,15 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run",
         action="store_true",
         help="Show what would move without touching disk",
+    )
+    migrate_parser.add_argument(
+        "--kb-dir", type=Path, help="Override knowledge base directory"
+    )
+    migrate_parser.add_argument(
+        "--daily-dir", type=Path, help="Override daily log directory"
+    )
+    migrate_parser.add_argument(
+        "--reports-dir", type=Path, help="Override lint reports directory"
     )
 
     # Dynamically register subcommands from commands/ modules
@@ -121,11 +131,12 @@ def _init(args: argparse.Namespace) -> int:
             repo_owner=config.repo_owner,
             kb_dir=config.kb_dir,
             daily_dir=config.daily_dir,
+            reports_dir=config.reports_dir,
             timezone=config.timezone,
         )
 
-    previous = loader.load_state(repo_root)
-    result = migrator.check_and_migrate(repo_root, config, previous, dry_run=False)
+    # On first init there is no previous state, so no migration is attempted.
+    result = migrator.check_and_migrate(repo_root, config, None, dry_run=False)
     if result.migrated:
         _print_migration_result(result)
     elif result.errors:
@@ -133,7 +144,6 @@ def _init(args: argparse.Namespace) -> int:
             print(f"Error: {err}", file=sys.stderr)
 
     loader.write(repo_root, config)
-    loader.save_state(repo_root, config)
 
     if args.global_flag:
         settings_path = Path.home() / ".claude" / "settings.json"
@@ -173,12 +183,18 @@ def _migrate(args: argparse.Namespace) -> int:
         )
         return 1
 
-    config = loader.load(repo_root)
-    previous = loader.load_state(repo_root)
+    previous = loader.load(repo_root)
+    overrides: dict[str, Any] = {}
+    if args.kb_dir:
+        overrides["kb_dir"] = args.kb_dir
+    if args.daily_dir:
+        overrides["daily_dir"] = args.daily_dir
+    if args.reports_dir:
+        overrides["reports_dir"] = args.reports_dir
+    config = dataclasses.replace(previous, **overrides) if overrides else previous
 
-    if previous is None:
-        print("No previous state found. Saving current state.")
-        loader.save_state(repo_root, config)
+    if previous == config:
+        print("No migration needed — paths are unchanged.")
         return 0
 
     result = migrator.check_and_migrate(
@@ -187,6 +203,9 @@ def _migrate(args: argparse.Namespace) -> int:
 
     if not result.migrated and not result.errors:
         print("No migration needed — paths are unchanged.")
+        if not args.dry_run and overrides:
+            loader.write(repo_root, config)
+            print("State updated.")
         return 0
 
     _print_migration_result(result)
@@ -195,7 +214,7 @@ def _migrate(args: argparse.Namespace) -> int:
         return 1
 
     if not args.dry_run:
-        loader.save_state(repo_root, config)
+        loader.write(repo_root, config)
         if result.new_kb_dir:
             GlobalIndexManager().register(
                 config.repo_name,

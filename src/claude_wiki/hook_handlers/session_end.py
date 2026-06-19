@@ -50,8 +50,8 @@ def _handle_session_end(argv: list[str]) -> int:
         _try_log_error(f"Could not load repo config: {e}")
         return 0
 
-    scripts_dir = flush.get_scripts_dir(config, repo_root)
-    log_path = scripts_dir / "flush.log"
+    logs_dir = flush.get_logs_dir(config, repo_root)
+    log_path = logs_dir / "flush.log"
     flush.configure_logging(log_path)
 
     source = hook_input.get("source", "unknown")
@@ -79,7 +79,7 @@ def _handle_session_end(argv: list[str]) -> int:
         return 0
 
     context_file = flush.write_context_file(
-        scripts_dir, session_id, context, prefix="session-flush"
+        logs_dir, session_id, context, prefix="session-flush"
     )
 
     try:
@@ -103,8 +103,8 @@ def _try_log(message: str) -> None:
         manager = ConfigManager()
         repo_root = manager.find_repo_root(Path.cwd())
         config = manager.load(repo_root)
-        scripts_dir = flush.get_scripts_dir(config, repo_root)
-        flush.configure_logging(scripts_dir / "flush.log")
+        logs_dir = flush.get_logs_dir(config, repo_root)
+        flush.configure_logging(logs_dir / "flush.log")
         logger.info(message)
     except Exception:
         pass
@@ -116,8 +116,8 @@ def _try_log_error(message: str) -> None:
         manager = ConfigManager()
         repo_root = manager.find_repo_root(Path.cwd())
         config = manager.load(repo_root)
-        scripts_dir = flush.get_scripts_dir(config, repo_root)
-        flush.configure_logging(scripts_dir / "flush.log")
+        logs_dir = flush.get_logs_dir(config, repo_root)
+        flush.configure_logging(logs_dir / "flush.log")
         logger.error(message)
     except Exception:
         pass
