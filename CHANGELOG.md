@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-19
+
 ### Added
 
 - Interactive initialization mode (`claude-wiki init` prompts when stdin is a TTY)
