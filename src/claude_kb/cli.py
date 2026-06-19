@@ -10,8 +10,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from claude_kb.config import ConfigManager
 from claude_kb.errors import RepoNotFoundError
 from claude_kb.factories import DefaultConfigResolver
+from claude_kb.global_index import GlobalIndexManager
 from claude_kb.models import MigrationResult, ProjectConfig
 
 _Handler = Callable[[argparse.Namespace], int]
@@ -86,6 +88,7 @@ def _register_commands(
 def _init(args: argparse.Namespace) -> int:
     """Orchestrate ConfigManager + HookRegistrar to bootstrap a repo."""
     detector, loader, registrar, migrator = DefaultConfigResolver.build()
+    assert isinstance(detector, ConfigManager)
 
     start = args.path if args.path else Path.cwd()
 
@@ -124,6 +127,9 @@ def _init(args: argparse.Namespace) -> int:
     loader.write(repo_root, config)
     loader.save_state(repo_root, config)
     registrar.install_hooks(repo_root, config)
+
+    kb_root = detector.get_kb_root(config)
+    GlobalIndexManager().register(config.repo_name, config.repo_owner, kb_root)
 
     print(f"Initialised KB for {config.repo_name} at {repo_root}")
     return 0
@@ -168,6 +174,10 @@ def _migrate(args: argparse.Namespace) -> int:
 
     if not args.dry_run:
         loader.save_state(repo_root, config)
+        if result.new_kb_dir:
+            GlobalIndexManager().register(
+                config.repo_name, config.repo_owner, result.new_kb_dir
+            )
         print("State updated.")
 
     return 0

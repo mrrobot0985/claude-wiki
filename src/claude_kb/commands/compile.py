@@ -14,6 +14,7 @@ from typing import Any, cast
 
 from claude_kb.config import ConfigManager
 from claude_kb.factories import DefaultConfigResolver
+from claude_kb.global_index import GlobalIndexManager
 from claude_kb.models import ProjectConfig
 
 _KB_SUBDIRS = ("concepts", "connections", "qa")
@@ -341,6 +342,16 @@ def _handle_compile(args: argparse.Namespace) -> int:
         print("  Done.")
 
     _save_state(state_path, state)
+
+    article_count = GlobalIndexManager.count_articles(kb_root)
+    GlobalIndexManager().register(
+        config.repo_name,
+        config.repo_owner,
+        kb_root,
+        articles=article_count,
+        last_compiled=_iso_timestamp(),
+    )
+
     print(f"\nCompilation complete. Total cost: ${total_cost:.4f}")
     return 0
 
