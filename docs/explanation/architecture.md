@@ -32,7 +32,7 @@ ______________________________________________________________________
 ## Layer 4: Global Registry
 
 - `~/.local/share/claude-wiki/.registry.json` — machine-managed list of all repos
-- `~/.local/share/claude-wiki/index.md` — human-readable global catalog linking every repo's `index.md`
+- `~/.local/share/claude-wiki/core.md` — human-readable global catalog linking every repo's `index.md`
 - Updated automatically by `init`, `compile`, and `migrate`
 - Injected into SessionStart context so the agent knows about other knowledge bases
 

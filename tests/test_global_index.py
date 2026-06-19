@@ -1,4 +1,4 @@
-"""Tests for GlobalIndexManager registry and generated index.md."""
+"""Tests for GlobalIndexManager registry and generated core.md."""
 
 import tempfile
 from pathlib import Path
@@ -11,7 +11,7 @@ class TestGlobalIndexManager:
     """Tests for global registry operations."""
 
     def test_register_creates_registry_and_index(self):
-        """register creates .registry.json and index.md."""
+        """register creates .registry.json and core.md."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
             mgr = GlobalIndexManager(base_dir=base)
@@ -21,9 +21,9 @@ class TestGlobalIndexManager:
             mgr.register("my-project", "local", kb)
 
             assert (base / ".registry.json").exists()
-            assert (base / "index.md").exists()
-            index_text = (base / "index.md").read_text()
-            assert "local/my-project" in index_text
+            assert (base / "core.md").exists()
+            core_text = (base / "core.md").read_text()
+            assert "local/my-project" in core_text
 
     def test_register_preserves_existing_fields(self):
         """register updates kb_root while preserving articles and last_compiled."""
@@ -138,7 +138,7 @@ class TestGlobalIndexManager:
             mgr = GlobalIndexManager(base_dir=base)
             mgr.register("my-repo", "owner", kb, articles=2, last_compiled="2026-06-19")
 
-            text = (base / "index.md").read_text()
+            text = (base / "core.md").read_text()
             assert str(kb / "index.md") in text
             assert "owner/my-repo" in text
             assert "2 articles" in text
