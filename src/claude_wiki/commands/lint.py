@@ -132,9 +132,7 @@ def _check_orphan_pages(kb_root: Path) -> list[_Issue]:
     return issues
 
 
-def _check_orphan_sources(
-    daily_dir: Path, state: dict[str, Any]
-) -> list[_Issue]:
+def _check_orphan_sources(daily_dir: Path, state: dict[str, Any]) -> list[_Issue]:
     """Find daily logs that have not been compiled yet."""
     ingested = state.get("ingested", {})
     issues: list[_Issue] = []
@@ -151,9 +149,7 @@ def _check_orphan_sources(
     return issues
 
 
-def _check_stale_articles(
-    daily_dir: Path, state: dict[str, Any]
-) -> list[_Issue]:
+def _check_stale_articles(daily_dir: Path, state: dict[str, Any]) -> list[_Issue]:
     """Find daily logs that changed since last compilation."""
     ingested = state.get("ingested", {})
     issues: list[_Issue] = []
@@ -383,9 +379,7 @@ def _today_iso(timezone: str = "UTC") -> str:
     return datetime.now(tz).date().isoformat()
 
 
-def _save_report(
-    cache_dir: Path, issues: list[_Issue], today: str
-) -> Path:
+def _save_report(cache_dir: Path, issues: list[_Issue], today: str) -> Path:
     """Write the markdown lint report and return its path."""
     report_dir = cache_dir / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)

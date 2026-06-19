@@ -215,9 +215,7 @@ def _migrate(args: argparse.Namespace) -> int:
 
     previous = loader.load(repo_root)
     if args.reports_dir:
-        print(
-            "Warning: --reports-dir is deprecated and ignored.", file=sys.stderr
-        )
+        print("Warning: --reports-dir is deprecated and ignored.", file=sys.stderr)
 
     overrides: dict[str, Any] = {}
     if args.kb_dir:

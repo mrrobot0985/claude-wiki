@@ -80,7 +80,9 @@ class ConfigManager(RepoDetector, ConfigLoader):
                 daily_dir=Path(".claude/daily"),
             )
         if self._maybe_migrate_legacy(repo_root, config):
-            config = ProjectConfig.from_dict({**config.to_dict(), "layout_version": "2"})
+            config = ProjectConfig.from_dict(
+                {**config.to_dict(), "layout_version": "2"}
+            )
         return config
 
     def write(self, repo_root: Path, config: ProjectConfig) -> None:
@@ -90,9 +92,7 @@ class ConfigManager(RepoDetector, ConfigLoader):
         temp.write_text(json.dumps(config.to_dict(), indent=2), encoding="utf-8")
         os.replace(temp, marker)
 
-    def _maybe_migrate_legacy(
-        self, repo_root: Path, config: ProjectConfig
-    ) -> bool:
+    def _maybe_migrate_legacy(self, repo_root: Path, config: ProjectConfig) -> bool:
         """Lazy migration from layout_version 1 to 2.
 
         Moves legacy user-mode vaults, state.json, logs/, reports/, and
@@ -133,9 +133,7 @@ class ConfigManager(RepoDetector, ConfigLoader):
             if not src.exists():
                 return
             if dst.exists():
-                warnings.append(
-                    f"{label}: target {dst} already exists — skipping"
-                )
+                warnings.append(f"{label}: target {dst} already exists — skipping")
                 return
             try:
                 dst.parent.mkdir(parents=True, exist_ok=True)
@@ -149,9 +147,7 @@ class ConfigManager(RepoDetector, ConfigLoader):
             if not src.exists():
                 return
             if dst.exists():
-                warnings.append(
-                    f"{label}: target {dst} already exists — skipping"
-                )
+                warnings.append(f"{label}: target {dst} already exists — skipping")
                 return
             try:
                 dst.parent.mkdir(parents=True, exist_ok=True)

@@ -515,9 +515,7 @@ class TestLazyMigration:
                 "XDG_CACHE_HOME": str(tmpdir_path / "cache"),
             }
             with patch.dict(os.environ, env, clear=False):
-                old_kb = (
-                    tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
-                )
+                old_kb = tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
                 old_kb.mkdir(parents=True)
                 (old_kb / "article.md").write_text("knowledge")
                 (old_kb / "state.json").write_text("{}")
@@ -531,11 +529,7 @@ class TestLazyMigration:
 
                 assert config.layout_version == "2"
                 new_kb = (
-                    tmpdir_path
-                    / "data"
-                    / "claude-wiki-vault"
-                    / "owner"
-                    / "my-project"
+                    tmpdir_path / "data" / "claude-wiki-vault" / "owner" / "my-project"
                 )
                 assert (new_kb / "article.md").exists()
                 state_dir = (
@@ -626,9 +620,7 @@ class TestLazyMigration:
                 "XDG_CACHE_HOME": str(tmpdir_path / "cache"),
             }
             with patch.dict(os.environ, env, clear=False):
-                old_kb = (
-                    tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
-                )
+                old_kb = tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
                 old_kb.mkdir(parents=True)
                 (old_kb / "note.md").write_text("note")
 
@@ -636,11 +628,7 @@ class TestLazyMigration:
                 config1 = manager.load(repo)
                 assert config1.layout_version == "2"
                 new_kb = (
-                    tmpdir_path
-                    / "data"
-                    / "claude-wiki-vault"
-                    / "owner"
-                    / "my-project"
+                    tmpdir_path / "data" / "claude-wiki-vault" / "owner" / "my-project"
                 )
                 assert (new_kb / "note.md").exists()
 
@@ -676,9 +664,7 @@ class TestLazyMigration:
                 "XDG_CACHE_HOME": str(tmpdir_path / "cache"),
             }
             with patch.dict(os.environ, env, clear=False):
-                old_kb = (
-                    tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
-                )
+                old_kb = tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
                 old_kb.mkdir(parents=True)
                 (old_kb / "note.md").write_text("note")
 
