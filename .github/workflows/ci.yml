@@ -12,7 +12,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+      docs: ${{ steps.changes.outputs.docs }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@782470c5d953cae2693d643172b14e01bacb71f3 # v3.0.3
+        id: changes
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'Makefile'
+              - '.github/workflows/**'
+              - '.pre-commit-config.yaml'
+            docs:
+              - 'docs/**'
+              - '**.md'
+              - '.claude/skills/**'
+              - 'CHANGELOG.md'
+              - 'LICENSE'
+              - 'cliff.toml'
+
   test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -48,9 +78,11 @@ jobs:
       - name: Check markdown formatting
         run: |
           uvx --with mdformat-frontmatter --with mdformat-gfm mdformat --check \
-            docs/ README.md src/claude_wiki/AGENTS.md .claude/skills/claude-wiki/SKILL.md
+            .claude/skills/ docs/ README.md CHANGELOG.md src/claude_wiki/AGENTS.md
 
   precommit:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.code == 'true' || needs.detect-changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
