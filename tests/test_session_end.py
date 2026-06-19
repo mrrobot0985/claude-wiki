@@ -330,3 +330,187 @@ class TestSessionEndHandler:
         log_text = log_path.read_text(encoding="utf-8")
         assert "SessionEnd fired: session=xyz" in log_text
         assert "Spawned flush.py for session xyz" in log_text
+
+
+class TestSessionEndErrorPaths:
+    """Tests for error handling and edge cases in the SessionEnd handler."""
+
+    def _repo_with_config(self, tmp_path: Path) -> Path:
+        """Create a fake repo root with a .claude-wiki.lock."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(json.dumps({"repo_name": "repo", "repo_owner": "owner"}))
+        return repo
+
+    def test_config_load_error_is_handled(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A repo config error exits cleanly without crashing."""
+        from claude_wiki.config import ConfigManager
+        from claude_wiki.errors import ConfigError
+
+        monkeypatch.delenv("CLAUDE_INVOKED_BY", raising=False)
+        repo = self._repo_with_config(tmp_path)
+        monkeypatch.chdir(repo)
+
+        def _raise(*_args, **_kwargs):
+            raise ConfigError("bad config")
+
+        monkeypatch.setattr(ConfigManager, "load", _raise)
+        monkeypatch.setattr(
+            "sys.stdin",
+            io.StringIO('{"session_id":"x","transcript_path":"/tmp/t.jsonl"}'),
+        )
+
+        assert session_end._handle_session_end([]) == 0
+
+    def test_missing_transcript_file_is_logged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A transcript path that does not exist is skipped and logged."""
+        monkeypatch.delenv("CLAUDE_INVOKED_BY", raising=False)
+        repo = self._repo_with_config(tmp_path)
+        monkeypatch.chdir(repo)
+
+        missing = repo / "missing.jsonl"
+        payload = json.dumps({"session_id": "missing", "transcript_path": str(missing)})
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+
+        assert session_end._handle_session_end([]) == 0
+
+        log_path = repo / ".claude" / "knowledge" / "logs" / "flush.log"
+        assert log_path.exists()
+        assert "SKIP: transcript missing" in log_path.read_text(encoding="utf-8")
+
+    def test_context_extraction_error_is_logged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An exception during context extraction is logged and exits cleanly."""
+        monkeypatch.delenv("CLAUDE_INVOKED_BY", raising=False)
+        repo = self._repo_with_config(tmp_path)
+        monkeypatch.chdir(repo)
+
+        # A directory at the transcript path makes open() raise an OSError.
+        transcript = repo / "transcript.jsonl"
+        transcript.mkdir()
+        payload = json.dumps({"session_id": "bad", "transcript_path": str(transcript)})
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+
+        assert session_end._handle_session_end([]) == 0
+
+        log_path = repo / ".claude" / "knowledge" / "logs" / "flush.log"
+        assert log_path.exists()
+        assert "Context extraction failed" in log_path.read_text(encoding="utf-8")
+
+    def test_empty_context_is_logged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A transcript with no usable user/assistant content is skipped."""
+        monkeypatch.delenv("CLAUDE_INVOKED_BY", raising=False)
+        repo = self._repo_with_config(tmp_path)
+        monkeypatch.chdir(repo)
+
+        transcript = repo / "transcript.jsonl"
+        lines = [
+            json.dumps({"message": {"role": "system", "content": "system prompt"}}),
+            json.dumps({"message": {"role": "tool", "content": "tool result"}}),
+        ]
+        transcript.write_text("\n".join(lines), encoding="utf-8")
+        payload = json.dumps(
+            {"session_id": "empty", "transcript_path": str(transcript)}
+        )
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+
+        assert session_end._handle_session_end([]) == 0
+
+        log_path = repo / ".claude" / "knowledge" / "logs" / "flush.log"
+        assert log_path.exists()
+        assert "SKIP: empty context" in log_path.read_text(encoding="utf-8")
+
+    def test_insufficient_turns_is_logged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fewer than the configured minimum turns skips the flush."""
+        monkeypatch.delenv("CLAUDE_INVOKED_BY", raising=False)
+        repo = self._repo_with_config(tmp_path)
+        monkeypatch.chdir(repo)
+        monkeypatch.setattr(
+            "claude_wiki.hook_handlers.session_end.flush.DEFAULT_MIN_TURNS_TO_FLUSH", 5
+        )
+
+        transcript = repo / "transcript.jsonl"
+        lines = [
+            json.dumps({"message": {"role": "user", "content": "hello"}}),
+            json.dumps({"message": {"role": "assistant", "content": "hi"}}),
+        ]
+        transcript.write_text("\n".join(lines), encoding="utf-8")
+        payload = json.dumps(
+            {"session_id": "short", "transcript_path": str(transcript)}
+        )
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+
+        assert session_end._handle_session_end([]) == 0
+
+        log_path = repo / ".claude" / "knowledge" / "logs" / "flush.log"
+        assert log_path.exists()
+        assert "SKIP: only 2 turns (min 5)" in log_path.read_text(encoding="utf-8")
+
+    def test_spawn_flush_error_is_logged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failure to spawn the background flush is logged."""
+        monkeypatch.delenv("CLAUDE_INVOKED_BY", raising=False)
+        repo = self._repo_with_config(tmp_path)
+        monkeypatch.chdir(repo)
+
+        transcript = repo / "transcript.jsonl"
+        lines = [
+            json.dumps({"message": {"role": "user", "content": "hello"}}),
+            json.dumps({"message": {"role": "assistant", "content": "hi"}}),
+        ]
+        transcript.write_text("\n".join(lines), encoding="utf-8")
+        payload = json.dumps(
+            {"session_id": "spawn-err", "transcript_path": str(transcript)}
+        )
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("spawn failed")
+
+        monkeypatch.setattr(
+            "claude_wiki.hook_handlers.session_end.flush.spawn_flush", _raise
+        )
+
+        assert session_end._handle_session_end([]) == 0
+
+        log_path = repo / ".claude" / "knowledge" / "logs" / "flush.log"
+        assert log_path.exists()
+        assert "Failed to spawn flush.py" in log_path.read_text(encoding="utf-8")
+
+    def test_try_log_helpers_swallow_config_errors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_try_log and _try_log_error do not propagate config lookup failures."""
+        from claude_wiki.config import ConfigManager
+        from claude_wiki.errors import RepoNotFoundError
+
+        def _raise(*_args, **_kwargs):
+            raise RepoNotFoundError("no repo")
+
+        monkeypatch.setattr(ConfigManager, "find_repo_root", _raise)
+
+        assert session_end._try_log("message") is None
+        assert session_end._try_log_error("error message") is None
+
+
+class TestSessionEndRegistration:
+    """Auto-discovery contract for the SessionEnd handler."""
+
+    def test_register_adds_session_end_handler(self):
+        """register() maps SessionEnd to a callable handler."""
+        handlers: dict[str, object] = {}
+        session_end.register(handlers)
+        assert "SessionEnd" in handlers
+        assert callable(handlers["SessionEnd"])

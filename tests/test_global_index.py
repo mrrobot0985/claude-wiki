@@ -639,3 +639,140 @@ class TestGlobalIndexManager:
             # Generation should not raise even though the repo is gone.
             text = mgr._generate_markdown(mgr.list_entries())
             assert "repo" in text
+
+    def test_empty_registry_file_returns_empty(self):
+        """A registry file containing only whitespace is treated as empty."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / ".registry.json").write_text("   \n")
+            mgr = GlobalIndexManager(base_dir=base)
+            assert mgr.list_entries() == []
+
+    def test_registry_object_not_list_returns_empty(self, caplog):
+        """A registry file that parses to a non-list object is treated as empty."""
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / ".registry.json").write_text(json.dumps({"not": "list"}))
+            mgr = GlobalIndexManager(base_dir=base)
+            assert mgr.list_entries() == []
+            backups = list(base.glob(".registry.json*.broken"))
+            assert len(backups) == 1
+
+    def test_backup_corrupt_registry_oserror_is_swallowed(self, caplog):
+        """Failure to rename a corrupt registry is logged but does not crash."""
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            reg = base / ".registry.json"
+            reg.write_text(json.dumps({"not": "list"}))
+            mgr = GlobalIndexManager(base_dir=base)
+
+            original_rename = Path.rename
+
+            def failing_rename(self, target):
+                if self == reg:
+                    raise OSError("cannot rename")
+                return original_rename(self, target)
+
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setattr(Path, "rename", failing_rename)
+                assert mgr.list_entries() == []
+            assert "cannot rename" in caplog.text or "Failed to back up" in caplog.text
+
+    def test_read_lock_non_dict_returns_none(self, caplog):
+        """A lock file that parses to a non-dict type is treated as missing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text("[1, 2, 3]")
+            mgr = GlobalIndexManager(base_dir=Path(tmpdir) / "global")
+            assert mgr._read_lock(repo) is None
+            assert "expected object" in caplog.text.lower()
+
+    def test_resolve_path_relative_against_repo_root(self):
+        """Relative paths are resolved against repo_root when provided."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            mgr = GlobalIndexManager(base_dir=Path(tmpdir) / "global")
+            resolved = mgr._resolve_path("kb", str(repo))
+            assert resolved == (repo / "kb").resolve(strict=False)
+
+    def test_resolve_path_relative_without_repo_root(self):
+        """Relative paths resolve against cwd when repo_root is absent."""
+        original_cwd = os.getcwd()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                base = Path(tmpdir).resolve()
+                os.chdir(base)
+                mgr = GlobalIndexManager(base_dir=base / "global")
+                resolved = mgr._resolve_path("kb", None)
+                assert resolved == (base / "kb").resolve(strict=False)
+        finally:
+            os.chdir(original_cwd)
+
+    def test_format_link_escapes_spaces(self):
+        """Paths containing spaces are wrapped in angle brackets."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "my dir"
+            path.mkdir()
+            mgr = GlobalIndexManager(base_dir=Path(tmpdir) / "global")
+            link = mgr._format_link(path)
+            assert link.startswith("<") and link.endswith(">")
+            assert "my dir" in link
+
+    def test_sanitize_under_lock_preserves_legacy_entries(self):
+        """Entries with None or relative repo_root survive the locked sanitize pass."""
+        original_cwd = os.getcwd()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                base = Path(tmpdir)
+                os.chdir(base)
+                mgr = GlobalIndexManager(base_dir=base)
+                reg = base / ".registry.json"
+
+                alive_repo = base / "alive"
+                alive_repo.mkdir()
+                (alive_repo / ".claude-wiki.lock").write_text("{}")
+                # Create a directory matching the relative repo_root entry so
+                # markdown generation can resolve it without error.
+                (base / "repo").mkdir()
+
+                reg.write_text(
+                    json.dumps(
+                        [
+                            {
+                                "repo_name": "alive",
+                                "repo_owner": "local",
+                                "kb_root": str(base / "kb1"),
+                                "repo_root": str(alive_repo),
+                            },
+                            {
+                                "repo_name": "none-root",
+                                "repo_owner": "local",
+                                "kb_root": str(base / "kb2"),
+                            },
+                            {
+                                "repo_name": "relative-root",
+                                "repo_owner": "local",
+                                "kb_root": str(base / "kb3"),
+                                "repo_root": "repo",
+                            },
+                        ]
+                    )
+                )
+
+                # Trigger eviction so the locked re-check runs.
+                (alive_repo / ".claude-wiki.lock").unlink()
+                alive_repo.rmdir()
+
+                evicted = mgr.sanitize()
+                assert len(evicted) == 1
+                assert evicted[0].repo_name == "alive"
+                names = {e.repo_name for e in mgr.list_entries()}
+                assert names == {"none-root", "relative-root"}
+        finally:
+            os.chdir(original_cwd)

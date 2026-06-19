@@ -28,6 +28,7 @@ def repo(tmp_path, monkeypatch):
     kb_root = tmp_path / "kb-root"
     monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CLAUDE_INVOKED_BY", raising=False)
     return tmp_path
 
 
@@ -226,6 +227,136 @@ class TestPreCompactHandler:
         log_file = tmp_path / "kb-root" / "logs" / "flush.log"
         assert log_file.exists()
         assert "PreCompact fired" in log_file.read_text(encoding="utf-8")
+
+
+class TestPreCompactEdgeCases:
+    """Tests for error paths and boundary conditions."""
+
+    def test_import_error_falls_back_to_no_spawn(self, pre_compact, monkeypatch, repo):
+        """If claude_wiki.flush.spawn_flush is absent, _spawn_flush becomes None."""
+        import importlib
+
+        monkeypatch.delattr("claude_wiki.flush.spawn_flush", raising=False)
+        importlib.reload(pre_compact)
+
+        assert pre_compact._spawn_flush is None
+
+        transcript = repo / "transcript.jsonl"
+        _transcript(transcript, [("user", f"u{i}") for i in range(6)])
+        _stdin(
+            monkeypatch, {"session_id": "no-spawn", "transcript_path": str(transcript)}
+        )
+
+        result = pre_compact.handler([])
+
+        assert result == 1
+
+    def test_empty_stdin_is_tolerated(self, pre_compact, repo, monkeypatch, caplog):
+        """An empty stdin payload is treated as an empty dict."""
+        caplog.set_level(logging.INFO)
+        _stdin(monkeypatch, "")
+
+        result = pre_compact.handler([])
+
+        assert result == 0
+        assert "SKIP: no transcript path" in caplog.text
+
+    def test_malformed_jsonl_and_non_dict_message_are_skipped(
+        self, pre_compact, repo, monkeypatch, caplog
+    ):
+        """Empty lines, bad JSON, and non-dict message fields are ignored."""
+        caplog.set_level(logging.INFO)
+        transcript = repo / "transcript.jsonl"
+        lines = [
+            "",
+            "not-valid-json",
+            json.dumps({"message": "raw text", "role": "user", "content": "fallback"}),
+            json.dumps({"message": {"role": "assistant", "content": "kept"}}),
+        ]
+        transcript.write_text("\n".join(lines), encoding="utf-8")
+        _stdin(monkeypatch, {"session_id": "mixed", "transcript_path": str(transcript)})
+
+        result = pre_compact.handler([])
+
+        assert result == 0
+        assert "only 2 turns (min 5)" in caplog.text
+
+    def test_context_is_truncated_when_exceeding_max_chars(
+        self, pre_compact, repo, monkeypatch, caplog, tmp_path
+    ):
+        """Long contexts are trimmed from the end to the configured character limit."""
+        caplog.set_level(logging.INFO)
+        transcript = repo / "transcript.jsonl"
+        long_text = "x" * 600
+        _transcript(
+            transcript,
+            [("user", f"{long_text} u{i}") for i in range(30)],
+        )
+        _stdin(monkeypatch, {"session_id": "long", "transcript_path": str(transcript)})
+
+        result = pre_compact.handler([])
+
+        assert result == 0
+        logs_dir = tmp_path / "kb-root" / "logs"
+        context_files = list(logs_dir.glob("flush-context-long-*.md"))
+        assert len(context_files) == 1
+        context = context_files[0].read_text(encoding="utf-8")
+        assert len(context) <= 15_000
+        assert "u29" in context
+
+    def test_config_load_failure_returns_error(
+        self, pre_compact, repo, monkeypatch, caplog
+    ):
+        """Failure to locate or load the repo config returns 1."""
+        from claude_wiki.config import ConfigManager
+        from claude_wiki.errors import ConfigError
+
+        caplog.set_level(logging.ERROR)
+
+        def _raise(*_args, **_kwargs):
+            raise ConfigError("config load failed")
+
+        monkeypatch.setattr(ConfigManager, "load", _raise)
+        _stdin(
+            monkeypatch, {"session_id": "cfg", "transcript_path": str(repo / "t.jsonl")}
+        )
+
+        result = pre_compact.handler([])
+
+        assert result == 1
+        assert "Failed to locate repo root" in caplog.text
+
+    def test_context_extraction_failure_returns_error(
+        self, pre_compact, repo, monkeypatch, caplog
+    ):
+        """An exception reading the transcript returns 1."""
+        caplog.set_level(logging.ERROR)
+        transcript = repo / "transcript.jsonl"
+        transcript.mkdir()
+        _stdin(
+            monkeypatch, {"session_id": "extract", "transcript_path": str(transcript)}
+        )
+
+        result = pre_compact.handler([])
+
+        assert result == 1
+        assert "Context extraction failed" in caplog.text
+
+    def test_empty_context_skips_flush(self, pre_compact, repo, monkeypatch, caplog):
+        """A transcript yielding no usable context is skipped."""
+        caplog.set_level(logging.INFO)
+        transcript = repo / "transcript.jsonl"
+        _transcript(
+            transcript,
+            [("system", "system prompt"), ("tool", "tool result")],
+        )
+        _stdin(monkeypatch, {"session_id": "empty", "transcript_path": str(transcript)})
+
+        result = pre_compact.handler([])
+
+        assert result == 0
+        assert "SKIP: empty context" in caplog.text
+        pre_compact._spawn_flush.assert_not_called()
 
 
 class TestRegistration:
