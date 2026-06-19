@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from claude_wiki.catalog_utils import resolve_catalog
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
 from claude_wiki.models import QueryResult
@@ -44,7 +45,11 @@ def _handle_query(args: argparse.Namespace) -> int:
     config = detector.load(repo_root)
     kb_root = detector.get_kb_root(repo_root, config)
 
-    result = asyncio.run(_run_query(kb_root, args.question, file_back=args.file_back))
+    result = asyncio.run(
+        _run_query(
+            kb_root, args.question, file_back=args.file_back, repo_name=config.repo_name
+        )
+    )
 
     print(result.answer)
     if result.citations:
@@ -53,7 +58,13 @@ def _handle_query(args: argparse.Namespace) -> int:
             print(f"- [[{citation}]]")
 
     if args.file_back:
-        _file_back(kb_root, args.question, result, timezone=config.timezone)
+        _file_back(
+            kb_root,
+            args.question,
+            result,
+            timezone=config.timezone,
+            repo_name=config.repo_name,
+        )
         print(f"\nAnswer filed to knowledge/qa/{_slugify(args.question)}.md")
 
     return 0
@@ -64,6 +75,7 @@ async def _run_query(
     question: str,
     *,
     file_back: bool,
+    repo_name: str | None = None,
     query_func: Callable[..., AsyncIterator[object]] | None = None,
 ) -> QueryResult:
     """Query the knowledge base and return a cited answer."""
@@ -74,7 +86,7 @@ async def _run_query(
             confidence=0.0,
         )
 
-    content = _read_kb_content(kb_root)
+    content = _read_kb_content(kb_root, repo_name)
     prompt = _build_prompt(content, question)
     options: ClaudeAgentOptions | None = None
 
@@ -133,11 +145,11 @@ def _build_prompt(content: str, question: str) -> str:
 """
 
 
-def _read_kb_content(kb_root: Path) -> str:
+def _read_kb_content(kb_root: Path, repo_name: str | None = None) -> str:
     """Read index + all articles into a single context string."""
     parts: list[str] = []
 
-    index_file = kb_root / "index.md"
+    index_file = resolve_catalog(kb_root, repo_name)
     if index_file.exists():
         parts.append(f"## INDEX\n\n{index_file.read_text(encoding='utf-8')}")
 
@@ -172,6 +184,7 @@ def _file_back(
     result: QueryResult,
     *,
     timezone: str = "UTC",
+    repo_name: str | None = None,
 ) -> None:
     """Create a Q&A article and update index/log."""
     qa_dir = kb_root / "qa"
@@ -223,13 +236,19 @@ filed: {filed_date}
 """
 
     qa_file.write_text(content, encoding="utf-8")
-    _update_index(kb_root, slug, question, filed_date)
+    _update_index(kb_root, slug, question, filed_date, repo_name)
     _append_log(kb_root, timestamp, question, result.citations, slug)
 
 
-def _update_index(kb_root: Path, slug: str, question: str, filed_date: str) -> None:
-    """Add a row to index.md for the new Q&A article."""
-    index_file = kb_root / "index.md"
+def _update_index(
+    kb_root: Path,
+    slug: str,
+    question: str,
+    filed_date: str,
+    repo_name: str | None = None,
+) -> None:
+    """Add a row to the catalog for the new Q&A article."""
+    index_file = resolve_catalog(kb_root, repo_name)
     if not index_file.exists():
         return
 

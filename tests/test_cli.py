@@ -487,7 +487,7 @@ class TestMigrateCommand:
 
             assert exit_code == 0
             assert not (repo / "knowledge").exists()
-            assert (repo / "wiki" / "index.md").exists()
+            assert (repo / "wiki" / "my-project.md").exists()
             lock = json.loads((repo / ".claude-wiki.lock").read_text())
             assert lock["kb_dir"] == "wiki"
 

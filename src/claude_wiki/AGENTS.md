@@ -1,6 +1,6 @@
 # Knowledge Base Schema
 
-## `knowledge/index.md`
+## `knowledge/{repo_name}.md`
 
 Master catalog table:
 
