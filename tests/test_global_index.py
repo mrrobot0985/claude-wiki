@@ -161,3 +161,106 @@ class TestGlobalIndexManager:
             assert len(entries) == 2
             names = {e.repo_name for e in entries}
             assert names == {"repo-a", "repo-b"}
+
+    def test_sanitize_evicts_deleted_repo(self):
+        """sanitize removes entries whose repo root no longer exists."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            repo = base / "repo-a"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text("{}")
+            kb = base / "kb"
+            kb.mkdir()
+
+            mgr.register("repo-a", "owner", kb, repo_root=repo)
+
+            # Delete the repo root
+            (repo / ".claude-wiki.lock").unlink()
+            repo.rmdir()
+
+            evicted = mgr.sanitize()
+            assert len(evicted) == 1
+            assert evicted[0].repo_name == "repo-a"
+            assert mgr.list_entries() == []
+
+    def test_sanitize_keeps_alive_repo(self):
+        """sanitize preserves entries whose repo root and marker still exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            repo = base / "repo-a"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text("{}")
+            kb = base / "kb"
+            kb.mkdir()
+
+            mgr.register("repo-a", "owner", kb, repo_root=repo)
+
+            evicted = mgr.sanitize()
+            assert len(evicted) == 0
+            assert len(mgr.list_entries()) == 1
+
+    def test_sanitize_evicts_missing_marker(self):
+        """sanitize removes entries whose repo exists but marker is gone."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            repo = base / "repo-a"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text("{}")
+            kb = base / "kb"
+            kb.mkdir()
+
+            mgr.register("repo-a", "owner", kb, repo_root=repo)
+
+            # Remove marker but keep repo
+            (repo / ".claude-wiki.lock").unlink()
+
+            evicted = mgr.sanitize()
+            assert len(evicted) == 1
+            assert mgr.list_entries() == []
+
+    def test_sanitize_skips_legacy_entries(self):
+        """sanitize does not evict legacy entries missing repo_root."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            kb = base / "kb"
+            kb.mkdir()
+
+            mgr.register("legacy", "owner", kb)
+
+            evicted = mgr.sanitize()
+            assert len(evicted) == 0
+            assert len(mgr.list_entries()) == 1
+
+    def test_register_calls_sanitize(self):
+        """register automatically triggers sanitize."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+
+            alive_repo = base / "alive"
+            alive_repo.mkdir()
+            (alive_repo / ".claude-wiki.lock").write_text("{}")
+            alive_kb = base / "alive-kb"
+            alive_kb.mkdir()
+
+            dead_repo = base / "dead"
+            dead_repo.mkdir()
+            (dead_repo / ".claude-wiki.lock").write_text("{}")
+            dead_kb = base / "dead-kb"
+            dead_kb.mkdir()
+
+            mgr.register("dead", "owner", dead_kb, repo_root=dead_repo)
+            (dead_repo / ".claude-wiki.lock").unlink()
+            dead_repo.rmdir()
+            dead_kb.rmdir()
+
+            # Register a new alive repo — should trigger sanitize
+            mgr.register("alive", "owner", alive_kb, repo_root=alive_repo)
+
+            entries = mgr.list_entries()
+            assert len(entries) == 1
+            assert entries[0].repo_name == "alive"

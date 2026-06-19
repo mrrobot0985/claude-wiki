@@ -348,6 +348,7 @@ def _handle_compile(args: argparse.Namespace) -> int:
         config.repo_name,
         config.repo_owner,
         kb_root,
+        repo_root=repo_root,
         articles=article_count,
         last_compiled=_iso_timestamp(),
     )

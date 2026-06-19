@@ -131,7 +131,9 @@ def _init(args: argparse.Namespace) -> int:
     registrar.install_hooks(repo_root, config)
 
     kb_root = detector.get_kb_root(config)
-    GlobalIndexManager().register(config.repo_name, config.repo_owner, kb_root)
+    GlobalIndexManager().register(
+        config.repo_name, config.repo_owner, kb_root, repo_root=repo_root
+    )
 
     print(f"Initialised KB for {config.repo_name} at {repo_root}")
     return 0
@@ -181,7 +183,10 @@ def _migrate(args: argparse.Namespace) -> int:
         loader.save_state(repo_root, config)
         if result.new_kb_dir:
             GlobalIndexManager().register(
-                config.repo_name, config.repo_owner, result.new_kb_dir
+                config.repo_name,
+                config.repo_owner,
+                result.new_kb_dir,
+                repo_root=repo_root,
             )
         print("State updated.")
 
