@@ -170,3 +170,147 @@ class TestSessionStartRegistration:
         register(handlers)
         assert "SessionStart" in handlers
         assert callable(handlers["SessionStart"])
+
+
+class TestSessionStartEdgeCases:
+    """Tests for error handling and boundary conditions."""
+
+    def _repo_with_lock(self, repo: Path, extra: dict | None = None) -> None:
+        """Write a minimal .claude-wiki.lock in the repo."""
+        data = {"repo_name": "repo", "repo_owner": "owner"}
+        if extra:
+            data.update(extra)
+        (repo / ".claude-wiki.lock").write_text(json.dumps(data))
+
+    def test_corrupt_lock_file_is_handled_gracefully(self, monkeypatch, capsys):
+        """A corrupt .claude-wiki.lock does not crash the hook."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text("not-json")
+            monkeypatch.chdir(repo)
+
+            exit_code = _session_start([])
+            captured = capsys.readouterr()
+
+            assert exit_code == 0
+            output = json.loads(captured.out)
+            context = output["hookSpecificOutput"]["additionalContext"]
+            assert "(empty - no articles compiled yet)" in context
+            assert "(no recent daily log)" in context
+
+    def test_kb_root_resolution_error_uses_placeholder(self, monkeypatch, capsys):
+        """If resolving the KB root fails, the index placeholder is used."""
+        from claude_wiki.config import ConfigManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            self._repo_with_lock(repo, {"kb_dir": "knowledge"})
+            (repo / "knowledge").mkdir()
+            (repo / "knowledge" / "index.md").write_text("# Index")
+
+            monkeypatch.chdir(repo)
+
+            def _raise(*_args, **_kwargs):
+                raise RuntimeError("kb root unavailable")
+
+            monkeypatch.setattr(ConfigManager, "get_kb_root", _raise)
+
+            exit_code = _session_start([])
+            captured = capsys.readouterr()
+
+            assert exit_code == 0
+            output = json.loads(captured.out)
+            context = output["hookSpecificOutput"]["additionalContext"]
+            assert "(empty - no articles compiled yet)" in context
+
+    def test_daily_log_resolution_error_uses_placeholder(self, monkeypatch, capsys):
+        """If reading the recent daily log fails, a placeholder is shown."""
+        import claude_wiki.hook_handlers.session_start as session_start_mod
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            self._repo_with_lock(repo, {"kb_dir": "knowledge", "daily_dir": "daily"})
+            (repo / "knowledge").mkdir()
+            (repo / "knowledge" / "index.md").write_text("# Index")
+
+            monkeypatch.chdir(repo)
+
+            def _raise_daily(_path):
+                raise RuntimeError("daily unreadable")
+
+            monkeypatch.setattr(
+                session_start_mod,
+                "_get_recent_daily_log",
+                _raise_daily,
+            )
+
+            exit_code = _session_start([])
+            captured = capsys.readouterr()
+
+            assert exit_code == 0
+            output = json.loads(captured.out)
+            context = output["hookSpecificOutput"]["additionalContext"]
+            assert "(no recent daily log)" in context
+
+    def test_global_summary_error_is_suppressed(self, monkeypatch, capsys):
+        """A failure building the global summary is silently suppressed."""
+        from claude_wiki.global_index import GlobalIndexManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            self._repo_with_lock(repo, {"kb_dir": "knowledge", "daily_dir": "daily"})
+            (repo / "knowledge").mkdir()
+            (repo / "knowledge" / "index.md").write_text("# Index")
+            (repo / "daily").mkdir()
+            today = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
+            (repo / "daily" / f"{today}.md").write_text("## Log")
+
+            monkeypatch.chdir(repo)
+
+            def _raise_global(*_args, **_kwargs):
+                raise RuntimeError("global index down")
+
+            monkeypatch.setattr(GlobalIndexManager, "compact_summary", _raise_global)
+
+            exit_code = _session_start([])
+            captured = capsys.readouterr()
+
+            assert exit_code == 0
+            output = json.loads(captured.out)
+            context = output["hookSpecificOutput"]["additionalContext"]
+            assert "# Index" in context
+            assert "## Log" in context
+            assert "## Global Knowledge Bases" not in context
+
+    def test_short_context_is_not_truncated(self, monkeypatch, capsys):
+        """A context well below the limit keeps all sections and no truncation marker."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            self._repo_with_lock(repo, {"kb_dir": "knowledge", "daily_dir": "daily"})
+            (repo / "knowledge").mkdir()
+            (repo / "knowledge" / "index.md").write_text("# Tiny index")
+            (repo / "daily").mkdir()
+            today = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
+            (repo / "daily" / f"{today}.md").write_text("Small daily note.")
+
+            monkeypatch.chdir(repo)
+
+            exit_code = _session_start([])
+            captured = capsys.readouterr()
+
+            assert exit_code == 0
+            output = json.loads(captured.out)
+            context = output["hookSpecificOutput"]["additionalContext"]
+            assert "...(truncated)" not in context
+            assert "# Tiny index" in context
+            assert "Small daily note." in context
