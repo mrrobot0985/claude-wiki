@@ -83,21 +83,25 @@ class MigrationManager(Migrator):
             # Nothing to migrate
             return result
 
-        if dst.exists() and any(dst.iterdir()):
-            # Destination already has data — warn but do not overwrite
-            warnings = [
-                *result.warnings,
-                f"{label}: destination {dst} already exists and is not empty — skipping.",
-            ]
-            return MigrationResult(
-                migrated=result.migrated,
-                old_kb_dir=result.old_kb_dir,
-                new_kb_dir=result.new_kb_dir,
-                old_daily_dir=result.old_daily_dir,
-                new_daily_dir=result.new_daily_dir,
-                errors=result.errors,
-                warnings=warnings,
-            )
+        if dst.exists():
+            if any(dst.iterdir()):
+                # Destination already has data — warn but do not overwrite
+                warnings = [
+                    *result.warnings,
+                    f"{label}: destination {dst} already exists and is not empty — skipping.",
+                ]
+                return MigrationResult(
+                    migrated=result.migrated,
+                    old_kb_dir=result.old_kb_dir,
+                    new_kb_dir=result.new_kb_dir,
+                    old_daily_dir=result.old_daily_dir,
+                    new_daily_dir=result.new_daily_dir,
+                    errors=result.errors,
+                    warnings=warnings,
+                )
+            elif not dry_run:
+                # Empty destination — remove so shutil.move places src at dst root
+                dst.rmdir()
 
         if dry_run:
             print(f"[dry-run] Would move {label}: {src} -> {dst}")

@@ -1,4 +1,4 @@
-"""`kb compile` — process daily logs into the knowledge base."""
+"""`claude-wiki compile` — process daily logs into the knowledge base."""
 
 from __future__ import annotations
 
@@ -287,7 +287,7 @@ def _find_files_to_compile(
 
 
 def _handle_compile(args: argparse.Namespace) -> int:
-    """Entry point for ``kb compile``."""
+    """Entry point for ``claude-wiki compile``."""
     detector, loader, _registrar, _migrator = DefaultConfigResolver.build()
     assert isinstance(detector, ConfigManager)
 
@@ -299,7 +299,7 @@ def _handle_compile(args: argparse.Namespace) -> int:
         return 1
 
     config = loader.load(repo_root)
-    kb_root = detector.get_kb_root(config)
+    kb_root = detector.get_kb_root(repo_root, config)
     daily_dir = repo_root / config.daily_dir
     state_path = kb_root / "state.json"
     state = _load_state(state_path)

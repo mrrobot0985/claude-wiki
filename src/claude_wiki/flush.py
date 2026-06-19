@@ -136,7 +136,7 @@ def write_context_file(
 def get_logs_dir(config: ProjectConfig, repo_root: Path) -> Path:
     """Return the per-machine logs directory used for logs and state."""
     manager = ConfigManager()
-    kb_root = manager.get_kb_root(config)
+    kb_root = manager.get_kb_root(repo_root, config)
     return kb_root / "logs"
 
 

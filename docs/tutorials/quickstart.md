@@ -15,12 +15,6 @@ ______________________________________________________________________
 uvx claude-wiki init
 ```
 
-Or with pip:
-
-```bash
-pip install claude-wiki
-```
-
 ## Step 2: Initialise Your Repository
 
 ```bash
@@ -28,10 +22,9 @@ cd my-project
 claude-wiki init
 ```
 
-This creates three things:
+This creates two things:
 
 1. `.claude-wiki.lock` — per-repo configuration
-1. `.claude-wiki.state.json` — migration checkpoint (do not commit)
 1. `.claude/settings.local.json` — repo-local hook registration for Claude Code
 
 Use `claude-wiki init --global` to write hooks to `~/.claude/settings.json` instead (affects all sessions).

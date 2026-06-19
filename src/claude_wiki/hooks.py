@@ -11,12 +11,15 @@ _Handler = Callable[[list[str]], int]
 
 
 def main(argv: list[str] | None = None) -> int:
-    """kb-hook <Event>"""
+    """claude-wiki-hook <Event>"""
     if not argv:
         argv = sys.argv[1:]
 
     if len(argv) < 1:
-        print("Usage: kb-hook SessionStart|SessionEnd|PreCompact", file=sys.stderr)
+        print(
+            "Usage: claude-wiki-hook SessionStart|SessionEnd|PreCompact",
+            file=sys.stderr,
+        )
         return 1
 
     event = argv[0]

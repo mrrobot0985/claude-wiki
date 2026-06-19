@@ -4,13 +4,7 @@ Installable Python package providing Claude Code hooks and a CLI for a personal 
 
 ## Install
 
-From PyPI (recommended):
-
-```bash
-pip install claude-wiki
-```
-
-With `uv`:
+With `uv` (recommended):
 
 ```bash
 uvx claude-wiki init
@@ -19,7 +13,7 @@ uvx claude-wiki init
 From source in a clone of this repo:
 
 ```bash
-uv pip install -e .
+uv sync --extra dev --frozen
 ```
 
 ## Usage
@@ -52,7 +46,6 @@ claude-wiki-hook PreCompact
 ```text
 my-project/
 ├── .claude-wiki.lock              # per-repo config (machine-managed)
-├── .claude-wiki.state.json       # migration checkpoint (do not commit)
 ├── .claude/settings.local.json   # repo-local hook registration (default)
 └── daily/                         # conversation logs (created on first flush)
 ```
@@ -67,8 +60,9 @@ Use `claude-wiki init --global` to write hooks to `~/.claude/settings.json` inst
 {
   "repo_name": "my-project",
   "repo_owner": "local",
-  "kb_dir": "knowledge",
+  "kb_dir": "project",
   "daily_dir": "daily",
+  "reports_dir": "reports",
   "timezone": "UTC",
   "compile_after_hour": 18
 }

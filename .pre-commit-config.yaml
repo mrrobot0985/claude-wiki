@@ -1,13 +1,13 @@
 repos:
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.18.2
+    rev: v8.30.1
     hooks:
       - id: gitleaks
         name: Scan for secrets
         stages: [pre-commit]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.5.0
+    rev: v0.15.18
     hooks:
       - id: ruff
         name: Lint with ruff
@@ -26,7 +26,7 @@ repos:
         args: [--check]
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.10.1
+    rev: v2.1.0
     hooks:
       - id: mypy
         name: Type check with mypy
@@ -48,7 +48,7 @@ repos:
         stages: [pre-commit]
 
   - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v3.2.0
+    rev: v4.4.0
     hooks:
       - id: conventional-pre-commit
         name: Validate conventional commit message

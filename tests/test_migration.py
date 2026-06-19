@@ -153,6 +153,33 @@ class TestMigrationManager:
             assert old_kb.exists()
             assert not (repo / "wiki").exists()
 
+    def test_migration_when_destination_empty(self):
+        """Migrate when destination exists but is empty — contents end up at dst root, not dst/src."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            old_kb = repo / "knowledge"
+            old_kb.mkdir()
+            (old_kb / "index.md").write_text("# Index")
+            new_kb = repo / "wiki"
+            new_kb.mkdir()  # exists but empty
+
+            current = ProjectConfig(
+                repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+            )
+            previous = ProjectConfig(
+                repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+            )
+
+            mgr = MigrationManager()
+            result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+            assert result.migrated
+            assert not result.errors
+            assert new_kb.exists()
+            assert (new_kb / "index.md").exists()
+            assert not old_kb.exists()
+            assert not (new_kb / "knowledge").exists()  # must NOT be nested
+
     def test_warning_when_destination_exists(self):
         """Warn when destination already exists and is not empty."""
         with tempfile.TemporaryDirectory() as tmpdir:

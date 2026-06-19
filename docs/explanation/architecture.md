@@ -41,15 +41,16 @@ ______________________________________________________________________
 Priority chain for KB root (highest wins):
 
 1. `CLAUDE_WIKI_PROJECT_DIR` env var
-1. `.claude-wiki.lock` with absolute `kb_dir`
-1. XDG default: `~/.local/share/claude-wiki/<owner>/<repo>/`
-1. Fallback: `~/.local/share/claude-wiki/local/<repo-name>/`
+1. Absolute `kb_dir` in `.claude-wiki.lock`
+1. `kb_dir = "project"` → `<repo>/.claude/knowledge/` (default)
+1. `kb_dir = "user"` → XDG: `~/.local/share/claude-wiki/<owner>/<repo>/`
+1. Any other relative path → `<repo>/<path>/`
 
 ## State Tracking
 
-- `.claude-wiki.state.json` — snapshot of the last known config in each repo root
-- Used by `migrate` to detect path changes between runs
-- Do not commit; it is machine-managed
+- `.claude-wiki.lock` — per-repo config marker. `migrate` compares the previously saved config against the current config (including any `--kb-dir`, `--daily-dir`, or `--reports-dir` overrides) to detect path changes between runs.
+- `state.json` — lives inside the knowledge base directory (`kb_root / state.json`) and tracks daily-log compilation hashes, timestamps, and cost estimates.
+- Do not commit `state.json`; it is machine-managed.
 
 ## Dependency Direction
 
