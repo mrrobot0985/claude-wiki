@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Interactive initialization mode (`claude-wiki init` prompts when stdin is a TTY)
+- Git remote owner inference for `repo_owner` (supports HTTPS and SSH remotes)
+- Bidirectional provenance: compiled articles backlink to source daily logs
+- Daily log symlink in KB root for cross-mode navigation (`kb_root/daily`)
+- Migration rollback on partial failure (LIFO reversal of completed moves)
+- Registry advisory file lock for concurrent read-modify-write safety
+- Registry backup on corruption (`.registry.json.<timestamp>.broken`)
+
+### Fixed
+
+- Config path normalization: `get_kb_root()` always returns resolved absolute paths
+- Atomic lock-file I/O: crash-safe writes via temp file + `os.replace()`
+- Corrupt `.claude-wiki.lock` now raises `ConfigError` with file path context
+- Migration false success when move is skipped (`migrated=False` when dest non-empty)
+- Migration path comparison: resolves symlinks and `..` before comparing
+- Migration overlap guard: rejects containment, not just equality
+- Migration crash on file destinations: `dst.is_dir()` guard before `iterdir()`
+- `ProjectConfig` mutable defaults: uses `default_factory` for `Path` fields
+- `ProjectConfig` validation: non-empty strings, `compile_after_hour` in 0–23
+- Registry corruption: validates entries individually, skips malformed with warning
+- Registry relative `repo_root`: normalizes to absolute on register, preserves legacy
+- `core.md` cross-repo navigation: per-repo sections with repo root and daily links
+
 ## [0.1.1] - 2026-06-19
 
 ### Documentation
