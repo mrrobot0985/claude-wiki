@@ -34,7 +34,7 @@ jobs:
         run: uv build
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540c597ac5cf71eb4c7c5b4d # v5.2.0
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
           path: dist/
@@ -53,7 +53,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Download artifacts
-        uses: actions/download-artifact@d3c4048ef872789d23a90d08c64b2c2a9f1c9980 # v4.1.9
+        uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # v4.2.0
         with:
           name: dist
           path: dist/
