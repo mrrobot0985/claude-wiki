@@ -5,8 +5,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from claude_kb.factories import DefaultHookRegistrar
-from claude_kb.models import ProjectConfig
+from claude_wiki.factories import DefaultHookRegistrar
+from claude_wiki.models import ProjectConfig
 
 
 class TestHookRegistrar:

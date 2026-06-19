@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from claude_kb.cli import main
-from claude_kb.commands import compile as _compile_module  # noqa: F401
+from claude_wiki.cli import main
+from claude_wiki.commands import compile as _compile_module  # noqa: F401
 
 
 def _make_repo(tmpdir: str) -> tuple[Path, Path]:
@@ -18,7 +18,7 @@ def _make_repo(tmpdir: str) -> tuple[Path, Path]:
     (repo / ".git").mkdir()
 
     kb_root = Path(tmpdir) / "kb"
-    marker = repo / ".claude-wiki.json"
+    marker = repo / ".claude-wiki.lock"
     marker.write_text(
         json.dumps(
             {
@@ -61,7 +61,7 @@ class TestCompileCommand:
 
         monkeypatch.chdir(repo)
         compile_mock = mocker.patch(
-            "claude_kb.commands.compile._compile_one", return_value=0.0
+            "claude_wiki.commands.compile._compile_one", return_value=0.0
         )
 
         exit_code = main(["compile"])
@@ -100,7 +100,7 @@ class TestCompileCommand:
 
         monkeypatch.chdir(repo)
         compile_mock = mocker.patch(
-            "claude_kb.commands.compile._compile_one", return_value=0.0
+            "claude_wiki.commands.compile._compile_one", return_value=0.0
         )
 
         exit_code = main(["compile", "--all"])
@@ -123,7 +123,7 @@ class TestCompileCommand:
 
         monkeypatch.chdir(repo)
         compile_mock = mocker.patch(
-            "claude_kb.commands.compile._compile_one", return_value=0.0
+            "claude_wiki.commands.compile._compile_one", return_value=0.0
         )
 
         exit_code = main(["compile", "--file", "daily/2026-06-18.md"])
@@ -146,7 +146,7 @@ class TestCompileCommand:
         (daily_dir / "2026-06-19.md").write_text("new content")
 
         monkeypatch.chdir(repo)
-        compile_mock = mocker.patch("claude_kb.commands.compile._compile_one")
+        compile_mock = mocker.patch("claude_wiki.commands.compile._compile_one")
 
         exit_code = main(["compile", "--dry-run"])
         captured = capsys.readouterr()
@@ -187,7 +187,7 @@ class TestCompileCommand:
 
         monkeypatch.chdir(repo)
         mocker.patch(
-            "claude_kb.commands.compile._compile_one", side_effect=fake_compile
+            "claude_wiki.commands.compile._compile_one", side_effect=fake_compile
         )
 
         exit_code = main(["compile"])
@@ -204,7 +204,7 @@ class TestCompileCommand:
         repo, _kb_root = _make_repo(str(tmp_path))
 
         monkeypatch.chdir(repo)
-        compile_mock = mocker.patch("claude_kb.commands.compile._compile_one")
+        compile_mock = mocker.patch("claude_wiki.commands.compile._compile_one")
 
         exit_code = main(["compile"])
         captured = capsys.readouterr()
@@ -222,7 +222,7 @@ class TestCompileCommand:
         daily_dir.mkdir()
 
         monkeypatch.chdir(repo)
-        compile_mock = mocker.patch("claude_kb.commands.compile._compile_one")
+        compile_mock = mocker.patch("claude_wiki.commands.compile._compile_one")
 
         exit_code = main(["compile", "--file", "daily/2026-06-99.md"])
         captured = capsys.readouterr()

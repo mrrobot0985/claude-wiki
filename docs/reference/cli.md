@@ -5,7 +5,7 @@
 User-facing commands.
 
 ```
-usage: kb [-h] {init,compile,lint,query} ...
+usage: claude-wiki [-h] {init,migrate,compile,lint,query} ...
 ```
 
 ### `claude-wiki init`
@@ -19,9 +19,9 @@ claude-wiki init [--path PATH] [--force]
 | Option | Description |
 |--------|-------------|
 | `--path` | Repo root to initialise (default: auto-detect) |
-| `--force` | Overwrite existing `.claude-wiki.json` |
+| `--force` | Overwrite existing `.claude-wiki.lock` |
 
-Creates `.claude-wiki.json`, `daily/`, and merges hooks into `~/.claude/settings.json`.
+Creates `.claude-wiki.lock`, `daily/`, and merges hooks into `~/.claude/settings.json`.
 
 ### `claude-wiki compile`
 
@@ -49,6 +49,21 @@ claude-wiki query QUESTION [--file-back]
 |--------|-------------|
 | `QUESTION` | The question to ask |
 | `--file-back` | Save the answer to `knowledge/qa/` |
+
+### `claude-wiki migrate`
+
+Check and migrate data when config paths change.
+
+```
+claude-wiki migrate [--path PATH] [--dry-run]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--path` | Repo root to check (default: auto-detect) |
+| `--dry-run` | Show what would move without touching disk |
+
+Use after editing `kb_dir` or `daily_dir` in `.claude-wiki.lock`. Always run `--dry-run` first.
 
 ### `claude-wiki lint`
 

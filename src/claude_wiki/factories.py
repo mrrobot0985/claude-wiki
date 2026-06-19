@@ -6,10 +6,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from claude_kb.config import ConfigManager
-from claude_kb.interfaces import ConfigLoader, HookRegistrar, Migrator, RepoDetector
-from claude_kb.migration import MigrationManager
-from claude_kb.models import ProjectConfig
+from claude_wiki.config import ConfigManager
+from claude_wiki.interfaces import ConfigLoader, HookRegistrar, Migrator, RepoDetector
+from claude_wiki.migration import MigrationManager
+from claude_wiki.models import ProjectConfig
 
 
 class DefaultHookRegistrar(HookRegistrar):

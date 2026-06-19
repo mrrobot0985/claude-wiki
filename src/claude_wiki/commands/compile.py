@@ -12,10 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
-from claude_kb.config import ConfigManager
-from claude_kb.factories import DefaultConfigResolver
-from claude_kb.global_index import GlobalIndexManager
-from claude_kb.models import ProjectConfig
+from claude_wiki.config import ConfigManager
+from claude_wiki.factories import DefaultConfigResolver
+from claude_wiki.global_index import GlobalIndexManager
+from claude_wiki.models import ProjectConfig
 
 _KB_SUBDIRS = ("concepts", "connections", "qa")
 
@@ -125,7 +125,7 @@ def _read_schema() -> str:
     try:
         from importlib.resources import files
 
-        return (files("claude_kb") / "AGENTS.md").read_text(encoding="utf-8")
+        return (files("claude_wiki") / "AGENTS.md").read_text(encoding="utf-8")
     except (ImportError, OSError):
         return _DEFAULT_SCHEMA
 

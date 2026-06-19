@@ -9,13 +9,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from claude_kb import hook_handlers
+from claude_wiki import hook_handlers
 
 
 @pytest.fixture
 def pre_compact():
     """Import the handler module with a mocked shared flush function."""
-    from claude_kb.hook_handlers import pre_compact as mod
+    from claude_wiki.hook_handlers import pre_compact as mod
 
     mod._spawn_flush = MagicMock()
     return mod

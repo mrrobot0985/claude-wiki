@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from claude_kb.models import MigrationResult, ProjectConfig
+    from claude_wiki.models import MigrationResult, ProjectConfig
 
 
 @runtime_checkable
@@ -18,7 +18,7 @@ class RepoDetector(Protocol):
 
 @runtime_checkable
 class ConfigLoader(Protocol):
-    """Reads and writes the repo-local .claude-wiki.json marker."""
+    """Reads and writes the repo-local .claude-wiki.lock marker."""
 
     def load(self, repo_root: Path) -> ProjectConfig: ...
     def write(self, repo_root: Path, config: ProjectConfig) -> None: ...

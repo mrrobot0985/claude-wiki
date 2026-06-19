@@ -31,4 +31,4 @@ Protocols enable fakes. Tests for `ConfigManager` run in temp directories. Tests
 
 ## 5. No Hardcoded Paths
 
-Everything resolves at runtime via `.claude-wiki.json`, environment variables, or XDG defaults. The same package works in any repository without recompilation.
+Everything resolves at runtime via `.claude-wiki.lock`, environment variables, or XDG defaults. The same package works in any repository without recompilation.

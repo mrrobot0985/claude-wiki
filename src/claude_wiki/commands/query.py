@@ -12,9 +12,9 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from claude_kb.config import ConfigManager
-from claude_kb.errors import RepoNotFoundError
-from claude_kb.models import QueryResult
+from claude_wiki.config import ConfigManager
+from claude_wiki.errors import RepoNotFoundError
+from claude_wiki.models import QueryResult
 
 
 def register(

@@ -8,9 +8,9 @@ from pathlib import Path
 
 from platformdirs import user_data_dir
 
-from claude_kb.errors import RepoNotFoundError
-from claude_kb.interfaces import ConfigLoader, RepoDetector
-from claude_kb.models import ProjectConfig
+from claude_wiki.errors import RepoNotFoundError
+from claude_wiki.interfaces import ConfigLoader, RepoDetector
+from claude_wiki.models import ProjectConfig
 
 
 class ConfigManager(RepoDetector, ConfigLoader):
@@ -19,21 +19,21 @@ class ConfigManager(RepoDetector, ConfigLoader):
     _STATE_NAME = ".claude-wiki.state.json"
 
     def find_repo_root(self, start: Path) -> Path:
-        """Walk upward looking for .git or .claude-wiki.json."""
+        """Walk upward looking for .git or .claude-wiki.lock."""
         current = start.resolve()
         while True:
-            if (current / ".git").exists() or (current / ".claude-wiki.json").exists():
+            if (current / ".git").exists() or (current / ".claude-wiki.lock").exists():
                 return current
             parent = current.parent
             if parent == current:
                 raise RepoNotFoundError(
-                    f"Not in a git repo: no .git or .claude-wiki.json found from {start}"
+                    f"Not in a git repo: no .git or .claude-wiki.lock found from {start}"
                 )
             current = parent
 
     def load(self, repo_root: Path) -> ProjectConfig:
-        """Read .claude-wiki.json if present, else infer defaults."""
-        marker = repo_root / ".claude-wiki.json"
+        """Read .claude-wiki.lock if present, else infer defaults."""
+        marker = repo_root / ".claude-wiki.lock"
         if marker.exists():
             data = json.loads(marker.read_text())
             return ProjectConfig.from_dict(data)
@@ -44,8 +44,8 @@ class ConfigManager(RepoDetector, ConfigLoader):
         )
 
     def write(self, repo_root: Path, config: ProjectConfig) -> None:
-        """Persist .claude-wiki.json."""
-        marker = repo_root / ".claude-wiki.json"
+        """Persist .claude-wiki.lock."""
+        marker = repo_root / ".claude-wiki.lock"
         marker.write_text(json.dumps(config.to_dict(), indent=2))
 
     def get_kb_root(self, config: ProjectConfig) -> Path:

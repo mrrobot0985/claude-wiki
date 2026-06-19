@@ -4,14 +4,14 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from claude_kb.cli import main
+from claude_wiki.cli import main
 
 
 class TestInitCommand:
     """Tests for kb init CLI command."""
 
     def test_init_creates_marker_and_settings(self):
-        """kb init creates .claude-wiki.json and updates ~/.claude/settings.json."""
+        """kb init creates .claude-wiki.lock and updates ~/.claude/settings.json."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir) / "my-project"
             repo.mkdir()
@@ -23,7 +23,7 @@ class TestInitCommand:
                 exit_code = main(["init", "--path", str(repo)])
                 assert exit_code == 0
 
-            marker = repo / ".claude-wiki.json"
+            marker = repo / ".claude-wiki.lock"
             assert marker.exists()
             assert (claude_dir / "settings.json").exists()
 
@@ -42,7 +42,7 @@ class TestInitCommand:
                 exit_code = main(["init", "--path", str(subdir)])
                 assert exit_code == 0
 
-            assert (repo / ".claude-wiki.json").exists()
+            assert (repo / ".claude-wiki.lock").exists()
 
     def test_init_force_flag_overwrites(self):
         """kb init --force overwrites existing marker."""
@@ -50,7 +50,7 @@ class TestInitCommand:
             repo = Path(tmpdir) / "my-project"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.json").write_text('{"repo_name": "old-name"}')
+            (repo / ".claude-wiki.lock").write_text('{"repo_name": "old-name"}')
             claude_dir = Path(tmpdir) / ".claude"
             claude_dir.mkdir()
 
@@ -58,5 +58,5 @@ class TestInitCommand:
                 exit_code = main(["init", "--path", str(repo), "--force"])
                 assert exit_code == 0
 
-            data = __import__("json").loads((repo / ".claude-wiki.json").read_text())
+            data = __import__("json").loads((repo / ".claude-wiki.lock").read_text())
             assert data["repo_name"] == "my-project"

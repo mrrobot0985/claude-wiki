@@ -10,11 +10,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from claude_kb.config import ConfigManager
-from claude_kb.errors import RepoNotFoundError
-from claude_kb.factories import DefaultConfigResolver
-from claude_kb.global_index import GlobalIndexManager
-from claude_kb.models import MigrationResult, ProjectConfig
+from claude_wiki.config import ConfigManager
+from claude_wiki.errors import RepoNotFoundError
+from claude_wiki.factories import DefaultConfigResolver
+from claude_wiki.global_index import GlobalIndexManager
+from claude_wiki.models import MigrationResult, ProjectConfig
 
 _Handler = Callable[[argparse.Namespace], int]
 
@@ -71,7 +71,7 @@ def _register_commands(
     handlers: dict[str, _Handler],
 ) -> None:
     """Auto-discover and register command modules from commands/."""
-    from claude_kb import commands as commands_pkg
+    from claude_wiki import commands as commands_pkg
 
     for _finder, name, _ispkg in pkgutil.iter_modules(
         commands_pkg.__path__, commands_pkg.__name__ + "."
@@ -98,7 +98,7 @@ def _init(args: argparse.Namespace) -> int:
         print("Error: Not in a git repository.", file=sys.stderr)
         return 1
 
-    marker = repo_root / ".claude-wiki.json"
+    marker = repo_root / ".claude-wiki.lock"
     if marker.exists() and not args.force:
         print(
             f"KB already initialised at {repo_root}. Use --force to overwrite.",
@@ -147,8 +147,8 @@ def _migrate(args: argparse.Namespace) -> int:
         print("Error: Not in a git repository.", file=sys.stderr)
         return 1
 
-    if not (repo_root / ".claude-wiki.json").exists():
-        print("Error: No .claude-wiki.json found. Run 'claude-wiki init' first.", file=sys.stderr)
+    if not (repo_root / ".claude-wiki.lock").exists():
+        print("Error: No .claude-wiki.lock found. Run 'claude-wiki init' first.", file=sys.stderr)
         return 1
 
     config = loader.load(repo_root)

@@ -6,16 +6,16 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from claude_kb.config import ConfigManager
-from claude_kb.global_index import GlobalIndexManager
-from claude_kb.models import ProjectConfig
+from claude_wiki.config import ConfigManager
+from claude_wiki.global_index import GlobalIndexManager
+from claude_wiki.models import ProjectConfig
 
 MAX_CONTEXT_CHARS = 20_000
 MAX_LOG_LINES = 30
 
 
 def _find_repo_root(start: Path | None = None) -> Path | None:
-    """Walk upward from start to locate .git or .claude-wiki.json."""
+    """Walk upward from start to locate .git or .claude-wiki.lock."""
     manager = ConfigManager()
     try:
         return manager.find_repo_root(start or Path.cwd())
@@ -24,7 +24,7 @@ def _find_repo_root(start: Path | None = None) -> Path | None:
 
 
 def _load_config(repo_root: Path | None) -> ProjectConfig | None:
-    """Load .claude-wiki.json, or return None if not in a repo."""
+    """Load .claude-wiki.lock, or return None if not in a repo."""
     if repo_root is None:
         return None
     try:

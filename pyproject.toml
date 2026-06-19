@@ -23,15 +23,15 @@ Homepage = "https://github.com/mrrobot0985/claude-wiki-package"
 Repository = "https://github.com/mrrobot0985/claude-wiki-package"
 
 [project.scripts]
-claude-wiki = "claude_kb.cli:main"
-claude-wiki-hook = "claude_kb.hooks:main"
+claude-wiki = "claude_wiki.cli:main"
+claude-wiki-hook = "claude_wiki.hooks:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/claude_kb"]
+packages = ["src/claude_wiki"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

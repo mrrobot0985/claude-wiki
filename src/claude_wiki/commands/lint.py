@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
-from claude_kb.config import ConfigManager
-from claude_kb.errors import RepoNotFoundError
-from claude_kb.models import ProjectConfig
+from claude_wiki.config import ConfigManager
+from claude_wiki.errors import RepoNotFoundError
+from claude_wiki.models import ProjectConfig
 
 
 KB_SUBDIRS = ("concepts", "connections", "qa")

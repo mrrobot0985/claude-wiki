@@ -1,6 +1,8 @@
 # Configuration File
 
-`.claude-wiki.json` — per-repository marker file.
+`.claude-wiki.lock` — per-repository marker file. Machine-managed via `claude-wiki init` and `claude-wiki migrate`.
+
+A companion file `.claude-wiki.state.json` is written automatically and tracks the last known configuration for change detection. Do not commit it — it is machine-managed.
 
 ---
 
@@ -14,6 +16,15 @@
 | `daily_dir` | `str` | `"daily"` | Source log directory |
 | `timezone` | `str` | `"UTC"` | Timezone for timestamps |
 | `compile_after_hour` | `int` | `18` | Earliest auto-compile hour |
+
+## Changing Paths
+
+If you change `kb_dir` or `daily_dir`, run `claude-wiki migrate` to move existing data. Always preview with `--dry-run` first:
+
+```bash
+claude-wiki migrate --dry-run
+claude-wiki migrate
+```
 
 ## Examples
 

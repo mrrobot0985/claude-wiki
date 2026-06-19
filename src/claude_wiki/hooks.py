@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _load_handlers(handlers: dict[str, _Handler]) -> None:
     """Auto-discover handler modules from hook_handlers/."""
-    from claude_kb import hook_handlers as handlers_pkg
+    from claude_wiki import hook_handlers as handlers_pkg
 
     for _finder, name, _ispkg in pkgutil.iter_modules(
         handlers_pkg.__path__, handlers_pkg.__name__ + "."

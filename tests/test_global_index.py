@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from claude_kb.global_index import GlobalIndexManager, RegistryEntry
+from claude_wiki.global_index import GlobalIndexManager, RegistryEntry
 
 
 class TestGlobalIndexManager:

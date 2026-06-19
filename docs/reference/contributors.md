@@ -36,7 +36,7 @@ uvx ruff format .
 
 ## Adding a Command
 
-1. Create `src/claude_kb/commands/<name>.py`
+1. Create `src/claude_wiki/commands/<name>.py`
 2. Export `def register(subparsers, handlers) -> None: ...`
 3. Add tests in `tests/test_<name>.py`
 
@@ -44,7 +44,7 @@ Commands are auto-discovered at runtime by `cli.py`.
 
 ## Adding a Hook Handler
 
-1. Create `src/claude_kb/hook_handlers/<event>.py`
+1. Create `src/claude_wiki/hook_handlers/<event>.py`
 2. Export `def register(handlers) -> None: ...`
 3. Add tests in `tests/test_<event>.py`
 

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from claude_kb.migration import MigrationManager
-from claude_kb.models import ProjectConfig
+from claude_wiki.migration import MigrationManager
+from claude_wiki.models import ProjectConfig
 
 
 class TestMigrationManager:

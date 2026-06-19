@@ -9,8 +9,8 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from unittest.mock import patch
 
-from claude_kb.cli import main
-from claude_kb.commands.query import (
+from claude_wiki.cli import main
+from claude_wiki.commands.query import (
     _append_log,
     _extract_wikilinks,
     _file_back,
@@ -21,7 +21,7 @@ from claude_kb.commands.query import (
     _update_index,
     register,
 )
-from claude_kb.models import QueryResult
+from claude_wiki.models import QueryResult
 
 
 def _fake_sdk_query(answer: str) -> Callable[..., AsyncIterator[object]]:
@@ -262,7 +262,7 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.json").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
 
             old_cwd = os.getcwd()
             try:
@@ -277,7 +277,7 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.json").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "index.md").write_text("# Index")
@@ -306,7 +306,7 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.json").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "index.md").write_text("# Index")

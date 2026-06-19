@@ -2,7 +2,7 @@
 
 The command implementations for `compile`, `query`, and `lint` are injected at
 runtime to verify CLI dispatch and the full repo lifecycle. Once the real
-command modules exist under `src/claude_kb/commands/`, this test can be
+command modules exist under `src/claude_wiki/commands/`, this test can be
 updated to use them directly.
 """
 
@@ -15,7 +15,7 @@ from typing import Any, Callable
 
 import pytest
 
-from claude_kb.cli import main as kb_main
+from claude_wiki.cli import main as kb_main
 
 _Handler = Callable[[Any], int]
 
@@ -35,7 +35,7 @@ def _inject_fake_commands(monkeypatch: pytest.MonkeyPatch) -> None:
         parser.add_argument("--dry-run", action="store_true")
 
         def handle(args: Any) -> int:
-            from claude_kb.config import ConfigManager
+            from claude_wiki.config import ConfigManager
 
             repo = ConfigManager().find_repo_root(Path.cwd())
             config = ConfigManager().load(repo)
@@ -62,7 +62,7 @@ def _inject_fake_commands(monkeypatch: pytest.MonkeyPatch) -> None:
         parser.add_argument("--file-back", action="store_true")
 
         def handle(args: Any) -> int:
-            from claude_kb.config import ConfigManager
+            from claude_wiki.config import ConfigManager
 
             repo = ConfigManager().find_repo_root(Path.cwd())
             config = ConfigManager().load(repo)
@@ -82,7 +82,7 @@ def _inject_fake_commands(monkeypatch: pytest.MonkeyPatch) -> None:
         parser.add_argument("--structural-only", action="store_true")
 
         def handle(args: Any) -> int:
-            from claude_kb.config import ConfigManager
+            from claude_wiki.config import ConfigManager
 
             repo = ConfigManager().find_repo_root(Path.cwd())
             config = ConfigManager().load(repo)
@@ -103,20 +103,20 @@ def _inject_fake_commands(monkeypatch: pytest.MonkeyPatch) -> None:
 
         handlers["lint"] = handle
 
-    make_module("claude_kb.commands.compile", register_compile)
-    make_module("claude_kb.commands.query", register_query)
-    make_module("claude_kb.commands.lint", register_lint)
+    make_module("claude_wiki.commands.compile", register_compile)
+    make_module("claude_wiki.commands.query", register_query)
+    make_module("claude_wiki.commands.lint", register_lint)
 
     import pkgutil
 
     original_iter_modules = pkgutil.iter_modules
 
     def fake_iter_modules(path: Any = None, prefix: str = "") -> Any:
-        if prefix == "claude_kb.commands.":
+        if prefix == "claude_wiki.commands.":
             return [
-                (None, "claude_kb.commands.compile", False),
-                (None, "claude_kb.commands.query", False),
-                (None, "claude_kb.commands.lint", False),
+                (None, "claude_wiki.commands.compile", False),
+                (None, "claude_wiki.commands.query", False),
+                (None, "claude_wiki.commands.lint", False),
             ]
         return original_iter_modules(path, prefix)
 
@@ -141,7 +141,7 @@ class TestKBWorkflow:
         _inject_fake_commands(monkeypatch)
 
         assert kb_main(["init"]) == 0
-        assert (repo / ".claude-wiki.json").exists()
+        assert (repo / ".claude-wiki.lock").exists()
         assert (Path.home() / ".claude" / "settings.json").exists()
 
         daily = repo / "daily"

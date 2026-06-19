@@ -7,7 +7,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from claude_kb.hook_handlers.session_start import _session_start, register
+from claude_wiki.hook_handlers.session_start import _session_start, register
 
 
 class TestSessionStart:
@@ -48,7 +48,7 @@ class TestSessionStart:
                 "## Log\n\nConversation happened."
             )
 
-            marker = repo / ".claude-wiki.json"
+            marker = repo / ".claude-wiki.lock"
             marker.write_text(
                 json.dumps(
                     {
@@ -85,7 +85,7 @@ class TestSessionStart:
                 "Yesterday's notes."
             )
 
-            marker = repo / ".claude-wiki.json"
+            marker = repo / ".claude-wiki.lock"
             marker.write_text(json.dumps({"repo_name": "repo", "repo_owner": "owner"}))
 
             monkeypatch.chdir(repo)
@@ -109,7 +109,7 @@ class TestSessionStart:
 
             (kb / "index.md").write_text("x" * 25_000)
 
-            marker = repo / ".claude-wiki.json"
+            marker = repo / ".claude-wiki.lock"
             marker.write_text(
                 json.dumps(
                     {
@@ -135,7 +135,7 @@ class TestSessionStart:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            marker = repo / ".claude-wiki.json"
+            marker = repo / ".claude-wiki.lock"
             marker.write_text(json.dumps({"repo_name": "repo", "repo_owner": "owner"}))
 
             monkeypatch.chdir(repo)

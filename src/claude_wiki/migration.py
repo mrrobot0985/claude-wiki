@@ -6,8 +6,8 @@ import json
 import shutil
 from pathlib import Path
 
-from claude_kb.interfaces import Migrator
-from claude_kb.models import MigrationResult, ProjectConfig
+from claude_wiki.interfaces import Migrator
+from claude_wiki.models import MigrationResult, ProjectConfig
 
 
 class MigrationManager(Migrator):
@@ -26,7 +26,7 @@ class MigrationManager(Migrator):
         """Compare configs and move data if kb_dir or daily_dir changed.
 
         Args:
-            repo_root: Repository root containing .claude-wiki.json.
+            repo_root: Repository root containing .claude-wiki.lock.
             current: The freshly loaded/current config.
             previous: The last known config (from state file), or None.
             dry_run: When True, report what would move without touching disk.
