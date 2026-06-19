@@ -13,17 +13,21 @@ from claude_wiki.models import ProjectConfig
 
 
 class DefaultHookRegistrar(HookRegistrar):
-    """Installs hooks into ~/.claude/settings.json with merge semantics."""
+    """Installs hooks into a Claude Code settings file with merge semantics."""
 
-    def install_hooks(self, repo_root: Path, config: ProjectConfig) -> None:
-        """Idempotently write global settings.json."""
-        claude_dir = Path.home() / ".claude"
-        claude_dir.mkdir(parents=True, exist_ok=True)
-        settings_file = claude_dir / "settings.json"
+    def install_hooks(
+        self,
+        repo_root: Path,
+        config: ProjectConfig,
+        *,
+        settings_path: Path,
+    ) -> None:
+        """Idempotently write hooks into the given settings file."""
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
 
         settings: dict[str, Any]
-        if settings_file.exists():
-            settings = json.loads(settings_file.read_text())
+        if settings_path.exists():
+            settings = json.loads(settings_path.read_text())
         else:
             settings = {}
 
@@ -73,7 +77,7 @@ class DefaultHookRegistrar(HookRegistrar):
         for event, hook_list in our_hooks.items():
             settings["hooks"][event] = hook_list
 
-        settings_file.write_text(json.dumps(settings, indent=2))
+        settings_path.write_text(json.dumps(settings, indent=2))
 
 
 class DefaultConfigResolver:

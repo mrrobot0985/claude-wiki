@@ -28,9 +28,11 @@ class ConfigLoader(Protocol):
 
 @runtime_checkable
 class HookRegistrar(Protocol):
-    """Mutates the global ~/.claude/settings.json to register hooks."""
+    """Mutates a Claude Code settings.json to register hooks."""
 
-    def install_hooks(self, repo_root: Path, config: ProjectConfig) -> None: ...
+    def install_hooks(
+        self, repo_root: Path, config: ProjectConfig, *, settings_path: Path
+    ) -> None: ...
 
 
 @runtime_checkable

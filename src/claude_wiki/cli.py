@@ -31,6 +31,12 @@ def main(argv: list[str] | None = None) -> int:
     init_parser.add_argument(
         "--force", action="store_true", help="Overwrite existing marker"
     )
+    init_parser.add_argument(
+        "--global",
+        dest="global_flag",
+        action="store_true",
+        help="Install hooks into ~/.claude/settings.json instead of repo-local .claude/settings.local.json",
+    )
 
     # migrate
     migrate_parser = subparsers.add_parser(
@@ -128,7 +134,16 @@ def _init(args: argparse.Namespace) -> int:
 
     loader.write(repo_root, config)
     loader.save_state(repo_root, config)
-    registrar.install_hooks(repo_root, config)
+
+    if args.global_flag:
+        settings_path = Path.home() / ".claude" / "settings.json"
+    else:
+        settings_path = repo_root / ".claude" / "settings.local.json"
+
+    registrar.install_hooks(repo_root, config, settings_path=settings_path)
+
+    target_label = "global" if args.global_flag else "repo-local"
+    print(f"Installed hooks into {target_label} settings: {settings_path}")
 
     kb_root = detector.get_kb_root(config)
     GlobalIndexManager().register(
