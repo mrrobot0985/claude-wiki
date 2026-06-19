@@ -1,0 +1,128 @@
+"""SessionEnd hook handler — fast local I/O, then spawn background flush."""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import sys
+from pathlib import Path
+from typing import Any
+
+from claude_kb import flush
+from claude_kb.config import ConfigManager
+from claude_kb.errors import ClaudeKBError
+
+logger = logging.getLogger("claude_kb.session_end")
+
+
+def _handle_session_end(argv: list[str]) -> int:
+    """Handle a Claude Code SessionEnd hook invocation.
+
+    Reads JSON from stdin, extracts the last conversation turns from the
+    transcript, and spawns ``claude_kb.flush`` in the background to do the
+    LLM work.
+    """
+    # Recursion guard: if a nested Claude invocation triggered by the Agent SDK
+    # somehow fires this hook, exit immediately without doing any work.
+    if os.environ.get("CLAUDE_INVOKED_BY"):
+        return 0
+
+    raw = sys.stdin.read()
+    try:
+        hook_input: dict[str, Any] = flush.read_hook_input(raw)
+    except (json.JSONDecodeError, ValueError) as e:
+        _try_log_error(f"Failed to parse stdin: {e}")
+        return 0
+
+    session_id = hook_input.get("session_id", "unknown")
+    transcript_path_str = hook_input.get("transcript_path", "")
+
+    if not isinstance(transcript_path_str, str) or not transcript_path_str:
+        _try_log("SessionEnd fired: session={session_id} SKIP: no transcript path")
+        return 0
+
+    try:
+        manager = ConfigManager()
+        repo_root = manager.find_repo_root(Path.cwd())
+        config = manager.load(repo_root)
+    except ClaudeKBError as e:
+        _try_log_error(f"Could not load repo config: {e}")
+        return 0
+
+    scripts_dir = flush.get_scripts_dir(config, repo_root)
+    log_path = scripts_dir / "flush.log"
+    flush.configure_logging(log_path)
+
+    source = hook_input.get("source", "unknown")
+    logger.info("SessionEnd fired: session=%s source=%s", session_id, source)
+
+    transcript_path = Path(transcript_path_str)
+    if not transcript_path.exists():
+        logger.info("SKIP: transcript missing: %s", transcript_path_str)
+        return 0
+
+    try:
+        context, turn_count = flush.extract_conversation_context(transcript_path)
+    except Exception as e:
+        logger.error("Context extraction failed: %s", e)
+        return 0
+
+    if not context.strip():
+        logger.info("SKIP: empty context")
+        return 0
+
+    if turn_count < flush.DEFAULT_MIN_TURNS_TO_FLUSH:
+        logger.info(
+            "SKIP: only %d turns (min %d)", turn_count, flush.DEFAULT_MIN_TURNS_TO_FLUSH
+        )
+        return 0
+
+    context_file = flush.write_context_file(
+        scripts_dir, session_id, context, prefix="session-flush"
+    )
+
+    try:
+        proc = flush.spawn_flush(context_file, session_id, repo_root)
+        logger.info(
+            "Spawned flush.py for session %s (%d turns, %d chars) pid=%s",
+            session_id,
+            turn_count,
+            len(context),
+            proc.pid,
+        )
+    except Exception as e:
+        logger.error("Failed to spawn flush.py: %s", e)
+
+    return 0
+
+
+def _try_log(message: str) -> None:
+    """Best-effort log when full config is not yet available."""
+    try:
+        manager = ConfigManager()
+        repo_root = manager.find_repo_root(Path.cwd())
+        config = manager.load(repo_root)
+        scripts_dir = flush.get_scripts_dir(config, repo_root)
+        flush.configure_logging(scripts_dir / "flush.log")
+        logger.info(message)
+    except Exception:
+        pass
+
+
+def _try_log_error(message: str) -> None:
+    """Best-effort error log when full config is not yet available."""
+    try:
+        manager = ConfigManager()
+        repo_root = manager.find_repo_root(Path.cwd())
+        config = manager.load(repo_root)
+        scripts_dir = flush.get_scripts_dir(config, repo_root)
+        flush.configure_logging(scripts_dir / "flush.log")
+        logger.error(message)
+    except Exception:
+        pass
+
+
+def register(handlers: dict[str, Any]) -> None:
+    """Register the SessionEnd handler with the hook dispatcher."""
+    handlers["SessionEnd"] = _handle_session_end
