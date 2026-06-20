@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.6.0] - 2026-06-20
+
 ### Added
 
 - `claude-wiki status` diagnostic command — checks lock file, daily logs, KB catalog, hooks, registry ([#88](https://github.com/mrrobot0985/claude-wiki/issues/88))
