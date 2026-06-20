@@ -30,14 +30,20 @@ def register(
         action="store_true",
         help="File the answer back into the knowledge base as a Q&A article",
     )
+    parser.add_argument(
+        "--path",
+        type=Path,
+        help="Repo root (default: auto-detect from current directory)",
+    )
     handlers["query"] = _handle_query
 
 
 def _handle_query(args: argparse.Namespace) -> int:
     """Run a query against the configured knowledge base."""
     detector = ConfigManager()
+    start = args.path if args.path else Path.cwd()
     try:
-        repo_root = detector.find_repo_root(Path.cwd())
+        repo_root = detector.find_repo_root(start)
     except RepoNotFoundError:
         print("Error: Not in a git repository.", file=sys.stderr)
         return 1
