@@ -407,6 +407,7 @@ def _handle_compile(args: argparse.Namespace) -> int:
 
     _preload_compile_context(kb_root, config.repo_name)
     total_cost = 0.0
+    failed_logs: list[str] = []
     try:
         for log_path in to_compile:
             print(f"\nCompiling {log_path.name}...")
@@ -414,6 +415,9 @@ def _handle_compile(args: argparse.Namespace) -> int:
                 cost = _compile_one(log_path, repo_root, kb_root, config)
             except Exception as exc:
                 print(f"  Error: {exc}", file=sys.stderr)
+                failed_logs.append(log_path.name)
+                if not args.continue_on_error:
+                    break
                 continue
 
             state["ingested"][log_path.name] = {
@@ -440,7 +444,7 @@ def _handle_compile(args: argparse.Namespace) -> int:
     )
 
     print(f"\nCompilation complete. Total cost: ${total_cost:.4f}")
-    return 0
+    return 1 if failed_logs else 0
 
 
 def register(
@@ -466,6 +470,11 @@ def register(
         "--dry-run",
         action="store_true",
         help="Show which logs would be compiled without running the compiler",
+    )
+    parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help="Keep compiling remaining logs after a failure; still exit non-zero if any failed",
     )
     parser.add_argument(
         "--path",

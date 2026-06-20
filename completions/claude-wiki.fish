@@ -8,6 +8,7 @@ complete -c claude-wiki -n '__fish_use_subcommand' -a "compile init lint migrate
 
 # compile flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l all
+complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l continue-on-error
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l dry-run
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l file
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l help
