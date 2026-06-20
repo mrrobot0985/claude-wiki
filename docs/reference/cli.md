@@ -5,7 +5,7 @@
 User-facing commands.
 
 ```
-usage: claude-wiki [-h] {init,migrate,compile,lint,query} ...
+usage: claude-wiki [-h] {init,migrate,compile,lint,query,rename-catalog} ...
 ```
 
 ### `claude-wiki init`
@@ -32,11 +32,12 @@ Compile daily logs into the knowledge base.
 claude-wiki compile [--all] [--file FILE] [--dry-run] [--path PATH]
 ```
 
-| Option      | Description                             |
-| ----------- | --------------------------------------- |
-| `--all`     | Force full recompile                    |
-| `--file`    | Compile a specific daily log            |
-| `--dry-run` | Show what would compile without writing |
+| Option      | Description                               |
+| ----------- | ----------------------------------------- |
+| `--all`     | Force full recompile                      |
+| `--file`    | Compile a specific daily log              |
+| `--dry-run` | Show what would compile without writing   |
+| `--path`    | Repo root (default: auto-detect from cwd) |
 
 ### `claude-wiki query`
 
@@ -65,7 +66,7 @@ claude-wiki migrate [--path PATH] [--dry-run] [--kb-dir PATH] [--daily-dir PATH]
 | `--dry-run`     | Show what would move without touching disk     |
 | `--kb-dir`      | Override knowledge base directory for this run |
 | `--daily-dir`   | Override daily log directory for this run      |
-| `--reports-dir` | Override lint reports directory for this run   |
+| `--reports-dir` | Deprecated and ignored                         |
 
 Use after editing `kb_dir` or `daily_dir` in `.claude-wiki.lock`. Always run `--dry-run` first.
 
@@ -80,6 +81,19 @@ claude-wiki lint [--structural-only]
 | Option              | Description                  |
 | ------------------- | ---------------------------- |
 | `--structural-only` | Skip LLM contradiction check |
+
+### `claude-wiki rename-catalog`
+
+Rename a legacy `index.md` catalog to `{repo_name}.md` and rewrite article wikilinks that point to it (ADR-006).
+
+```
+claude-wiki rename-catalog [--dry-run] [--path PATH]
+```
+
+| Option      | Description                                  |
+| ----------- | -------------------------------------------- |
+| `--dry-run` | Show what would change without touching disk |
+| `--path`    | KB root path (default: current repo's KB)    |
 
 ## `claude-wiki-hook`
 
