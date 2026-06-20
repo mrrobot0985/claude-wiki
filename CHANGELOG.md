@@ -7,6 +7,10 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - `.gitignore` entries for `.claude-wiki.lock` and `coverage.json`
+- `CONTRIBUTING.md` at repo root with branch naming and PR checklist
+  ([#78](https://github.com/mrrobot0985/claude-wiki/issues/78))
+- GitHub issue templates for bug reports and feature requests
+  ([#78](https://github.com/mrrobot0985/claude-wiki/issues/78))
 
 ## [0.5.0] - 2026-06-20
 
