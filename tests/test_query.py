@@ -7,6 +7,7 @@ import json
 import os
 import tempfile
 from collections.abc import AsyncIterator, Callable
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -40,6 +41,48 @@ def _fake_sdk_query(answer: str) -> Callable[..., AsyncIterator[object]]:
         yield Message()
 
     return fake_query
+
+
+def _capturing_fake_sdk_query(
+    capture: dict[str, str], answer: str
+) -> Callable[..., AsyncIterator[object]]:
+    """Capture the prompt passed to the fake SDK and return a canned answer."""
+
+    async def fake_query(*, prompt: str, options: object) -> AsyncIterator[object]:
+        capture["prompt"] = prompt
+
+        class Block:
+            text = answer
+
+        class Message:
+            content = [Block()]
+
+        yield Message()
+
+    return fake_query
+
+
+def _write_article(
+    kb: Path,
+    category: str,
+    name: str,
+    body: str,
+    *,
+    updated: str | None = None,
+    created: str | None = None,
+) -> Path:
+    """Create a KB article with optional YAML frontmatter dates."""
+    (kb / category).mkdir(parents=True, exist_ok=True)
+    parts = ["---"]
+    if updated is not None:
+        parts.append(f"updated: {updated}")
+    if created is not None:
+        parts.append(f"created: {created}")
+    parts.append("---")
+    frontmatter = "\n".join(parts) + "\n\n" if updated or created else ""
+    article = kb / category / f"{name}.md"
+    article.write_text(frontmatter + body, encoding="utf-8")
+    return article
 
 
 class TestQueryHelpers:
@@ -81,7 +124,9 @@ class TestQueryHelpers:
         with tempfile.TemporaryDirectory() as tmpdir:
             kb = Path(tmpdir) / "kb"
             kb.mkdir()
-            assert _read_kb_content(kb) == ""
+            content, count = _read_kb_content(kb)
+            assert content == ""
+            assert count == 0
 
     def test_read_kb_content_reads_catalog_and_articles(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -97,10 +142,115 @@ class TestQueryHelpers:
             connections.mkdir()
             (connections / "auth-and-webhooks.md").write_text("# Connection")
 
-            content = _read_kb_content(kb, repo_name="test")
+            content, count = _read_kb_content(kb, repo_name="test")
             assert "## INDEX" in content
             assert "## concepts/auth.md" in content
             assert "## connections/auth-and-webhooks.md" in content
+            assert count == 2
+
+
+class TestReadKbContentScope:
+    """Unit tests for query scoping helpers."""
+
+    def test_category_filter_single(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "auth", "# Auth")
+            _write_article(kb, "connections", "auth-and-webhooks", "# Connection")
+            _write_article(kb, "qa", "question", "# Q&A")
+
+            content, count = _read_kb_content(
+                kb, repo_name="repo", categories=["concepts"]
+            )
+            assert count == 1
+            assert "## concepts/auth.md" in content
+            assert "## connections/auth-and-webhooks.md" not in content
+            assert "## qa/question.md" not in content
+
+    def test_category_filter_multiple(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "auth", "# Auth")
+            _write_article(kb, "connections", "auth-and-webhooks", "# Connection")
+            _write_article(kb, "qa", "question", "# Q&A")
+
+            content, count = _read_kb_content(
+                kb, repo_name="repo", categories=["concepts", "qa"]
+            )
+            assert count == 2
+            assert "## concepts/auth.md" in content
+            assert "## qa/question.md" in content
+            assert "## connections/auth-and-webhooks.md" not in content
+
+    def test_since_filter_uses_updated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "old", "# Old", updated="2026-05-01")
+            _write_article(kb, "concepts", "new", "# New", updated="2026-06-15")
+
+            content, count = _read_kb_content(
+                kb, repo_name="repo", since=date(2026, 6, 1)
+            )
+            assert count == 1
+            assert "## concepts/new.md" in content
+            assert "## concepts/old.md" not in content
+
+    def test_since_filter_falls_back_to_created(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(
+                kb, "concepts", "fallback", "# Fallback", created="2026-06-10"
+            )
+            _write_article(
+                kb,
+                "concepts",
+                "stale",
+                "# Stale",
+                created="2026-05-10",
+                updated="2026-05-15",
+            )
+
+            content, count = _read_kb_content(
+                kb, repo_name="repo", since=date(2026, 6, 1)
+            )
+            assert count == 1
+            assert "## concepts/fallback.md" in content
+            assert "## concepts/stale.md" not in content
+
+    def test_max_chars_drops_oldest_articles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "old", "# Old\n\nx", updated="2026-06-01")
+            _write_article(kb, "concepts", "new", "# New\n\ny", updated="2026-06-10")
+
+            content, count = _read_kb_content(kb, repo_name="repo", max_chars=100)
+            assert count == 1
+            assert "## concepts/new.md" in content
+            assert "## concepts/old.md" not in content
+            assert "## INDEX" in content
+
+    def test_max_chars_keeps_all_when_under_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "a", "# A", updated="2026-06-01")
+            _write_article(kb, "concepts", "b", "# B", updated="2026-06-02")
+
+            content, count = _read_kb_content(kb, repo_name="repo", max_chars=10000)
+            assert count == 2
+            assert "## concepts/a.md" in content
+            assert "## concepts/b.md" in content
 
 
 class TestRunQuery:
@@ -115,6 +265,27 @@ class TestRunQuery:
                 _run_query(kb, "question", file_back=False, query_func=fake)
             )
             assert "No knowledge base found" in result.answer
+            assert result.citations == []
+
+    def test_run_query_empty_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "auth", "# Auth", updated="2025-01-01")
+
+            fake = _fake_sdk_query("should not be called")
+            result = asyncio.run(
+                _run_query(
+                    kb,
+                    "question",
+                    file_back=False,
+                    repo_name="repo",
+                    since=date(2026, 1, 1),
+                    query_func=fake,
+                )
+            )
+            assert result.answer == "No articles matched the requested scope."
             assert result.citations == []
 
     def test_run_query_returns_answer_with_citations(self) -> None:
@@ -138,6 +309,29 @@ class TestRunQuery:
             )
             assert "[[concepts/auth]]" in result.answer
             assert "concepts/auth" in result.citations
+
+    def test_run_query_scopes_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "auth", "# Auth")
+            _write_article(kb, "connections", "auth-and-webhooks", "# Connection")
+
+            prompt_capture: dict[str, str] = {}
+            fake = _capturing_fake_sdk_query(prompt_capture, "answer")
+            asyncio.run(
+                _run_query(
+                    kb,
+                    "question",
+                    file_back=False,
+                    repo_name="repo",
+                    categories=["connections"],
+                    query_func=fake,
+                )
+            )
+            assert "## connections/auth-and-webhooks.md" in prompt_capture["prompt"]
+            assert "## concepts/auth.md" not in prompt_capture["prompt"]
 
 
 class TestFileBack:
@@ -271,6 +465,9 @@ class TestQueryCommand:
         args = parser.parse_args(["query", "test question"])
         assert args.question == "test question"
         assert args.file_back is False
+        assert args.category is None
+        assert args.since is None
+        assert args.max_chars is None
 
     def test_query_cli_not_in_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -509,3 +706,153 @@ class TestQueryCommand:
 
             assert exit_code == 2
             assert "LLM query unavailable" in capsys.readouterr().err
+
+    def test_query_cli_bad_since_exit_two(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(repo)
+                with pytest.raises(SystemExit) as exc_info:
+                    main(["query", "test", "--since", "not-a-date"])
+                assert exc_info.value.code == 2
+            finally:
+                os.chdir(old_cwd)
+
+    def test_query_cli_empty_scope_exit_one(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            kb = repo / "knowledge"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            (kb / "connections").mkdir()
+            (kb / "connections" / "auth.md").write_text("# Auth")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(repo)
+                with patch.dict(
+                    "os.environ", {"CLAUDE_WIKI_PROJECT_DIR": str(kb)}, clear=False
+                ):
+                    exit_code = main(["query", "test", "--category", "concepts"])
+            finally:
+                os.chdir(old_cwd)
+
+            assert exit_code == 1
+            assert "No articles matched the requested scope." in capsys.readouterr().out
+
+    def test_query_cli_category_filter_prompt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            kb = repo / "knowledge"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "auth", "# Auth")
+            _write_article(kb, "connections", "auth-and-webhooks", "# Connection")
+
+            prompt_capture: dict[str, str] = {}
+            fake = _capturing_fake_sdk_query(prompt_capture, "Use [[concepts/auth]].")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(repo)
+                with (
+                    patch.dict(
+                        "os.environ", {"CLAUDE_WIKI_PROJECT_DIR": str(kb)}, clear=False
+                    ),
+                    patch("claude_agent_sdk.query", fake),
+                ):
+                    exit_code = main(
+                        ["query", "how do I auth?", "--category", "concepts"]
+                    )
+            finally:
+                os.chdir(old_cwd)
+
+            assert exit_code == 0
+            assert "## concepts/auth.md" in prompt_capture["prompt"]
+            assert "## connections/auth-and-webhooks.md" not in prompt_capture["prompt"]
+
+    def test_query_cli_since_filter_prompt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            kb = repo / "knowledge"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "old", "# Old auth", updated="2026-05-01")
+            _write_article(kb, "concepts", "new", "# New auth", updated="2026-06-15")
+
+            prompt_capture: dict[str, str] = {}
+            fake = _capturing_fake_sdk_query(prompt_capture, "Use [[concepts/new]].")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(repo)
+                with (
+                    patch.dict(
+                        "os.environ", {"CLAUDE_WIKI_PROJECT_DIR": str(kb)}, clear=False
+                    ),
+                    patch("claude_agent_sdk.query", fake),
+                ):
+                    exit_code = main(
+                        ["query", "how do I auth?", "--since", "2026-06-01"]
+                    )
+            finally:
+                os.chdir(old_cwd)
+
+            assert exit_code == 0
+            assert "## concepts/new.md" in prompt_capture["prompt"]
+            assert "## concepts/old.md" not in prompt_capture["prompt"]
+
+    def test_query_cli_max_chars_prompt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            kb = repo / "knowledge"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "old", "# Old\n\nx", updated="2026-06-01")
+            _write_article(kb, "concepts", "new", "# New\n\ny", updated="2026-06-10")
+
+            prompt_capture: dict[str, str] = {}
+            fake = _capturing_fake_sdk_query(prompt_capture, "Use [[concepts/new]].")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(repo)
+                with (
+                    patch.dict(
+                        "os.environ", {"CLAUDE_WIKI_PROJECT_DIR": str(kb)}, clear=False
+                    ),
+                    patch("claude_agent_sdk.query", fake),
+                ):
+                    exit_code = main(["query", "how do I auth?", "--max-chars", "100"])
+            finally:
+                os.chdir(old_cwd)
+
+            assert exit_code == 0
+            assert "## concepts/new.md" in prompt_capture["prompt"]
+            assert "## concepts/old.md" not in prompt_capture["prompt"]
+            assert "## INDEX" in prompt_capture["prompt"]

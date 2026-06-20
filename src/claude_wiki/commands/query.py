@@ -7,8 +7,8 @@ import asyncio
 import json
 import re
 import sys
-from collections.abc import AsyncIterator, Callable
-from datetime import datetime
+from collections.abc import AsyncIterator, Callable, Iterable
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -22,6 +22,11 @@ from claude_wiki.models import QueryResult
 EXIT_OK = 0
 EXIT_EMPTY_KB = 1
 EXIT_USAGE_OR_SDK_ERROR = 2
+
+_EMPTY_KB_MESSAGE = "No knowledge base found. Run `claude-wiki compile` first."
+_EMPTY_SCOPE_MESSAGE = "No articles matched the requested scope."
+
+_KB_SUBDIRS = ("concepts", "connections", "qa")
 
 
 def register(
@@ -46,7 +51,48 @@ def register(
         action="store_true",
         help="Emit machine-readable JSON instead of human text",
     )
+    parser.add_argument(
+        "--category",
+        action="append",
+        choices=_KB_SUBDIRS,
+        help="Restrict the query to a KB category (repeatable)",
+    )
+    parser.add_argument(
+        "--since",
+        type=_parse_since,
+        help="Only include articles updated/created on or after YYYY-MM-DD",
+    )
+    parser.add_argument(
+        "--max-chars",
+        type=_parse_max_chars,
+        help="Cap total article content (oldest articles dropped first)",
+    )
     handlers["query"] = _handle_query
+
+
+def _parse_since(value: str) -> date:
+    """Parse a YYYY-MM-DD date for ``--since``."""
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"Invalid --since date '{value}'. Expected YYYY-MM-DD."
+        ) from exc
+
+
+def _parse_max_chars(value: str) -> int:
+    """Parse a positive integer for ``--max-chars``."""
+    try:
+        n = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"--max-chars must be a positive integer, got '{value}'"
+        ) from exc
+    if n <= 0:
+        raise argparse.ArgumentTypeError(
+            f"--max-chars must be a positive integer, got {n}"
+        )
+    return n
 
 
 def _handle_query(args: argparse.Namespace) -> int:
@@ -63,12 +109,14 @@ def _handle_query(args: argparse.Namespace) -> int:
     kb_root = detector.get_kb_root(repo_root, config)
 
     if _is_kb_empty(kb_root):
-        message = "No knowledge base found. Run `claude-wiki compile` first."
+        message = _EMPTY_KB_MESSAGE
         if args.json:
             _print_query_json(QueryResult(answer=message, citations=[]))
         else:
             print(message)
         return EXIT_EMPTY_KB
+
+    categories: set[str] | None = set(args.category) if args.category else None
 
     try:
         result = asyncio.run(
@@ -77,6 +125,9 @@ def _handle_query(args: argparse.Namespace) -> int:
                 args.question,
                 file_back=False,
                 repo_name=config.repo_name,
+                categories=categories,
+                since=args.since,
+                max_chars=args.max_chars,
             )
         )
     except ImportError as exc:
@@ -86,6 +137,13 @@ def _handle_query(args: argparse.Namespace) -> int:
         else:
             print(message, file=sys.stderr)
         return EXIT_USAGE_OR_SDK_ERROR
+
+    if result.answer in (_EMPTY_KB_MESSAGE, _EMPTY_SCOPE_MESSAGE):
+        if args.json:
+            _print_query_json(result)
+        else:
+            print(result.answer)
+        return EXIT_EMPTY_KB
 
     if args.json:
         _print_query_json(result)
@@ -129,17 +187,34 @@ async def _run_query(
     *,
     file_back: bool,
     repo_name: str | None = None,
+    categories: Iterable[str] | None = None,
+    since: date | None = None,
+    max_chars: int | None = None,
     query_func: Callable[..., AsyncIterator[object]] | None = None,
 ) -> QueryResult:
     """Query the knowledge base and return a cited answer."""
+    del file_back  # handled by the CLI layer
     if _is_kb_empty(kb_root):
         return QueryResult(
-            answer="No knowledge base found. Run `claude-wiki compile` first.",
+            answer=_EMPTY_KB_MESSAGE,
             citations=[],
             confidence=0.0,
         )
 
-    content = _read_kb_content(kb_root, repo_name)
+    content, article_count = _read_kb_content(
+        kb_root,
+        repo_name,
+        categories=categories,
+        since=since,
+        max_chars=max_chars,
+    )
+    if article_count == 0:
+        return QueryResult(
+            answer=_EMPTY_SCOPE_MESSAGE,
+            citations=[],
+            confidence=0.0,
+        )
+
     prompt = _build_prompt(content, question)
     options: ClaudeAgentOptions | None = None
 
@@ -168,7 +243,7 @@ async def _run_query(
 
 def _is_kb_empty(kb_root: Path) -> bool:
     """Return True if the knowledge base has no articles to consult."""
-    for subdir_name in ("concepts", "connections", "qa"):
+    for subdir_name in _KB_SUBDIRS:
         subdir = kb_root / subdir_name
         if subdir.exists() and any(subdir.glob("*.md")):
             return False
@@ -198,23 +273,98 @@ def _build_prompt(content: str, question: str) -> str:
 """
 
 
-def _read_kb_content(kb_root: Path, repo_name: str | None = None) -> str:
-    """Read index + all articles into a single context string."""
+def _read_kb_content(
+    kb_root: Path,
+    repo_name: str | None = None,
+    *,
+    categories: Iterable[str] | None = None,
+    since: date | None = None,
+    max_chars: int | None = None,
+) -> tuple[str, int]:
+    """Read the catalog + scoped articles into a context string.
+
+    Returns the assembled content and the number of articles included.
+    The catalog/index is always included and does not count toward the
+    ``max_chars`` budget.
+    """
     parts: list[str] = []
 
     index_file = resolve_catalog(kb_root, repo_name)
     if index_file.exists():
         parts.append(f"## INDEX\n\n{index_file.read_text(encoding='utf-8')}")
 
-    for subdir_name in ("concepts", "connections", "qa"):
-        subdir = kb_root / subdir_name
-        if subdir.exists():
-            for md_file in sorted(subdir.glob("*.md")):
-                rel = md_file.relative_to(kb_root)
-                content = md_file.read_text(encoding="utf-8")
-                parts.append(f"## {rel}\n\n{content}")
+    allowed = set(categories) if categories else set(_KB_SUBDIRS)
+    articles: list[tuple[date, str, str]] = []
 
-    return "\n\n---\n\n".join(parts)
+    for subdir_name in _KB_SUBDIRS:
+        if subdir_name not in allowed:
+            continue
+        subdir = kb_root / subdir_name
+        if not subdir.exists():
+            continue
+        for md_file in sorted(subdir.glob("*.md")):
+            content = md_file.read_text(encoding="utf-8")
+            article_date = _article_effective_date(content)
+            if since is not None and article_date is not None and article_date < since:
+                continue
+            rel = md_file.relative_to(kb_root).as_posix()
+            section = f"## {rel}\n\n{content}"
+            articles.append((article_date or date.min, rel, section))
+
+    if max_chars is not None:
+        articles.sort(key=lambda item: (item[0], item[1]))
+        while (
+            articles
+            and sum(len(section) for _date, _rel, section in articles) > max_chars
+        ):
+            articles.pop(0)
+
+    for _date, _rel, section in articles:
+        parts.append(section)
+
+    return "\n\n---\n\n".join(parts), len(articles)
+
+
+def _article_effective_date(content: str) -> date | None:
+    """Return the article's ``updated`` date, falling back to ``created``."""
+    updated = _extract_frontmatter_value(content, "updated")
+    if updated:
+        parsed = _parse_iso_date(updated)
+        if parsed is not None:
+            return parsed
+    created = _extract_frontmatter_value(content, "created")
+    if created:
+        return _parse_iso_date(created)
+    return None
+
+
+def _extract_frontmatter_value(content: str, key: str) -> str | None:
+    """Read a single scalar value from YAML frontmatter without a parser."""
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    try:
+        closing = lines.index("---", 1)
+    except ValueError:
+        return None
+
+    prefix = f"{key}:"
+    for line in lines[1:closing]:
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            value = stripped[len(prefix) :].strip()
+            if value.startswith(("'", '"')) and value.endswith(value[0]):
+                value = value[1:-1]
+            return value or None
+    return None
+
+
+def _parse_iso_date(value: str) -> date | None:
+    """Parse a YYYY-MM-DD string, returning None on failure."""
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def _extract_wikilinks(text: str) -> list[str]:
