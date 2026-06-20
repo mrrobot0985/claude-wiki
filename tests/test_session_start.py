@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -314,3 +315,31 @@ class TestSessionStartEdgeCases:
             assert "...(truncated)" not in context
             assert "# Tiny index" in context
             assert "Small daily note." in context
+
+    def test_config_load_failure_logs_warning_and_returns_zero(
+        self, monkeypatch, caplog
+    ):
+        """When ConfigManager.load() fails, log a warning and still return 0."""
+        from claude_wiki.config import ConfigManager
+        from claude_wiki.errors import ConfigError
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            self._repo_with_lock(repo)
+            monkeypatch.chdir(repo)
+
+            def _raise(*_args, **_kwargs):
+                raise ConfigError("load failed")
+
+            monkeypatch.setattr(ConfigManager, "load", _raise)
+
+            with caplog.at_level(
+                logging.WARNING, logger="claude_wiki.hook_handlers.session_start"
+            ):
+                exit_code = _session_start([])
+
+            assert exit_code == 0
+            assert "load failed" in caplog.text
+            assert any(record.levelno == logging.WARNING for record in caplog.records)

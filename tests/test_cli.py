@@ -1090,8 +1090,8 @@ class TestCliEdgeCases:
         assert exit_code == 1
         assert "not yet implemented" in captured.err
 
-    def test_register_commands_skips_broken_modules(self, monkeypatch):
-        """Broken command modules are skipped during discovery without crashing."""
+    def test_register_commands_skips_broken_modules(self, monkeypatch, caplog):
+        """Broken command modules are logged and skipped during discovery."""
         fake_subparsers = type("Subparsers", (), {"add_parser": lambda *a, **k: None})()
         handlers: dict[str, Any] = {}
 
@@ -1104,8 +1104,12 @@ class TestCliEdgeCases:
         monkeypatch.setattr(pkgutil, "iter_modules", fake_iter_modules)
         monkeypatch.setattr(importlib, "import_module", fake_import_module)
 
-        _register_commands(fake_subparsers, handlers)
+        with caplog.at_level("ERROR", logger="claude_wiki.cli"):
+            _register_commands(fake_subparsers, handlers)
+
         assert handlers == {}
+        assert "claude_wiki.commands.broken" in caplog.text
+        assert "boom" in caplog.text
 
     def test_init_not_git_repo(self, capsys, tmp_path):
         """init outside a git repo prints an error and exits 1."""
