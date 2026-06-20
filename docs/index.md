@@ -35,6 +35,12 @@ ______________________________________________________________________
 
 - [Implementation Plan](plan.md) — completed ADR-006 execution plan and risk register
 
+## Community
+
+- [Code of Conduct](/CODE_OF_CONDUCT.md) — Contributor Covenant 2.1
+- [Security Policy](/SECURITY.md) — supported versions and vulnerability reporting
+- [Contributors Guide](/CONTRIBUTING.md) — development workflow and conventions
+
 ## Technical Reference
 
 - [CLI Commands](reference/cli.md) — `claude-wiki` and `claude-wiki-hook`

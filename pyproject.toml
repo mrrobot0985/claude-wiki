@@ -37,6 +37,7 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/mrrobot0985/claude-wiki"
 Repository = "https://github.com/mrrobot0985/claude-wiki"
+Funding = "https://github.com/sponsors/mrrobot0985"
 
 [project.scripts]
 claude-wiki = "claude_wiki.cli:main"
