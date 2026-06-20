@@ -87,6 +87,16 @@ def register(subparsers: Any, handlers: dict[str, Any]) -> None:
         default=SPARSE_WORD_THRESHOLD,
         help=f"Sparse-article word threshold (default: {SPARSE_WORD_THRESHOLD})",
     )
+    parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="Apply safe, automatic structural fixes in place",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview what --fix would change without writing files",
+    )
     handlers["lint"] = _lint_handler
 
 
@@ -107,12 +117,33 @@ def _lint_handler(args: argparse.Namespace) -> int:
 
     daily_dir = repo_root / config.daily_dir
     ignore_rules = _load_ignore_rules(repo_root)
+
     issues = _run_structural_checks(
         machine_state_dir, kb_root, daily_dir, threshold=args.threshold
     )
+    if args.fix or args.dry_run:
+        issues.extend(_run_fixable_checks(kb_root))
+    issues = [issue for issue in issues if not _is_ignored(issue, ignore_rules)]
+
+    fixable_issues = [issue for issue in issues if issue.auto_fixable]
+    if fixable_issues:
+        if args.dry_run:
+            if not args.json:
+                print(f"\nDry-run: would fix {len(fixable_issues)} issue(s).")
+        elif args.fix:
+            _apply_fixes(kb_root, fixable_issues)
+            if not args.json:
+                print(f"\nFixed {len(fixable_issues)} issue(s).")
+            # Re-evaluate structural checks after applying fixes so the final
+            # report reflects the repaired KB.
+            issues = _run_structural_checks(
+                machine_state_dir, kb_root, daily_dir, threshold=args.threshold
+            )
+            issues = [issue for issue in issues if not _is_ignored(issue, ignore_rules)]
+            fixable_issues = []
+
     if not args.structural_only:
         issues.extend(_run_llm_checks(kb_root, repo_name=config.repo_name))
-    issues = [issue for issue in issues if not _is_ignored(issue, ignore_rules)]
 
     today = _today_iso(config.timezone)
     report_path = _save_report(cache_dir, issues, today)
@@ -123,7 +154,7 @@ def _lint_handler(args: argparse.Namespace) -> int:
     suggestions = sum(1 for issue in issues if issue.severity == "suggestion")
 
     if args.json:
-        _print_lint_json(issues)
+        _print_lint_json(issues, include_auto_fixable=args.fix or args.dry_run)
     else:
         print(
             f"\nResults: {errors} errors, {warnings} warnings, {suggestions} suggestions"
@@ -137,20 +168,22 @@ def _lint_handler(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _print_lint_json(issues: list[_Issue]) -> None:
+def _print_lint_json(
+    issues: list[_Issue], *, include_auto_fixable: bool = False
+) -> None:
     """Print a machine-readable JSON payload for lint issues."""
-    payload: dict[str, Any] = {
-        "issues": [
-            {
-                "severity": issue.severity,
-                "file": issue.file,
-                "check": issue.check,
-                "message": issue.detail,
-            }
-            for issue in issues
-        ]
-    }
-    print(json.dumps(payload, indent=2))
+    issue_payload: list[dict[str, Any]] = []
+    for issue in issues:
+        entry: dict[str, Any] = {
+            "severity": issue.severity,
+            "file": issue.file,
+            "check": issue.check,
+            "message": issue.detail,
+        }
+        if include_auto_fixable:
+            entry["auto_fixable"] = issue.auto_fixable
+        issue_payload.append(entry)
+    print(json.dumps({"issues": issue_payload}, indent=2))
 
 
 def _build_link_graph(kb_root: Path) -> _LinkGraph:
@@ -211,6 +244,91 @@ def _run_structural_checks(
     issues.extend(_check_frontmatter(graph))
     issues.extend(_check_single_use_tags(graph))
     return issues
+
+
+def _run_fixable_checks(kb_root: Path) -> list[_Issue]:
+    """Run structural checks whose findings can be repaired automatically."""
+    issues: list[_Issue] = []
+    issues.extend(_check_missing_trailing_newlines(kb_root))
+    issues.extend(_check_daily_wikilinks(kb_root))
+    return issues
+
+
+def _check_missing_trailing_newlines(kb_root: Path) -> list[_Issue]:
+    """Flag article files that do not end with a trailing newline."""
+    issues: list[_Issue] = []
+    for article in _list_articles(kb_root):
+        rel = article.relative_to(kb_root).as_posix()
+        content = article.read_text(encoding="utf-8")
+        if content and not content.endswith("\n"):
+            issues.append(
+                _Issue(
+                    severity="suggestion",
+                    check="missing_trailing_newline",
+                    file=rel,
+                    detail="Missing trailing newline",
+                    auto_fixable=True,
+                )
+            )
+    return issues
+
+
+def _check_daily_wikilinks(kb_root: Path) -> list[_Issue]:
+    """Flag [[daily/...]] wikilinks that should be plain text per ADR-007."""
+    issues: list[_Issue] = []
+    for article in _list_articles(kb_root):
+        rel = article.relative_to(kb_root).as_posix()
+        content = article.read_text(encoding="utf-8")
+        for link in _extract_wikilinks(content):
+            if _wikilink_target(link).startswith("daily/"):
+                issues.append(
+                    _Issue(
+                        severity="warning",
+                        check="daily_wikilink",
+                        file=rel,
+                        detail=(
+                            f"Dead daily wikilink: [[{link}]] should be plain text"
+                            " per ADR-007"
+                        ),
+                        auto_fixable=True,
+                    )
+                )
+    return issues
+
+
+_DAILY_LINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+
+
+def _fix_daily_links_in_content(content: str) -> str:
+    """Replace [[daily/...]] wikilinks with their plain-text target path."""
+
+    def repl(match: re.Match[str]) -> str:
+        inner = match.group(1)
+        if _wikilink_target(inner).startswith("daily/"):
+            return _wikilink_target(inner)
+        return match.group(0)
+
+    return _DAILY_LINK_RE.sub(repl, content)
+
+
+def _apply_fixes(kb_root: Path, fixable_issues: list[_Issue]) -> None:
+    """Apply in-place repairs for safe structural issues."""
+    by_file: dict[str, set[str]] = {}
+    for issue in fixable_issues:
+        by_file.setdefault(issue.file, set()).add(issue.check)
+
+    for rel, checks in by_file.items():
+        path = kb_root / rel
+        content = path.read_text(encoding="utf-8")
+        new_content = _fix_daily_links_in_content(content)
+        if (
+            "missing_trailing_newline" in checks
+            and new_content
+            and not new_content.endswith("\n")
+        ):
+            new_content += "\n"
+        if new_content != content:
+            path.write_text(new_content, encoding="utf-8")
 
 
 def _check_broken_links(kb_root: Path, graph: _LinkGraph) -> list[_Issue]:

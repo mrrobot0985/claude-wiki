@@ -21,7 +21,9 @@ complete -c claude-wiki -n '__fish_seen_subcommand_from init' -l kb-dir
 complete -c claude-wiki -n '__fish_seen_subcommand_from init' -l no-hooks
 complete -c claude-wiki -n '__fish_seen_subcommand_from init' -l path
 # lint flags
+complete -c claude-wiki -n '__fish_seen_subcommand_from lint' -l dry-run
 complete -c claude-wiki -n '__fish_seen_subcommand_from lint' -l fail-on-warning
+complete -c claude-wiki -n '__fish_seen_subcommand_from lint' -l fix
 complete -c claude-wiki -n '__fish_seen_subcommand_from lint' -l help
 complete -c claude-wiki -n '__fish_seen_subcommand_from lint' -l json
 complete -c claude-wiki -n '__fish_seen_subcommand_from lint' -l path
