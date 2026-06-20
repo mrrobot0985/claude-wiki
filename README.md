@@ -1,5 +1,10 @@
 # claude-wiki
 
+[![PyPI version](https://img.shields.io/pypi/v/claude-wiki)](https://pypi.org/project/claude-wiki/)
+[![CI](https://img.shields.io/github/actions/workflow/status/mrrobot0985/claude-wiki/ci.yml?label=CI)](https://github.com/mrrobot0985/claude-wiki/actions/workflows/ci.yml)
+[![Python versions](https://img.shields.io/pypi/pyversions/claude-wiki)](https://pypi.org/project/claude-wiki/)
+[![License](https://img.shields.io/pypi/l/claude-wiki)](https://github.com/mrrobot0985/claude-wiki/blob/main/LICENSE)
+
 Installable Python package providing Claude Code hooks and a CLI for a personal knowledge base.
 
 ## Install
