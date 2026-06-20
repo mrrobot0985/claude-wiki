@@ -33,11 +33,14 @@ def _load_config(repo_root: Path | None) -> ProjectConfig | None:
         return None
 
 
-def _get_kb_index(kb_root: Path) -> str:
-    """Read knowledge/index.md if it exists."""
-    index_file = kb_root / "index.md"
-    if index_file.exists():
-        return index_file.read_text(encoding="utf-8")
+def _get_kb_index(kb_root: Path, repo_name: str) -> str:
+    """Read knowledge/{repo_name}.md if it exists, falling back to index.md."""
+    primary = kb_root / f"{repo_name}.md"
+    if primary.exists():
+        return primary.read_text(encoding="utf-8")
+    legacy = kb_root / "index.md"
+    if legacy.exists():
+        return legacy.read_text(encoding="utf-8")
     return "(empty - no articles compiled yet)"
 
 
@@ -74,7 +77,7 @@ def _build_context(repo_root: Path | None, config: ProjectConfig | None) -> str:
     if repo_root is not None and config is not None:
         try:
             kb_root = ConfigManager().get_kb_root(repo_root, config)
-            index = _get_kb_index(kb_root)
+            index = _get_kb_index(kb_root, config.repo_name)
             parts.append(f"## Knowledge Base Index\n\n{index}")
         except Exception:
             parts.append(

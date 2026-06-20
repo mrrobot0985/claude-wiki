@@ -70,7 +70,7 @@ class TestMigrationManager:
             assert result.new_kb_dir == new_kb
             assert not result.errors
             assert new_kb.exists()
-            assert (new_kb / "index.md").exists()
+            assert (new_kb / "test.md").exists()
             assert not old_kb.exists()
 
     def test_migration_daily_dir_change_relative(self):
@@ -188,7 +188,7 @@ class TestMigrationManager:
             assert result.migrated
             assert not result.errors
             assert new_kb.exists()
-            assert (new_kb / "index.md").exists()
+            assert (new_kb / "test.md").exists()
             assert not old_kb.exists()
             assert not (new_kb / "knowledge").exists()  # must NOT be nested
 
@@ -326,7 +326,7 @@ class TestMigrationManager:
             assert result.new_daily_dir == new_daily
             assert not result.errors
             assert new_kb.exists()
-            assert (new_kb / "index.md").exists()
+            assert (new_kb / "test.md").exists()
             assert new_daily.exists()
             assert (new_daily / "2024-01-01.md").exists()
 

@@ -80,11 +80,11 @@ class TestQueryHelpers:
             kb.mkdir()
             assert _read_kb_content(kb) == ""
 
-    def test_read_kb_content_reads_index_and_articles(self) -> None:
+    def test_read_kb_content_reads_catalog_and_articles(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             kb = Path(tmpdir) / "kb"
             kb.mkdir()
-            (kb / "index.md").write_text(
+            (kb / "test.md").write_text(
                 "# Index\n\n| Article | Summary |\n|---------|---------|"
             )
             concepts = kb / "concepts"
@@ -94,7 +94,7 @@ class TestQueryHelpers:
             connections.mkdir()
             (connections / "auth-and-webhooks.md").write_text("# Connection")
 
-            content = _read_kb_content(kb)
+            content = _read_kb_content(kb, repo_name="test")
             assert "## INDEX" in content
             assert "## concepts/auth.md" in content
             assert "## connections/auth-and-webhooks.md" in content
@@ -118,14 +118,20 @@ class TestRunQuery:
         with tempfile.TemporaryDirectory() as tmpdir:
             kb = Path(tmpdir) / "kb"
             kb.mkdir()
-            (kb / "index.md").write_text("# Index")
+            (kb / "test.md").write_text("# Index")
             concepts = kb / "concepts"
             concepts.mkdir()
             (concepts / "auth.md").write_text("# Auth")
 
             fake = _fake_sdk_query("Use [[concepts/auth]] for authentication.")
             result = asyncio.run(
-                _run_query(kb, "how do I auth?", file_back=False, query_func=fake)
+                _run_query(
+                    kb,
+                    "how do I auth?",
+                    file_back=False,
+                    repo_name="test",
+                    query_func=fake,
+                )
             )
             assert "[[concepts/auth]]" in result.answer
             assert "concepts/auth" in result.citations
@@ -138,7 +144,7 @@ class TestFileBack:
         with tempfile.TemporaryDirectory() as tmpdir:
             kb = Path(tmpdir) / "kb"
             kb.mkdir()
-            (kb / "index.md").write_text(
+            (kb / "test.md").write_text(
                 "# Knowledge Base Index\n\n"
                 "| Article | Summary | Compiled From | Updated |\n"
                 "|---------|---------|---------------|---------|"
@@ -149,7 +155,7 @@ class TestFileBack:
                 answer="Use [[concepts/auth]] for auth.",
                 citations=["concepts/auth"],
             )
-            _file_back(kb, "How do I auth?", result)
+            _file_back(kb, "How do I auth?", result, repo_name="test")
 
             qa_file = kb / "qa" / "how-do-i-auth.md"
             assert qa_file.exists()
@@ -161,16 +167,16 @@ class TestFileBack:
         with tempfile.TemporaryDirectory() as tmpdir:
             kb = Path(tmpdir) / "kb"
             kb.mkdir()
-            (kb / "index.md").write_text(
+            (kb / "test.md").write_text(
                 "# Knowledge Base Index\n\n"
                 "| Article | Summary | Compiled From | Updated |\n"
                 "|---------|---------|---------------|---------|"
             )
 
             result = QueryResult(answer="Answer", citations=["concepts/auth"])
-            _file_back(kb, "Question?", result)
+            _file_back(kb, "Question?", result, repo_name="test")
 
-            index = (kb / "index.md").read_text(encoding="utf-8")
+            index = (kb / "test.md").read_text(encoding="utf-8")
             assert "[[qa/question]]" in index
 
     def test_file_back_appends_log(self) -> None:
@@ -180,7 +186,7 @@ class TestFileBack:
             (kb / "log.md").write_text("# Build Log")
 
             result = QueryResult(answer="Answer", citations=["concepts/auth"])
-            _file_back(kb, "Question?", result)
+            _file_back(kb, "Question?", result, repo_name="test")
 
             log = (kb / "log.md").read_text(encoding="utf-8")
             assert "query | Question?" in log
@@ -190,11 +196,11 @@ class TestFileBack:
         with tempfile.TemporaryDirectory() as tmpdir:
             kb = Path(tmpdir) / "kb"
             kb.mkdir()
-            (kb / "index.md").write_text("# Index")
+            (kb / "test.md").write_text("# Index")
             (kb / "log.md").write_text("# Build Log")
 
             result = QueryResult(answer="No sources", citations=[])
-            _file_back(kb, "Question?", result)
+            _file_back(kb, "Question?", result, repo_name="test")
 
             qa_file = kb / "qa" / "question.md"
             assert qa_file.exists()
@@ -205,20 +211,20 @@ class TestFileBack:
 class TestUpdateIndexEdgeCases:
     """Tests for index update edge cases."""
 
-    def test_update_index_skips_missing_index(self) -> None:
+    def test_update_index_skips_missing_catalog(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             kb = Path(tmpdir) / "kb"
             kb.mkdir()
-            _update_index(kb, "slug", "question", "2026-06-19")
-            assert not (kb / "index.md").exists()
+            _update_index(kb, "slug", "question", "2026-06-19", repo_name="test")
+            assert not (kb / "test.md").exists()
 
     def test_update_index_appends_without_separator(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             kb = Path(tmpdir) / "kb"
             kb.mkdir()
-            (kb / "index.md").write_text("# Index\n\nSome text")
-            _update_index(kb, "slug", "question", "2026-06-19")
-            index = (kb / "index.md").read_text(encoding="utf-8")
+            (kb / "test.md").write_text("# Index\n\nSome text")
+            _update_index(kb, "slug", "question", "2026-06-19", repo_name="test")
+            index = (kb / "test.md").read_text(encoding="utf-8")
             assert "[[qa/slug]]" in index
 
 
@@ -280,7 +286,7 @@ class TestQueryCommand:
             (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
             kb = repo / "knowledge"
             kb.mkdir()
-            (kb / "index.md").write_text("# Index")
+            (kb / "repo.md").write_text("# Index")
             (kb / "concepts").mkdir()
             (kb / "concepts" / "auth.md").write_text("# Auth")
 
@@ -309,7 +315,7 @@ class TestQueryCommand:
             (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
             kb = repo / "knowledge"
             kb.mkdir()
-            (kb / "index.md").write_text("# Index")
+            (kb / "repo.md").write_text("# Index")
             (kb / "concepts").mkdir()
             (kb / "concepts" / "auth.md").write_text("# Auth")
             (kb / "log.md").write_text("# Build Log")
@@ -332,5 +338,5 @@ class TestQueryCommand:
 
             assert exit_code == 0
             assert (kb / "qa" / "how-do-i-auth.md").exists()
-            index = (kb / "index.md").read_text(encoding="utf-8")
+            index = (kb / "repo.md").read_text(encoding="utf-8")
             assert "[[qa/how-do-i-auth]]" in index

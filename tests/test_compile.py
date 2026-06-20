@@ -182,16 +182,16 @@ class TestCompileCommand:
             concept_dir.mkdir(parents=True, exist_ok=True)
             concept = concept_dir / "asyncio-patterns.md"
             concept.write_text("---\ntitle: asyncio patterns\n---\n")
-            index = root / "index.md"
-            if not index.exists():
-                index.write_text(
+            catalog = root / f"{config.repo_name}.md"
+            if not catalog.exists():
+                catalog.write_text(
                     "# Knowledge Base Index\n\n"
                     "| Article | Summary | Compiled From | Updated |\n"
                     "|---------|---------|---------------|---------|"
                 )
-            content = index.read_text()
+            content = catalog.read_text()
             content += "\n| [[concepts/asyncio-patterns]] | asyncio tips | daily/2026-06-19.md | 2026-06-19 |"
-            index.write_text(content)
+            catalog.write_text(content)
             return 0.0
 
         monkeypatch.chdir(repo)
@@ -202,9 +202,9 @@ class TestCompileCommand:
         exit_code = main(["compile"])
 
         assert exit_code == 0
-        index_path = kb_root / "index.md"
-        assert index_path.exists()
-        assert "[[concepts/asyncio-patterns]]" in index_path.read_text()
+        catalog_path = kb_root / "my-project.md"
+        assert catalog_path.exists()
+        assert "[[concepts/asyncio-patterns]]" in catalog_path.read_text()
 
     def test_compile_no_daily_dir(
         self, monkeypatch: Any, tmp_path: Path, mocker: Any, capsys: Any
@@ -316,13 +316,13 @@ class TestCompileGaps:
 
         assert "# Knowledge Base Schema" in schema
 
-    def test_read_index_exists(self, tmp_path: Path) -> None:
-        """An existing index.md is returned verbatim."""
+    def test_read_index_exists_with_repo_name(self, tmp_path: Path) -> None:
+        """An existing {repo_name}.md is returned verbatim."""
         kb = tmp_path / "kb"
         kb.mkdir()
-        (kb / "index.md").write_text("# Custom Index\n")
+        (kb / "my-project.md").write_text("# Custom Index\n")
 
-        assert _read_index(kb) == "# Custom Index\n"
+        assert _read_index(kb, "my-project") == "# Custom Index\n"
 
     def test_compile_one_mocks_sdk(self, tmp_path: Path, monkeypatch: Any) -> None:
         """`_compile_one` drives the async LLM helper with a fake SDK."""

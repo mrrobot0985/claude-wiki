@@ -32,7 +32,7 @@ class TestSessionStart:
             assert isinstance(output["hookSpecificOutput"]["additionalContext"], str)
 
     def test_includes_knowledge_index_and_recent_daily_log(self, monkeypatch, capsys):
-        """Context includes knowledge/index.md and the most recent daily log."""
+        """Context includes knowledge/{repo_name}.md and the most recent daily log."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
@@ -42,7 +42,7 @@ class TestSessionStart:
             daily = repo / "daily"
             daily.mkdir()
 
-            (kb / "index.md").write_text("# Knowledge Index\n\n- [[Concept A]]")
+            (kb / "repo.md").write_text("# Knowledge Index\n\n- [[Concept A]]")
             today = datetime.now(timezone.utc).astimezone()
             (daily / f"{today.strftime('%Y-%m-%d')}.md").write_text(
                 "## Log\n\nConversation happened."
@@ -107,7 +107,7 @@ class TestSessionStart:
             kb = repo / "knowledge"
             kb.mkdir()
 
-            (kb / "index.md").write_text("x" * 25_000)
+            (kb / "repo.md").write_text("x" * 25_000)
 
             marker = repo / ".claude-wiki.lock"
             marker.write_text(
@@ -210,7 +210,7 @@ class TestSessionStartEdgeCases:
             (repo / ".git").mkdir()
             self._repo_with_lock(repo, {"kb_dir": "knowledge"})
             (repo / "knowledge").mkdir()
-            (repo / "knowledge" / "index.md").write_text("# Index")
+            (repo / "knowledge" / "repo.md").write_text("# Index")
 
             monkeypatch.chdir(repo)
 
@@ -237,7 +237,7 @@ class TestSessionStartEdgeCases:
             (repo / ".git").mkdir()
             self._repo_with_lock(repo, {"kb_dir": "knowledge", "daily_dir": "daily"})
             (repo / "knowledge").mkdir()
-            (repo / "knowledge" / "index.md").write_text("# Index")
+            (repo / "knowledge" / "repo.md").write_text("# Index")
 
             monkeypatch.chdir(repo)
 
@@ -268,7 +268,7 @@ class TestSessionStartEdgeCases:
             (repo / ".git").mkdir()
             self._repo_with_lock(repo, {"kb_dir": "knowledge", "daily_dir": "daily"})
             (repo / "knowledge").mkdir()
-            (repo / "knowledge" / "index.md").write_text("# Index")
+            (repo / "knowledge" / "repo.md").write_text("# Index")
             (repo / "daily").mkdir()
             today = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
             (repo / "daily" / f"{today}.md").write_text("## Log")
@@ -298,7 +298,7 @@ class TestSessionStartEdgeCases:
             (repo / ".git").mkdir()
             self._repo_with_lock(repo, {"kb_dir": "knowledge", "daily_dir": "daily"})
             (repo / "knowledge").mkdir()
-            (repo / "knowledge" / "index.md").write_text("# Tiny index")
+            (repo / "knowledge" / "repo.md").write_text("# Tiny index")
             (repo / "daily").mkdir()
             today = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
             (repo / "daily" / f"{today}.md").write_text("Small daily note.")
