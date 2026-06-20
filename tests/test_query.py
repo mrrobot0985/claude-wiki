@@ -2,12 +2,15 @@
 
 import argparse
 import asyncio
+import builtins
 import json
 import os
 import tempfile
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from claude_wiki.cli import main
 from claude_wiki.commands.query import (
@@ -277,7 +280,7 @@ class TestQueryCommand:
                 exit_code = main(["query", "test"])
             finally:
                 os.chdir(old_cwd)
-            assert exit_code == 1
+            assert exit_code == 2
 
     def test_query_cli_path_flag_resolves_repo_from_outside(self) -> None:
         """`--path` targets a repo without `cd`-ing into it (issue #44)."""
@@ -295,7 +298,7 @@ class TestQueryCommand:
                 exit_code = main(["query", "test", "--path", str(repo)])
             finally:
                 os.chdir(old_cwd)
-            assert exit_code == 0
+            assert exit_code == 1
 
     def test_query_cli_empty_kb(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -310,7 +313,27 @@ class TestQueryCommand:
                 exit_code = main(["query", "test"])
             finally:
                 os.chdir(old_cwd)
-            assert exit_code == 0
+            assert exit_code == 1
+
+    def test_query_cli_empty_kb_json(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(repo)
+                exit_code = main(["query", "test", "--json"])
+            finally:
+                os.chdir(old_cwd)
+
+            captured = capsys.readouterr()
+            payload = json.loads(captured.out)
+            assert exit_code == 1
+            assert "No knowledge base found" in payload["answer"]
+            assert payload["citations"] == []
 
     def test_query_cli_returns_answer(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -374,3 +397,115 @@ class TestQueryCommand:
             assert (kb / "qa" / "how-do-i-auth.md").exists()
             index = (kb / "repo.md").read_text(encoding="utf-8")
             assert "[[qa/how-do-i-auth]]" in index
+
+    def test_query_cli_json_answer(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            kb = repo / "knowledge"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            (kb / "concepts").mkdir()
+            (kb / "concepts" / "auth.md").write_text("# Auth")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(repo)
+                with (
+                    patch.dict(
+                        "os.environ", {"CLAUDE_WIKI_PROJECT_DIR": str(kb)}, clear=False
+                    ),
+                    patch(
+                        "claude_agent_sdk.query",
+                        _fake_sdk_query("Use [[concepts/auth]]."),
+                    ),
+                ):
+                    exit_code = main(["query", "how do I auth?", "--json"])
+            finally:
+                os.chdir(old_cwd)
+
+            captured = capsys.readouterr()
+            payload = json.loads(captured.out)
+            assert exit_code == 0
+            assert "[[concepts/auth]]" in payload["answer"]
+            assert "concepts/auth" in payload["citations"]
+
+    def test_query_cli_json_file_back_writes_article(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            kb = repo / "knowledge"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            (kb / "concepts").mkdir()
+            (kb / "concepts" / "auth.md").write_text("# Auth")
+            (kb / "log.md").write_text("# Build Log")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(repo)
+                with (
+                    patch.dict(
+                        "os.environ", {"CLAUDE_WIKI_PROJECT_DIR": str(kb)}, clear=False
+                    ),
+                    patch(
+                        "claude_agent_sdk.query",
+                        _fake_sdk_query("Use [[concepts/auth]]."),
+                    ),
+                ):
+                    exit_code = main(
+                        ["query", "how do I auth?", "--json", "--file-back"]
+                    )
+            finally:
+                os.chdir(old_cwd)
+
+            captured = capsys.readouterr()
+            payload = json.loads(captured.out)
+            assert exit_code == 0
+            assert "Use [[concepts/auth]]" in payload["answer"]
+            assert (kb / "qa" / "how-do-i-auth.md").exists()
+            assert "Answer filed to" not in captured.out
+
+    def test_query_cli_sdk_missing_exits_two(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Missing claude_agent_sdk is a usage/SDK error (exit 2)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            kb = repo / "knowledge"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            (kb / "concepts").mkdir()
+            (kb / "concepts" / "auth.md").write_text("# Auth")
+
+            old_cwd = os.getcwd()
+            original_import = builtins.__import__
+
+            def fake_import(name: str, *args: object, **kwargs: object) -> object:
+                if name == "claude_agent_sdk":
+                    raise ImportError("No module named 'claude_agent_sdk'")
+                return original_import(name, *args, **kwargs)
+
+            try:
+                os.chdir(repo)
+                with (
+                    patch.dict(
+                        "os.environ", {"CLAUDE_WIKI_PROJECT_DIR": str(kb)}, clear=False
+                    ),
+                    patch("builtins.__import__", fake_import),
+                ):
+                    exit_code = main(["query", "how do I auth?"])
+            finally:
+                os.chdir(old_cwd)
+
+            assert exit_code == 2
+            assert "LLM query unavailable" in capsys.readouterr().err
