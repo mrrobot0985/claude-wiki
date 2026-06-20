@@ -13,6 +13,7 @@ All notable changes to this project are documented in this file.
   ([#78](https://github.com/mrrobot0985/claude-wiki/issues/78))
 - Expanded quickstart tutorial with project-vs-user mode, sample output, and
   Obsidian integration ([#77](https://github.com/mrrobot0985/claude-wiki/issues/77))
+- `examples/minimal-walkthrough` with synthetic daily log and compiled KB ([#76](https://github.com/mrrobot0985/claude-wiki/issues/76))
 
 ## [0.5.0] - 2026-06-20
 

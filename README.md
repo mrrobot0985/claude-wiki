@@ -81,6 +81,8 @@ Set `CLAUDE_WIKI_PROJECT_DIR` to override the knowledge base location.
 
 Full docs are in [`docs/`](docs/).
 
+See [`examples/`](examples/) for a self-contained walkthrough of compiled output.
+
 ## Development
 
 ```bash
