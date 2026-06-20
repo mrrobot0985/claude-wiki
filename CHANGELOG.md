@@ -34,6 +34,10 @@ All notable changes to this project are documented in this file.
 
 - Temporary `index.md` fallback from SessionStart hook and catalog resolution ([#74](https://github.com/mrrobot0985/claude-wiki/issues/74))
 
+### Performance
+
+- Build lint link graph once and read KB index and articles once per compile run to avoid O(n²) file reads ([#53](https://github.com/mrrobot0985/claude-wiki/issues/53))
+
 ## [0.5.0] - 2026-06-20
 
 ### Added

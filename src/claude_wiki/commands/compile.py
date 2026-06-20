@@ -81,6 +81,30 @@ Link two or more concepts and explain the non-obvious relationship.
 ```
 """
 
+# Cache populated once per ``compile`` run so the index and existing articles are
+# not re-read for every daily log.
+_COMPILE_CONTEXT: dict[Path, tuple[str, dict[str, str]]] = {}
+
+
+def _preload_compile_context(kb_root: Path, repo_name: str) -> None:
+    """Read the KB index and existing articles once per compile run."""
+    _COMPILE_CONTEXT[kb_root.resolve()] = (
+        _read_index(kb_root, repo_name),
+        _list_existing_articles(kb_root),
+    )
+
+
+def _get_compile_context(kb_root: Path, repo_name: str) -> tuple[str, dict[str, str]]:
+    """Return cached context, falling back to a fresh read when absent."""
+    return _COMPILE_CONTEXT.get(
+        kb_root.resolve(),
+        (_read_index(kb_root, repo_name), _list_existing_articles(kb_root)),
+    )
+
+
+def _clear_compile_context(kb_root: Path) -> None:
+    _COMPILE_CONTEXT.pop(kb_root.resolve(), None)
+
 
 def _file_hash(path: Path) -> str:
     """Return a short SHA-256 hash of a file's contents."""
@@ -186,6 +210,9 @@ async def _compile_daily_log_async(
     repo_root: Path,
     kb_root: Path,
     config: ProjectConfig,
+    *,
+    wiki_index: str | None = None,
+    existing_articles: dict[str, str] | None = None,
 ) -> float:
     """Ask the LLM to compile a single daily log into wiki articles.
 
@@ -208,14 +235,16 @@ async def _compile_daily_log_async(
 
     log_content = log_path.read_text(encoding="utf-8")
     schema = _read_schema()
-    wiki_index = _read_index(kb_root, config.repo_name)
-    existing = _list_existing_articles(kb_root)
+    if wiki_index is None:
+        wiki_index = _read_index(kb_root, config.repo_name)
+    if existing_articles is None:
+        existing_articles = _list_existing_articles(kb_root)
 
     existing_context = "(No existing articles yet)"
-    if existing:
+    if existing_articles:
         parts = [
             f"### {rel_path}\n```markdown\n{content}\n```"
-            for rel_path, content in existing.items()
+            for rel_path, content in existing_articles.items()
         ]
         existing_context = "\n\n".join(parts)
 
@@ -278,7 +307,17 @@ def _compile_one(
     config: ProjectConfig,
 ) -> float:
     """Synchronous wrapper around the async LLM compiler call."""
-    return asyncio.run(_compile_daily_log_async(log_path, repo_root, kb_root, config))
+    wiki_index, existing_articles = _get_compile_context(kb_root, config.repo_name)
+    return asyncio.run(
+        _compile_daily_log_async(
+            log_path,
+            repo_root,
+            kb_root,
+            config,
+            wiki_index=wiki_index,
+            existing_articles=existing_articles,
+        )
+    )
 
 
 def _resolve_target_file(
@@ -366,23 +405,27 @@ def _handle_compile(args: argparse.Namespace) -> int:
     for subdir_name in _KB_SUBDIRS:
         (kb_root / subdir_name).mkdir(parents=True, exist_ok=True)
 
+    _preload_compile_context(kb_root, config.repo_name)
     total_cost = 0.0
-    for log_path in to_compile:
-        print(f"\nCompiling {log_path.name}...")
-        try:
-            cost = _compile_one(log_path, repo_root, kb_root, config)
-        except Exception as exc:
-            print(f"  Error: {exc}", file=sys.stderr)
-            continue
+    try:
+        for log_path in to_compile:
+            print(f"\nCompiling {log_path.name}...")
+            try:
+                cost = _compile_one(log_path, repo_root, kb_root, config)
+            except Exception as exc:
+                print(f"  Error: {exc}", file=sys.stderr)
+                continue
 
-        state["ingested"][log_path.name] = {
-            "hash": _file_hash(log_path),
-            "compiled_at": _iso_timestamp(),
-            "cost_usd": cost,
-        }
-        total_cost += cost
-        state["total_cost"] = state.get("total_cost", 0.0) + cost
-        print("  Done.")
+            state["ingested"][log_path.name] = {
+                "hash": _file_hash(log_path),
+                "compiled_at": _iso_timestamp(),
+                "cost_usd": cost,
+            }
+            total_cost += cost
+            state["total_cost"] = state.get("total_cost", 0.0) + cost
+            print("  Done.")
+    finally:
+        _clear_compile_context(kb_root)
 
     _save_state(state_path, state)
 

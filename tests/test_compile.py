@@ -490,3 +490,35 @@ class TestCompileGaps:
 
         assert exit_code == 1
         assert "Not in a git repository." in captured.err
+
+
+class TestCompilePerformance:
+    """Regression tests for the O(n²) file-read fixes."""
+
+    def test_compile_reads_index_and_articles_once(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """The index and existing articles are read once per compile run."""
+        repo, kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("log a")
+        (daily_dir / "2026-06-19.md").write_text("log b")
+
+        (kb_root / "concepts").mkdir(parents=True)
+        (kb_root / "concepts" / "existing.md").write_text("---\ntitle: existing\n---\n")
+
+        monkeypatch.chdir(repo)
+        mocker.patch("claude_wiki.commands.compile._compile_one", return_value=0.0)
+        read_index_spy = mocker.patch(
+            "claude_wiki.commands.compile._read_index", return_value="# Index"
+        )
+        list_articles_spy = mocker.patch(
+            "claude_wiki.commands.compile._list_existing_articles", return_value={}
+        )
+
+        exit_code = main(["compile", "--all"])
+
+        assert exit_code == 0
+        read_index_spy.assert_called_once()
+        list_articles_spy.assert_called_once()
