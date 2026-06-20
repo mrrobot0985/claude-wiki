@@ -8,6 +8,19 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _isolate_git_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove inherited git environment variables for hermetic subprocess tests.
+
+    When the test suite is invoked from a git hook, ``GIT_DIR`` and related
+    variables point at the parent repository. Subprocess git commands in tests
+    must operate on the temporary repos they create, so the parent git env is
+    cleared before every test.
+    """
+    for var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX"):
+        monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_user_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Redirect HOME and all XDG directories to a per-test tmp area.
 
