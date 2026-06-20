@@ -30,6 +30,20 @@ class TestReadHookInput:
 class TestExtractConversationContext:
     """Tests for transcript parsing edge cases."""
 
+    def test_max_turns_zero_returns_no_turns(self, tmp_path: Path) -> None:
+        """max_turns=0 must yield empty context, not all turns (issue #51)."""
+        transcript = tmp_path / "transcript.jsonl"
+        lines = [
+            json.dumps({"message": {"role": "user", "content": "one"}}),
+            json.dumps({"message": {"role": "assistant", "content": "two"}}),
+            json.dumps({"message": {"role": "user", "content": "three"}}),
+        ]
+        transcript.write_text("\n".join(lines), encoding="utf-8")
+
+        context, count = flush.extract_conversation_context(transcript, max_turns=0)
+        assert count == 0
+        assert context == ""
+
     def test_skips_empty_lines(self, tmp_path: Path) -> None:
         """Blank lines in the transcript are ignored."""
         transcript = tmp_path / "transcript.jsonl"

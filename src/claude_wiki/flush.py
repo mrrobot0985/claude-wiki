@@ -106,7 +106,7 @@ def extract_conversation_context(
                 label = "User" if role == "user" else "Assistant"
                 turns.append(f"**{label}:** {content.strip()}\n")
 
-    recent = turns[-max_turns:]
+    recent = turns[-max_turns:] if max_turns else []
     context = "\n".join(recent)
 
     if len(context) > max_chars:
