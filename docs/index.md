@@ -19,6 +19,19 @@ ______________________________________________________________________
 - [Architecture Overview](explanation/architecture.md) — how the pieces fit together
 - [Design Principles](explanation/design-principles.md) — why we made these choices
 
+## Architecture Decision Records
+
+- [ADR-001](adr/001-canonicalize-for-comparison.md) — Canonicalize for Comparison, Preserve for Identity
+- [ADR-002](adr/002-best-effort-rollback-for-cross-filesystem.md) — Best-Effort Rollback for Cross-Filesystem Moves
+- [ADR-003](adr/003-registry-as-reconciled-cache.md) — Registry as Reconciled Cache
+- [ADR-004](adr/004-fail-fast-local-defensive-global.md) — Fail-Fast for Local State, Defensive for Global State
+- [ADR-005](adr/005-kb-directory-redesign.md) — Knowledge Base Directory Redesign
+- [ADR-006](adr/006-vault-naming-and-obsidian-graph-hygiene.md) — Vault Naming and Obsidian Graph Hygiene
+
+## Project Planning
+
+- [Implementation Plan](plan.md) — completed ADR-006 execution plan and risk register
+
 ## Technical Reference
 
 - [CLI Commands](reference/cli.md) — `claude-wiki` and `claude-wiki-hook`
