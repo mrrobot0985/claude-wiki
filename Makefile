@@ -9,6 +9,10 @@ install: ## Install package
 dev: ## Install package with dev dependencies
 	uv pip install -e ".[dev]"
 
+install-precommit: ## Install pre-commit git hooks
+	uv run pre-commit install
+	uv run pre-commit install --hook-type commit-msg
+
 test: ## Run pytest
 	uv run pytest tests/
 

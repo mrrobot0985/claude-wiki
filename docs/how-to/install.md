@@ -36,3 +36,13 @@ claude-wiki-hook SessionStart
 ```
 
 Both should produce output without errors.
+
+## Install Git Hooks (Development)
+
+If working from source, install the pre-commit hooks so CI checks run on every commit:
+
+```bash
+make install-precommit
+```
+
+This registers both the `pre-commit` and `commit-msg` hooks.

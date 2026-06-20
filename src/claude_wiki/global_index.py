@@ -40,7 +40,7 @@ class GlobalIndexManager:
 
     def __init__(self, base_dir: Path | None = None) -> None:
         if base_dir is None:
-            base_dir = Path(user_data_dir("claude-wiki", appauthor=False))
+            base_dir = Path(user_data_dir("claude-wiki-vault", appauthor=False))
         self.base_dir = base_dir
 
     def _registry_path(self) -> Path:

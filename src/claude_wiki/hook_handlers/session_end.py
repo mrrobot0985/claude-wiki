@@ -78,8 +78,9 @@ def _handle_session_end(argv: list[str]) -> int:
         )
         return 0
 
+    cache_dir = manager.get_cache_dir(repo_root, config)
     context_file = flush.write_context_file(
-        logs_dir, session_id, context, prefix="session-flush"
+        cache_dir, session_id, context, prefix="session-flush"
     )
 
     try:
