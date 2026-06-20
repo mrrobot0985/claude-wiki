@@ -100,6 +100,116 @@ def _iso_timestamp() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
+def _ensure_daily_symlink(
+    repo_root: Path, kb_root: Path, config: ProjectConfig, dry_run: bool
+) -> None:
+    """Create ``kb_root / "daily"`` symlink pointing to the repo daily directory.
+
+    Uses a relative symlink when the KB is stored inside the repo (``project``
+    mode) so the KB remains relocatable, and an absolute symlink otherwise.
+    Skips creation during ``--dry-run`` or when the source daily directory is
+    missing. Existing files or directories named ``daily`` are left untouched
+    with a warning.
+    """
+    if dry_run:
+        return
+
+    source = repo_root / config.daily_dir
+    if not source.exists():
+        return
+
+    target = kb_root / "daily"
+    if target.exists() or target.is_symlink():
+        if target.is_symlink() and target.resolve() == source.resolve():
+            return
+        print(
+            f"Warning: {target} already exists; not overwriting daily/ symlink",
+            file=sys.stderr,
+        )
+        return
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if str(config.kb_dir) == "project":
+        target.symlink_to(
+            Path("..") / ".." / config.daily_dir, target_is_directory=True
+        )
+    else:
+        target.symlink_to(source.resolve(), target_is_directory=True)
+
+
+def _extract_sources(content: str) -> list[str]:
+    """Extract the ``sources`` list from YAML frontmatter without a parser."""
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return []
+    try:
+        closing = lines.index("---", 1)
+    except ValueError:
+        return []
+
+    sources: list[str] = []
+    in_sources = False
+    for line in lines[1:closing]:
+        stripped = line.strip()
+        if stripped.startswith("sources:"):
+            in_sources = True
+            value = stripped.split(":", 1)[1].strip()
+            if value.startswith("[") and value.endswith("]"):
+                for item in value[1:-1].split(","):
+                    cleaned = item.strip().strip('"').strip("'")
+                    if cleaned:
+                        sources.append(cleaned)
+                in_sources = False
+            elif value:
+                sources.append(value.strip('"').strip("'"))
+                in_sources = False
+            continue
+        if in_sources:
+            if stripped.startswith("- "):
+                sources.append(stripped[2:].strip().strip('"').strip("'"))
+            elif stripped and not stripped.startswith("#") and ":" in stripped:
+                in_sources = False
+    return sources
+
+
+def _collect_backlinks(kb_root: Path, log_citation: str) -> list[str]:
+    """Return wikilinks to articles whose frontmatter cites ``log_citation``."""
+    backlinks: list[str] = []
+    for subdir_name in _KB_SUBDIRS:
+        subdir = kb_root / subdir_name
+        if not subdir.exists():
+            continue
+        for article in sorted(subdir.glob("*.md")):
+            content = article.read_text(encoding="utf-8")
+            if log_citation in _extract_sources(content):
+                rel = article.relative_to(kb_root).with_suffix("")
+                backlinks.append(f"[[{rel}]]")
+    return backlinks
+
+
+def _update_daily_backlinks(log_path: Path, kb_root: Path) -> list[str]:
+    """Append or replace the ``## Compiled Knowledge`` section in a daily log.
+
+    Returns the list of wikilinks written to the log.
+    """
+    log_citation = f"daily/{log_path.name}"
+    backlinks = _collect_backlinks(kb_root, log_citation)
+
+    content = log_path.read_text(encoding="utf-8")
+    marker = "## Compiled Knowledge"
+    if marker in content:
+        content = content.split(marker, 1)[0].rstrip() + "\n"
+
+    if backlinks:
+        section = (
+            f"\n{marker}\n\n" + "\n".join(f"- {link}" for link in backlinks) + "\n"
+        )
+    else:
+        section = f"\n{marker}\n\nNo articles compiled from this log.\n"
+    log_path.write_text(content + section, encoding="utf-8")
+    return backlinks
+
+
 def _list_daily_files(daily_dir: Path) -> list[Path]:
     """Return sorted daily log files."""
     if not daily_dir.exists():
@@ -288,7 +398,9 @@ def _find_files_to_compile(
 
 def _handle_compile(args: argparse.Namespace) -> int:
     """Entry point for ``claude-wiki compile``."""
-    detector, loader, _registrar, _migrator = DefaultConfigResolver.build()
+    detector, loader, _registrar, _migrator, _owner_resolver = (
+        DefaultConfigResolver.build()
+    )
     assert isinstance(detector, ConfigManager)
 
     start = args.path if args.path else Path.cwd()
@@ -323,6 +435,8 @@ def _handle_compile(args: argparse.Namespace) -> int:
     for subdir_name in _KB_SUBDIRS:
         (kb_root / subdir_name).mkdir(parents=True, exist_ok=True)
 
+    _ensure_daily_symlink(repo_root, kb_root, config, args.dry_run)
+
     total_cost = 0.0
     for log_path in to_compile:
         print(f"\nCompiling {log_path.name}...")
@@ -332,10 +446,12 @@ def _handle_compile(args: argparse.Namespace) -> int:
             print(f"  Error: {exc}", file=sys.stderr)
             continue
 
+        backlinks = _update_daily_backlinks(log_path, kb_root)
         state["ingested"][log_path.name] = {
             "hash": _file_hash(log_path),
             "compiled_at": _iso_timestamp(),
             "cost_usd": cost,
+            "backlinks": backlinks,
         }
         total_cost += cost
         state["total_cost"] = state.get("total_cost", 0.0) + cost

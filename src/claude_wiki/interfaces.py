@@ -25,6 +25,13 @@ class ConfigLoader(Protocol):
 
 
 @runtime_checkable
+class RemoteOwnerResolver(Protocol):
+    """Infers repo_owner from a repository's remotes."""
+
+    def infer_repo_owner(self, repo_root: Path) -> str: ...
+
+
+@runtime_checkable
 class HookRegistrar(Protocol):
     """Mutates a Claude Code settings.json to register hooks."""
 

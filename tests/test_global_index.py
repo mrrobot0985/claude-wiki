@@ -1,10 +1,22 @@
 """Tests for GlobalIndexManager registry and generated core.md."""
 
+import json
+import multiprocessing
+import os
 import tempfile
 from pathlib import Path
 
+import pytest
 
 from claude_wiki.global_index import GlobalIndexManager
+
+
+def _register_in_process(i: int, base_str: str) -> None:
+    """Helper for multiprocessing concurrency test."""
+    base = Path(base_str)
+    mgr = GlobalIndexManager(base_dir=base)
+    (base / f"kb-{i}").mkdir(exist_ok=True)
+    mgr.register(f"repo-{i}", "local", base / f"kb-{i}")
 
 
 class TestGlobalIndexManager:
@@ -130,7 +142,7 @@ class TestGlobalIndexManager:
             assert mgr.list_entries() == []
 
     def test_generated_markdown_links_to_index(self):
-        """Each generated line links to the repo's index.md."""
+        """Each generated entry links to the repo's index.md."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
             kb = base / "kb"
@@ -141,7 +153,7 @@ class TestGlobalIndexManager:
             text = (base / "core.md").read_text()
             assert str(kb / "index.md") in text
             assert "owner/my-repo" in text
-            assert "2 articles" in text
+            assert "**Articles:** 2" in text
             assert "2026-06-19" in text
 
     def test_multiple_repos_in_registry(self):
@@ -264,3 +276,366 @@ class TestGlobalIndexManager:
             entries = mgr.list_entries()
             assert len(entries) == 1
             assert entries[0].repo_name == "alive"
+
+    def test_partial_corruption_backup_and_preserve(self, caplog):
+        """Malformed entries are skipped, good entries preserved, file backed up."""
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            reg = base / ".registry.json"
+            reg.write_text(
+                json.dumps(
+                    [
+                        {
+                            "repo_name": "good",
+                            "repo_owner": "local",
+                            "kb_root": str(base / "good"),
+                        },
+                        {
+                            "repo_name": "bad",
+                            "repo_owner": "local",
+                            "kb_root": str(base / "bad"),
+                            "unexpected_field": 1,
+                        },
+                    ]
+                )
+            )
+            mgr = GlobalIndexManager(base_dir=base)
+            entries = mgr.list_entries()
+            assert len(entries) == 1
+            assert entries[0].repo_name == "good"
+            backups = list(base.glob(".registry.json*.broken"))
+            assert len(backups) == 1
+            assert "bad" in caplog.text or "skipped" in caplog.text.lower()
+
+    def test_concurrent_writes_atomic(self):
+        """Concurrent registers produce valid JSON with all entries."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            procs = [
+                multiprocessing.Process(target=_register_in_process, args=(i, tmpdir))
+                for i in range(8)
+            ]
+            for p in procs:
+                p.start()
+            for p in procs:
+                p.join()
+            raw = (base / ".registry.json").read_text()
+            data = json.loads(raw)
+            assert len(data) == 8
+
+    def test_register_rejects_non_serializable_kwargs(self):
+        """Non-JSON-serializable kwargs raise ValueError before disk write."""
+        import datetime
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            with pytest.raises(ValueError):
+                mgr.register("x", "local", base, articles=datetime.datetime.now())
+            assert not (base / ".registry.json").exists()
+
+    def test_register_rejects_unknown_kwargs(self):
+        """Unknown kwargs raise ValueError before disk write."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            with pytest.raises(ValueError):
+                mgr.register("x", "local", base, unknown_field=42)
+            assert not (base / ".registry.json").exists()
+
+    def test_register_converts_path_kwargs_to_strings(self):
+        """Path values in known kwargs are stored as strings."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            mgr.register("x", "local", base, last_compiled=Path("2026-06-19"))
+            entry = mgr.list_entries()[0]
+            assert entry.last_compiled == "2026-06-19"
+            assert isinstance(entry.last_compiled, str)
+
+    def test_register_normalizes_paths_to_absolute(self):
+        """repo_root and kb_root are stored as absolute paths."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir).resolve()
+            os.chdir(base)
+            mgr = GlobalIndexManager(base_dir=base / "global")
+            repo = base / "repo"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text("{}")
+            kb = Path("repo") / "kb"
+
+            mgr.register("repo", "local", kb, repo_root=Path("repo"))
+
+            entry = mgr.list_entries()[0]
+            assert Path(entry.repo_root).is_absolute()
+            assert Path(entry.kb_root).is_absolute()
+            assert Path(entry.repo_root) == repo
+            assert Path(entry.kb_root) == repo / "kb"
+
+    def test_sanitize_preserves_legacy_relative_repo_root(self, caplog):
+        """Relative repo_root legacy entries are kept with a warning."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            reg = base / ".registry.json"
+            reg.write_text(
+                json.dumps(
+                    [
+                        {
+                            "repo_name": "legacy",
+                            "repo_owner": "local",
+                            "kb_root": str(base / "kb"),
+                            "repo_root": "repo",
+                        }
+                    ]
+                )
+            )
+            mgr = GlobalIndexManager(base_dir=base)
+            os.chdir("/tmp")
+            evicted = mgr.sanitize()
+            assert len(evicted) == 0
+            assert len(mgr.list_entries()) == 1
+            assert "relative" in caplog.text.lower()
+
+    def test_sanitize_is_cwd_independent_for_absolute_repo_root(self):
+        """Absolute repo_root entries are not evicted by cwd changes."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            repo = base / "repo"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text("{}")
+            kb = base / "kb"
+            kb.mkdir()
+            mgr = GlobalIndexManager(base_dir=base)
+            mgr.register("repo", "local", kb, repo_root=repo)
+
+            os.chdir("/tmp")
+            evicted = mgr.sanitize()
+
+            assert len(evicted) == 0
+            assert len(mgr.list_entries()) == 1
+
+    def test_generate_markdown_uses_absolute_paths(self):
+        """core.md links use absolute KB and repo paths."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            repo = base / "repo"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text("{}")
+            kb = base / "kb"
+            kb.mkdir()
+
+            mgr.register("repo", "local", kb, repo_root=repo)
+            text = (base / "core.md").read_text()
+            assert str(kb.resolve() / "index.md") in text
+            assert str(repo.resolve()) in text
+
+    def test_core_md_links_repo_root_and_daily_dir(self):
+        """core.md contains repo root and daily log links."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            repo = base / "repo"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps(
+                    {
+                        "repo_name": "repo",
+                        "repo_owner": "local",
+                        "kb_dir": "user",
+                        "daily_dir": "daily",
+                    }
+                )
+            )
+            kb = base / "kb"
+            kb.mkdir()
+
+            mgr.register("repo", "local", kb, repo_root=repo)
+            text = (base / "core.md").read_text()
+            assert str(repo.resolve()) in text
+            assert str((repo / "daily").resolve()) in text
+            assert str(kb.resolve() / "index.md") in text
+
+    def test_core_md_legacy_entry_omits_repo_links(self):
+        """Entries without repo_root keep only the KB link."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            kb = base / "kb"
+            kb.mkdir()
+
+            mgr.register("legacy", "local", kb)
+            text = (base / "core.md").read_text()
+            assert str(kb.resolve() / "index.md") in text
+            assert "Repo root" not in text
+            assert "Daily logs" not in text
+
+    def test_core_md_missing_lock_defaults_daily_dir(self, caplog):
+        """Missing lock file defaults daily_dir to 'daily' with a warning."""
+        from claude_wiki.global_index import RegistryEntry
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            repo = base / "repo"
+            repo.mkdir()
+            kb = base / "kb"
+            kb.mkdir()
+
+            entry = RegistryEntry(
+                repo_name="repo",
+                repo_owner="local",
+                kb_root=str(kb),
+                repo_root=str(repo),
+            )
+            text = mgr._generate_markdown([entry])
+            assert str((repo / "daily").resolve()) in text
+            assert "missing" in caplog.text.lower() or "default" in caplog.text.lower()
+
+    def test_core_md_unparseable_lock_defaults_daily_dir(self, caplog):
+        """Unparseable lock file defaults daily_dir to 'daily' with a warning."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            repo = base / "repo"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text("not json")
+            kb = base / "kb"
+            kb.mkdir()
+
+            mgr.register("repo", "local", kb, repo_root=repo)
+            text = (base / "core.md").read_text()
+            assert str((repo / "daily").resolve()) in text
+            assert "corrupt" in caplog.text.lower() or "default" in caplog.text.lower()
+
+    def test_core_md_relative_daily_dir_resolved(self):
+        """Relative daily_dir is resolved against repo_root."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            repo = base / "repo"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps(
+                    {
+                        "repo_name": "repo",
+                        "repo_owner": "local",
+                        "kb_dir": "project",
+                        "daily_dir": "logs/daily",
+                    }
+                )
+            )
+            kb = base / "kb"
+            kb.mkdir()
+
+            mgr.register("repo", "local", kb, repo_root=repo)
+            text = (base / "core.md").read_text()
+            assert str((repo / "logs" / "daily").resolve()) in text
+
+    def test_core_md_absolute_daily_dir_respected(self):
+        """Absolute daily_dir is used as-is."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            repo = base / "repo"
+            repo.mkdir()
+            daily = base / "external-daily"
+            daily.mkdir()
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps(
+                    {
+                        "repo_name": "repo",
+                        "repo_owner": "local",
+                        "kb_dir": "project",
+                        "daily_dir": str(daily),
+                    }
+                )
+            )
+            kb = base / "kb"
+            kb.mkdir()
+
+            mgr.register("repo", "local", kb, repo_root=repo)
+            text = (base / "core.md").read_text()
+            assert str(daily.resolve()) in text
+
+    def test_core_md_derives_kb_mode(self):
+        """core.md displays the derived KB mode from the lock file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            repo = base / "repo"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps(
+                    {
+                        "repo_name": "repo",
+                        "repo_owner": "local",
+                        "kb_dir": "user",
+                        "daily_dir": "daily",
+                    }
+                )
+            )
+            kb = base / "kb"
+            kb.mkdir()
+
+            mgr.register("repo", "local", kb, repo_root=repo)
+            text = (base / "core.md").read_text()
+            assert "*(user KB)*" in text
+
+    def test_core_md_custom_kb_mode(self):
+        """core.md shows custom KB mode for non-mode kb_dir values."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            repo = base / "repo"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps(
+                    {
+                        "repo_name": "repo",
+                        "repo_owner": "local",
+                        "kb_dir": "custom/path",
+                        "daily_dir": "daily",
+                    }
+                )
+            )
+            kb = base / "kb"
+            kb.mkdir()
+
+            mgr.register("repo", "local", kb, repo_root=repo)
+            text = (base / "core.md").read_text()
+            assert "*(custom KB)*" in text
+
+    def test_core_md_generation_does_not_crash_for_missing_repo_root(self):
+        """core.md generation survives a repo root that disappeared."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            repo = base / "repo"
+            repo.mkdir()
+            (repo / ".claude-wiki.lock").write_text("{}")
+            kb = base / "kb"
+            kb.mkdir()
+
+            # Write a registry entry directly, simulating stale state.
+            reg = base / ".registry.json"
+            reg.write_text(
+                json.dumps(
+                    [
+                        {
+                            "repo_name": "repo",
+                            "repo_owner": "local",
+                            "kb_root": str(kb),
+                            "repo_root": str(repo),
+                        }
+                    ]
+                )
+            )
+            (repo / ".claude-wiki.lock").unlink()
+            repo.rmdir()
+
+            # Generation should not raise even though the repo is gone.
+            text = mgr._generate_markdown(mgr.list_entries())
+            assert "repo" in text
