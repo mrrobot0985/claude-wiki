@@ -4,7 +4,7 @@
 complete -c claude-wiki -l version -d 'Show version and exit'
 
 # Top-level commands
-complete -c claude-wiki -n '__fish_use_subcommand' -a "compile init lint migrate query register registry rename-catalog status"
+complete -c claude-wiki -n '__fish_use_subcommand' -a "compile init lint migrate query register registry rename-catalog status tags"
 
 # compile flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l all
@@ -26,6 +26,7 @@ complete -c claude-wiki -n '__fish_seen_subcommand_from lint' -l help
 complete -c claude-wiki -n '__fish_seen_subcommand_from lint' -l json
 complete -c claude-wiki -n '__fish_seen_subcommand_from lint' -l path
 complete -c claude-wiki -n '__fish_seen_subcommand_from lint' -l structural-only
+complete -c claude-wiki -n '__fish_seen_subcommand_from lint' -l threshold
 # migrate flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from migrate' -l daily-dir
 complete -c claude-wiki -n '__fish_seen_subcommand_from migrate' -l dry-run
@@ -34,10 +35,14 @@ complete -c claude-wiki -n '__fish_seen_subcommand_from migrate' -l kb-dir
 complete -c claude-wiki -n '__fish_seen_subcommand_from migrate' -l path
 complete -c claude-wiki -n '__fish_seen_subcommand_from migrate' -l reports-dir
 # query flags
+complete -c claude-wiki -n '__fish_seen_subcommand_from query' -l category
 complete -c claude-wiki -n '__fish_seen_subcommand_from query' -l file-back
 complete -c claude-wiki -n '__fish_seen_subcommand_from query' -l help
 complete -c claude-wiki -n '__fish_seen_subcommand_from query' -l json
+complete -c claude-wiki -n '__fish_seen_subcommand_from query' -l max-chars
 complete -c claude-wiki -n '__fish_seen_subcommand_from query' -l path
+complete -c claude-wiki -n '__fish_seen_subcommand_from query' -l since
+complete -c claude-wiki -n '__fish_seen_subcommand_from query' -l tag
 # register flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from register' -l help
 complete -c claude-wiki -n '__fish_seen_subcommand_from register' -l path
@@ -55,4 +60,8 @@ complete -c claude-wiki -n '__fish_seen_subcommand_from rename-catalog' -l path
 # status flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from status' -l help
 complete -c claude-wiki -n '__fish_seen_subcommand_from status' -l path
+# tags flags
+complete -c claude-wiki -n '__fish_seen_subcommand_from tags' -l help
+complete -c claude-wiki -n '__fish_seen_subcommand_from tags' -l json
+complete -c claude-wiki -n '__fish_seen_subcommand_from tags' -l path
 

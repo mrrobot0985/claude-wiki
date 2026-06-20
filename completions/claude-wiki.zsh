@@ -1,7 +1,7 @@
 #compdef claude-wiki
 
 _claude_wiki_commands() {
-    local commands=(compile init lint migrate query register registry rename-catalog status)
+    local commands=(compile init lint migrate query register registry rename-catalog status tags)
     _describe -t commands 'claude-wiki command' commands
 }
 
@@ -42,6 +42,7 @@ _claude_wiki() {
                 '--json[]' \
                 '--path[]' \
                 '--structural-only[]' \
+                '--threshold[]' \
                 '*:: :_files'
             ;;
         (migrate)
@@ -56,10 +57,14 @@ _claude_wiki() {
             ;;
         (query)
             _arguments -C \
+                '--category[]' \
                 '--file-back[]' \
                 '--help[]' \
                 '--json[]' \
+                '--max-chars[]' \
                 '--path[]' \
+                '--since[]' \
+                '--tag[]' \
                 '*:: :_files'
             ;;
         (register)
@@ -103,6 +108,13 @@ _claude_wiki() {
         (status)
             _arguments -C \
                 '--help[]' \
+                '--path[]' \
+                '*:: :_files'
+            ;;
+        (tags)
+            _arguments -C \
+                '--help[]' \
+                '--json[]' \
                 '--path[]' \
                 '*:: :_files'
             ;;

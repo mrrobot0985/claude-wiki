@@ -4,7 +4,7 @@ _claude_wiki_completion() {
     local cur prev opts cmds
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    cmds=(compile init lint migrate query register registry rename-catalog status)
+    cmds=(compile init lint migrate query register registry rename-catalog status tags)
 
     if [ $COMP_CWORD -eq 1 ]; then
         COMPREPLY=( $(compgen -W "${cmds[*]}" -- "$cur") )
@@ -23,7 +23,7 @@ _claude_wiki_completion() {
         return 0
     fi
     if [ "$cmd" = "lint" ]; then
-        local lint_opts=(--fail-on-warning --help --json --path --structural-only)
+        local lint_opts=(--fail-on-warning --help --json --path --structural-only --threshold)
         COMPREPLY=( $(compgen -W "${lint_opts[*]}" -- "$cur") )
         return 0
     fi
@@ -33,7 +33,7 @@ _claude_wiki_completion() {
         return 0
     fi
     if [ "$cmd" = "query" ]; then
-        local query_opts=(--file-back --help --json --path)
+        local query_opts=(--category --file-back --help --json --max-chars --path --since --tag)
         COMPREPLY=( $(compgen -W "${query_opts[*]}" -- "$cur") )
         return 0
     fi
@@ -76,6 +76,11 @@ _claude_wiki_completion() {
     if [ "$cmd" = "status" ]; then
         local status_opts=(--help --path)
         COMPREPLY=( $(compgen -W "${status_opts[*]}" -- "$cur") )
+        return 0
+    fi
+    if [ "$cmd" = "tags" ]; then
+        local tags_opts=(--help --json --path)
+        COMPREPLY=( $(compgen -W "${tags_opts[*]}" -- "$cur") )
         return 0
     fi
 
