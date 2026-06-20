@@ -45,3 +45,16 @@ def _isolate_user_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
     monkeypatch.setenv("XDG_STATE_HOME", str(state))
+
+    # Clear git environment variables that would otherwise cause subprocess git
+    # calls to act on the repository under test instead of temp repos created by
+    # tests (pre-commit sets these during `git commit`).
+    for var in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    ):
+        monkeypatch.delenv(var, raising=False)

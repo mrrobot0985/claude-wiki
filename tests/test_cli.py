@@ -368,6 +368,73 @@ class TestInitCommand:
             assert (claude_dir / "settings.json").exists()
             assert not (repo / ".claude" / "settings.local.json").exists()
 
+    def test_init_no_hooks_skips_install_and_settings_files(self, capsys):
+        """--no-hooks writes lock and registers without touching any settings file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager") as mock_global:
+                    exit_code = main(["init", "--path", str(repo), "--no-hooks"])
+                    assert exit_code == 0
+                    mock_global.return_value.register.assert_called_once()
+
+            assert (repo / ".claude-wiki.lock").exists()
+            assert not (repo / ".claude" / "settings.local.json").exists()
+            assert not (claude_dir / "settings.json").exists()
+            captured = capsys.readouterr()
+            assert "hooks skipped" in captured.out.lower()
+
+    def test_init_global_and_no_hooks_skips_all_settings(self, capsys):
+        """--global --no-hooks registers but never writes a settings file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager") as mock_global:
+                    exit_code = main(
+                        ["init", "--path", str(repo), "--global", "--no-hooks"]
+                    )
+                    assert exit_code == 0
+                    mock_global.return_value.register.assert_called_once()
+
+            assert (repo / ".claude-wiki.lock").exists()
+            assert not (claude_dir / "settings.json").exists()
+            assert not (repo / ".claude" / "settings.local.json").exists()
+            captured = capsys.readouterr()
+            assert "hooks skipped" in captured.out.lower()
+
+    def test_init_no_hooks_disables_interactivity(self):
+        """--no-hooks prevents prompts even when stdin is a TTY."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager"):
+                    with patch("sys.stdin.isatty", return_value=True):
+                        with patch("builtins.input") as mock_input:
+                            exit_code = main(
+                                ["init", "--path", str(repo), "--no-hooks"]
+                            )
+                            assert exit_code == 0
+                            mock_input.assert_not_called()
+
+            assert (repo / ".claude-wiki.lock").exists()
+            assert not (repo / ".claude" / "settings.local.json").exists()
+            assert not (claude_dir / "settings.json").exists()
+
     def test_init_interactive_invalid_input_reprompts(self):
         """Out-of-range compile hour is rejected and re-prompted."""
         with tempfile.TemporaryDirectory() as tmpdir:
