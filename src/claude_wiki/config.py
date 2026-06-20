@@ -18,6 +18,21 @@ from claude_wiki.models import ProjectConfig
 logger = logging.getLogger(__name__)
 
 
+def default_daily_dir(kb_mode: str, repo_owner: str, repo_name: str) -> Path:
+    """Return the canonical daily log directory for a KB mode.
+
+    - ``user`` mode → ``~/.local/share/claude-wiki-daily/<owner>/<repo>/``
+    - any other mode → ``.claude/daily`` (repo-relative)
+    """
+    if kb_mode == "user":
+        return (
+            Path(user_data_dir("claude-wiki-daily", appauthor=False))
+            / repo_owner
+            / repo_name
+        )
+    return Path(".claude/daily")
+
+
 class ConfigManager(RepoDetector, ConfigLoader):
     """Concrete implementation: walks filesystem, resolves XDG paths."""
 
@@ -56,16 +71,9 @@ class ConfigManager(RepoDetector, ConfigLoader):
             # Mode-aware daily_dir default for legacy lock files without explicit value
             kb_mode = str(data.get("kb_dir", "project"))
             if "daily_dir" not in data:
-                if kb_mode == "user":
-                    owner = data.get("repo_owner", "local")
-                    name = data.get("repo_name", repo_root.name)
-                    defaults["daily_dir"] = str(
-                        Path(user_data_dir("claude-wiki-daily", appauthor=False))
-                        / owner
-                        / name
-                    )
-                else:
-                    defaults["daily_dir"] = ".claude/daily"
+                owner = data.get("repo_owner", "local")
+                name = data.get("repo_name", repo_root.name)
+                defaults["daily_dir"] = str(default_daily_dir(kb_mode, owner, name))
             env_daily = os.environ.get("CLAUDE_WIKI_DAILY_DIR")
             if env_daily:
                 defaults["daily_dir"] = env_daily
