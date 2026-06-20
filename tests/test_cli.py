@@ -868,6 +868,204 @@ class TestMigrateCommand:
             lock = json.loads((repo / ".claude-wiki.lock").read_text())
             assert lock["reports_dir"] == "reports"
 
+    def _bootstrap_project_mode_repo(self, repo: Path) -> None:
+        """Create a project-mode lock plus knowledge, daily, and state dirs."""
+        config = {
+            "repo_name": repo.name,
+            "repo_owner": "local",
+            "kb_dir": "project",
+            "daily_dir": ".claude/daily",
+            "reports_dir": "reports",
+            "timezone": "UTC",
+            "compile_after_hour": 18,
+        }
+        (repo / ".claude-wiki.lock").write_text(json.dumps(config))
+        (repo / ".claude" / "knowledge").mkdir(parents=True)
+        (repo / ".claude" / "knowledge" / f"{repo.name}.md").write_text("# Index")
+        (repo / ".claude" / "daily").mkdir(parents=True)
+        (repo / ".claude" / "daily" / "2024-01-01.md").write_text("log")
+        (repo / ".claude" / "state").mkdir(parents=True)
+        (repo / ".claude" / "state" / "state.json").write_text("{}")
+        (repo / ".claude" / "state" / "logs").mkdir(parents=True)
+        (repo / ".claude" / "state" / "logs" / "compile.log").write_text("log")
+
+    def _bootstrap_user_mode_repo(self, repo: Path, home: Path) -> None:
+        """Create a user-mode lock plus XDG knowledge, daily, and state dirs."""
+        vault = home / ".local" / "share" / "claude-wiki-vault" / "local" / repo.name
+        daily = home / ".local" / "share" / "claude-wiki-daily" / "local" / repo.name
+        state = (
+            home / ".local" / "state" / "claude-wiki" / "repos" / "local" / repo.name
+        )
+        config = {
+            "repo_name": repo.name,
+            "repo_owner": "local",
+            "kb_dir": "user",
+            "daily_dir": str(daily),
+            "reports_dir": "reports",
+            "timezone": "UTC",
+            "compile_after_hour": 18,
+        }
+        (repo / ".claude-wiki.lock").write_text(json.dumps(config))
+        vault.mkdir(parents=True)
+        (vault / f"{repo.name}.md").write_text("# Index")
+        daily.mkdir(parents=True)
+        (daily / "2024-01-01.md").write_text("log")
+        state.mkdir(parents=True)
+        (state / "state.json").write_text("{}")
+        (state / "logs").mkdir(parents=True)
+        (state / "logs" / "compile.log").write_text("log")
+
+    def test_migrate_kb_dir_user_mode_moves_kb_daily_and_state(self, tmp_path):
+        """--kb-dir user on a project-mode repo moves all three data dirs."""
+        home = tmp_path / "home"
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        self._bootstrap_project_mode_repo(repo)
+
+        with patch("claude_wiki.cli.GlobalIndexManager"):
+            exit_code = main(["migrate", "--path", str(repo), "--kb-dir", "user"])
+
+        assert exit_code == 0
+        new_kb = home / ".local" / "share" / "claude-wiki-vault" / "local" / repo.name
+        new_daily = (
+            home / ".local" / "share" / "claude-wiki-daily" / "local" / repo.name
+        )
+        new_state = (
+            home / ".local" / "state" / "claude-wiki" / "repos" / "local" / repo.name
+        )
+        assert (new_kb / f"{repo.name}.md").exists()
+        assert (new_daily / "2024-01-01.md").exists()
+        assert (new_state / "state.json").exists()
+        assert (new_state / "logs" / "compile.log").exists()
+        assert not (repo / ".claude" / "knowledge").exists()
+        assert not (repo / ".claude" / "daily").exists()
+        assert not (repo / ".claude" / "state").exists()
+        lock = json.loads((repo / ".claude-wiki.lock").read_text())
+        assert lock["kb_dir"] == "user"
+        assert lock["daily_dir"] == str(new_daily)
+
+    def test_migrate_kb_dir_project_mode_moves_kb_daily_and_state_back(self, tmp_path):
+        """--kb-dir project on a user-mode repo moves all three data dirs back."""
+        home = tmp_path / "home"
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        self._bootstrap_user_mode_repo(repo, home)
+
+        with patch("claude_wiki.cli.GlobalIndexManager"):
+            exit_code = main(["migrate", "--path", str(repo), "--kb-dir", "project"])
+
+        assert exit_code == 0
+        assert (repo / ".claude" / "knowledge" / f"{repo.name}.md").exists()
+        assert (repo / ".claude" / "daily" / "2024-01-01.md").exists()
+        assert (repo / ".claude" / "state" / "state.json").exists()
+        assert (repo / ".claude" / "state" / "logs" / "compile.log").exists()
+        assert not (
+            home / ".local" / "share" / "claude-wiki-vault" / "local" / repo.name
+        ).exists()
+        assert not (
+            home / ".local" / "share" / "claude-wiki-daily" / "local" / repo.name
+        ).exists()
+        assert not (
+            home / ".local" / "state" / "claude-wiki" / "repos" / "local" / repo.name
+        ).exists()
+        lock = json.loads((repo / ".claude-wiki.lock").read_text())
+        assert lock["kb_dir"] == "project"
+        assert lock["daily_dir"] == ".claude/daily"
+
+    def test_migrate_kb_dir_user_mode_dry_run_reports_all_three(self, tmp_path, capsys):
+        """--dry-run --kb-dir user reports all three prospective moves."""
+        home = tmp_path / "home"
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        self._bootstrap_project_mode_repo(repo)
+
+        with patch("claude_wiki.cli.GlobalIndexManager"):
+            exit_code = main(
+                ["migrate", "--path", str(repo), "--kb-dir", "user", "--dry-run"]
+            )
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert (repo / ".claude" / "knowledge").exists()
+        assert (repo / ".claude" / "daily").exists()
+        assert (repo / ".claude" / "state").exists()
+        new_kb = home / ".local" / "share" / "claude-wiki-vault" / "local" / repo.name
+        new_daily = (
+            home / ".local" / "share" / "claude-wiki-daily" / "local" / repo.name
+        )
+        new_state = (
+            home / ".local" / "state" / "claude-wiki" / "repos" / "local" / repo.name
+        )
+        assert "Would move kb_dir" in captured.out
+        assert "Would move daily_dir" in captured.out
+        assert "Would move state_dir" in captured.out
+        assert str(new_kb) in captured.out
+        assert str(new_daily) in captured.out
+        assert str(new_state) in captured.out
+
+    def test_migrate_kb_dir_user_state_failure_rolls_back(self, tmp_path, monkeypatch):
+        """A failed state move rolls back already-completed kb/daily moves."""
+        import shutil
+
+        home = tmp_path / "home"
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        self._bootstrap_project_mode_repo(repo)
+
+        new_state = (
+            home / ".local" / "state" / "claude-wiki" / "repos" / "local" / repo.name
+        )
+        original_move = shutil.move
+
+        def _failing_move(src, dst, **kwargs):
+            if Path(dst).resolve() == new_state.resolve():
+                raise PermissionError(f"mock failure moving {src} -> {dst}")
+            return original_move(src, dst, **kwargs)
+
+        monkeypatch.setattr(shutil, "move", _failing_move)
+
+        with patch("claude_wiki.cli.GlobalIndexManager"):
+            exit_code = main(["migrate", "--path", str(repo), "--kb-dir", "user"])
+
+        assert exit_code == 1
+        assert (repo / ".claude" / "knowledge" / f"{repo.name}.md").exists()
+        assert (repo / ".claude" / "daily" / "2024-01-01.md").exists()
+        assert (repo / ".claude" / "state" / "state.json").exists()
+        assert not (
+            home / ".local" / "share" / "claude-wiki-vault" / "local" / repo.name
+        ).exists()
+        assert not (
+            home / ".local" / "share" / "claude-wiki-daily" / "local" / repo.name
+        ).exists()
+        assert not new_state.exists()
+
+    def test_migrate_absolute_kb_dir_preserves_daily_and_state(self, tmp_path):
+        """An absolute --kb-dir only moves the kb_dir unless --daily-dir is given."""
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        self._bootstrap_project_mode_repo(repo)
+
+        custom_kb = tmp_path / "custom-kb"
+
+        with patch("claude_wiki.cli.GlobalIndexManager"):
+            exit_code = main(
+                ["migrate", "--path", str(repo), "--kb-dir", str(custom_kb)]
+            )
+
+        assert exit_code == 0
+        assert (custom_kb / f"{repo.name}.md").exists()
+        assert (repo / ".claude" / "daily" / "2024-01-01.md").exists()
+        assert (repo / ".claude" / "state" / "state.json").exists()
+        assert not (repo / ".claude" / "knowledge").exists()
+        lock = json.loads((repo / ".claude-wiki.lock").read_text())
+        assert lock["kb_dir"] == str(custom_kb)
+        assert lock["daily_dir"] == ".claude/daily"
+
 
 class TestCliEdgeCases:
     """Tests covering uncovered paths in cli.py."""

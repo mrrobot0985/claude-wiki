@@ -22,6 +22,15 @@ from claude_wiki.hook_detect import (
 )
 from claude_wiki.models import MigrationResult
 
+
+def _resolve_kb_mode(kb_dir: Path) -> str:
+    """Return 'user' or 'project' for mode strings, otherwise 'custom'."""
+    mode = str(kb_dir)
+    if mode in ("user", "project"):
+        return mode
+    return "custom"
+
+
 _Handler = Callable[[argparse.Namespace], int]
 
 
@@ -286,6 +295,18 @@ def _migrate(args: argparse.Namespace) -> int:
         overrides["kb_dir"] = args.kb_dir
     if args.daily_dir:
         overrides["daily_dir"] = args.daily_dir
+
+    old_mode = _resolve_kb_mode(previous.kb_dir)
+    new_mode = _resolve_kb_mode(overrides.get("kb_dir", previous.kb_dir))
+    if (
+        args.daily_dir is None
+        and {old_mode, new_mode} == {"user", "project"}
+        and old_mode != new_mode
+    ):
+        overrides["daily_dir"] = default_daily_dir(
+            new_mode, previous.repo_owner, previous.repo_name
+        )
+
     config = dataclasses.replace(previous, **overrides) if overrides else previous
 
     if previous == config:
@@ -332,6 +353,8 @@ def _print_migration_result(result: MigrationResult) -> None:
             print(f"  kb_dir: {result.old_kb_dir} -> {result.new_kb_dir}")
         if result.old_daily_dir and result.new_daily_dir:
             print(f"  daily_dir: {result.old_daily_dir} -> {result.new_daily_dir}")
+        if result.old_state_dir and result.new_state_dir:
+            print(f"  state_dir: {result.old_state_dir} -> {result.new_state_dir}")
     for w in result.warnings:
         print(f"  Warning: {w}")
     for e in result.errors:

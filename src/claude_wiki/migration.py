@@ -46,11 +46,18 @@ class MigrationManager(Migrator):
         new_daily = self._resolve_dir(current.daily_dir, repo_root).resolve(
             strict=False
         )
+        old_state = self.config_manager.get_machine_state_dir(
+            repo_root, previous
+        ).resolve(strict=False)
+        new_state = self.config_manager.get_machine_state_dir(
+            repo_root, current
+        ).resolve(strict=False)
 
         kb_changed = old_kb != new_kb
         daily_changed = old_daily != new_daily
+        state_changed = old_state != new_state
 
-        if not kb_changed and not daily_changed:
+        if not kb_changed and not daily_changed and not state_changed:
             return MigrationResult(migrated=False)
 
         result = MigrationResult(
@@ -59,19 +66,41 @@ class MigrationManager(Migrator):
             new_kb_dir=new_kb if kb_changed else None,
             old_daily_dir=old_daily if daily_changed else None,
             new_daily_dir=new_daily if daily_changed else None,
+            old_state_dir=old_state if state_changed else None,
+            new_state_dir=new_state if state_changed else None,
         )
 
         # Validate: never migrate into each other (equality or containment)
-        if kb_changed and daily_changed:
-            if (
-                self._paths_overlap(new_kb, new_daily)
-                or self._paths_overlap(old_kb, new_daily)
-                or self._paths_overlap(old_daily, new_kb)
-            ):
-                return MigrationResult(
-                    migrated=False,
-                    errors=["Migration refused: kb_dir and daily_dir would overlap."],
-                )
+        path_specs = [
+            ("kb_dir", old_kb, new_kb, kb_changed),
+            ("daily_dir", old_daily, new_daily, daily_changed),
+            ("state_dir", old_state, new_state, state_changed),
+        ]
+        changed_specs = [
+            (label, old_p, new_p)
+            for label, old_p, new_p, changed in path_specs
+            if changed
+        ]
+        all_specs = [
+            (label, old_p, new_p) for label, old_p, new_p, _changed in path_specs
+        ]
+        for i, (label_a, _old_a, new_a) in enumerate(changed_specs):
+            for label_b, _old_b, new_b in changed_specs[i + 1 :]:
+                if self._paths_overlap(new_a, new_b):
+                    return MigrationResult(
+                        migrated=False,
+                        errors=[
+                            f"Migration refused: {label_a} and {label_b} would overlap."
+                        ],
+                    )
+            for label_b, old_b, _new_b in all_specs:
+                if label_a != label_b and self._paths_overlap(new_a, old_b):
+                    return MigrationResult(
+                        migrated=False,
+                        errors=[
+                            f"Migration refused: {label_a} and {label_b} would overlap."
+                        ],
+                    )
 
         completed_moves: list[tuple[str, Path, Path]] = []
 
@@ -91,6 +120,13 @@ class MigrationManager(Migrator):
             if moved:
                 completed_moves.append(("daily_dir", old_daily, new_daily))
 
+        if state_changed and not result.errors:
+            result, moved = self._migrate_dir(
+                old_state, new_state, result, label="state_dir", dry_run=dry_run
+            )
+            if moved:
+                completed_moves.append(("state_dir", old_state, new_state))
+
         if result.errors and completed_moves and not dry_run:
             rollback_errors = self._rollback(completed_moves)
             result = MigrationResult(
@@ -99,6 +135,8 @@ class MigrationManager(Migrator):
                 new_kb_dir=result.new_kb_dir,
                 old_daily_dir=result.old_daily_dir,
                 new_daily_dir=result.new_daily_dir,
+                old_state_dir=result.old_state_dir,
+                new_state_dir=result.new_state_dir,
                 errors=[*result.errors, *rollback_errors],
                 warnings=result.warnings,
                 rolled_back=[(label, src, dst) for label, src, dst in completed_moves],
@@ -138,6 +176,8 @@ class MigrationManager(Migrator):
                         new_kb_dir=result.new_kb_dir,
                         old_daily_dir=result.old_daily_dir,
                         new_daily_dir=result.new_daily_dir,
+                        old_state_dir=result.old_state_dir,
+                        new_state_dir=result.new_state_dir,
                         errors=result.errors,
                         warnings=warnings,
                     ),
@@ -163,6 +203,8 @@ class MigrationManager(Migrator):
                     new_kb_dir=result.new_kb_dir,
                     old_daily_dir=result.old_daily_dir,
                     new_daily_dir=result.new_daily_dir,
+                    old_state_dir=result.old_state_dir,
+                    new_state_dir=result.new_state_dir,
                     errors=errors,
                     warnings=result.warnings,
                 ),
