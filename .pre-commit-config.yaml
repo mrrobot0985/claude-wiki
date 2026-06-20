@@ -40,7 +40,9 @@ repos:
     hooks:
       - id: pytest
         name: Run pytest
-        entry: uv run pytest
+        # Unset GIT_DIR/GIT_WORK_TREE so tests that spawn git in temp repos are
+        # not polluted by the parent repository's git environment.
+        entry: env -u GIT_DIR -u GIT_WORK_TREE uv run pytest
         language: system
         types: [python]
         pass_filenames: false
