@@ -6,8 +6,11 @@ import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from claude_wiki.errors import ConfigError
+
+_PATH_FIELDS = ("kb_dir", "daily_dir", "reports_dir")
 
 
 def _field_default(f: dataclasses.Field) -> Any:  # type: ignore[type-arg]
@@ -39,16 +42,29 @@ class ProjectConfig:
             if not isinstance(value, str) or not value.strip():
                 raise ConfigError(f"{name} must be a non-empty string")
 
+        # timezone must be a real IANA zone; an invalid value would crash
+        # query --file-back with ZoneInfoNotFoundError at call time.
+        try:
+            ZoneInfo(self.timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ConfigError(
+                f"timezone is not a valid IANA zone: {self.timezone}"
+            ) from exc
+
         if (
             not isinstance(self.compile_after_hour, int)
             or not 0 <= self.compile_after_hour <= 23
         ):
             raise ConfigError("compile_after_hour must be an integer between 0 and 23")
 
-        for name in ("kb_dir", "daily_dir", "reports_dir"):
+        for name in _PATH_FIELDS:
             value = getattr(self, name)
             if not isinstance(value, (str, Path)):
                 raise ConfigError(f"{name} must be a string or Path")
+            # Expand ~ so a configured "~/..." path does not anchor a literal
+            # "~" directory under the repo root. frozen dataclass → setattr via object.
+            expanded = Path(value).expanduser()
+            object.__setattr__(self, name, expanded)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ProjectConfig:

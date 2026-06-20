@@ -101,11 +101,18 @@ def _read_hook_input() -> dict[str, Any]:
     raw = sys.stdin.read()
     if not raw.strip():
         return {}
+
+    def _coerce(text: str) -> dict[str, Any]:
+        parsed = json.loads(text)
+        if not isinstance(parsed, dict):
+            raise ValueError("hook input is not a JSON object")
+        return cast(dict[str, Any], parsed)
+
     try:
-        return cast(dict[str, Any], json.loads(raw))
+        return _coerce(raw)
     except json.JSONDecodeError:
         fixed = re.sub(r"(?<!\\)\\(?!\"\\)", r"\\\\", raw)
-        return cast(dict[str, Any], json.loads(fixed))
+        return _coerce(fixed)
 
 
 def handler(_args: list[str]) -> int:

@@ -104,6 +104,19 @@ class TestPreCompactHandler:
         assert "Failed to parse stdin" in caplog.text
         pre_compact._spawn_flush.assert_not_called()
 
+    def test_stdin_non_object_returns_error(
+        self, pre_compact, repo, monkeypatch, caplog
+    ):
+        """Valid JSON that is not an object (e.g. an array) is rejected (issue #51)."""
+        caplog.set_level(logging.INFO)
+        _stdin(monkeypatch, '["not", "an", "object"]')
+
+        result = pre_compact.handler([])
+
+        assert result == 1
+        assert "Failed to parse stdin" in caplog.text
+        pre_compact._spawn_flush.assert_not_called()
+
     def test_insufficient_turns(self, pre_compact, repo, monkeypatch, caplog):
         """Skip when conversation has fewer than 5 turns."""
         caplog.set_level(logging.INFO)
