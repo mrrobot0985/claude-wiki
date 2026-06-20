@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
-from claude_wiki import hook_handlers
+from claude_wiki import flush, hook_handlers
 
 
 @pytest.fixture
@@ -374,6 +376,64 @@ class TestPreCompactEdgeCases:
         assert result == 0
         assert "SKIP: empty context" in caplog.text
         pre_compact._spawn_flush.assert_not_called()
+
+
+class TestPreCompactDelegation:
+    """Ensure PreCompact delegates to shared flush helpers instead of duplicating."""
+
+    def test_extract_context_delegates_to_flush(
+        self, pre_compact, repo, monkeypatch, caplog, tmp_path
+    ):
+        """Context extraction calls flush.extract_conversation_context."""
+        caplog.set_level(logging.INFO)
+        transcript = repo / "transcript.jsonl"
+        _transcript(transcript, [("user", f"u{i}") for i in range(6)])
+        _stdin(
+            monkeypatch, {"session_id": "delegate", "transcript_path": str(transcript)}
+        )
+
+        calls: list[tuple[object, dict[str, object]]] = []
+        original = flush.extract_conversation_context
+
+        def fake_extract(path: Path, **kwargs: object) -> tuple[str, int]:
+            calls.append((path, kwargs))
+            return original(path, **kwargs)
+
+        monkeypatch.setattr(flush, "extract_conversation_context", fake_extract)
+
+        result = pre_compact.handler([])
+
+        assert result == 0
+        assert len(calls) == 1
+        assert calls[0][0] == transcript
+        assert calls[0][1] == {
+            "max_turns": pre_compact.MAX_TURNS,
+            "max_chars": pre_compact.MAX_CONTEXT_CHARS,
+        }
+        assert "Spawned flush" in caplog.text
+
+    def test_lightly_escaped_stdin_uses_shared_parser(
+        self, pre_compact, repo, monkeypatch, caplog
+    ):
+        """PreCompact parses lightly-escaped JSON via flush.read_hook_input."""
+        caplog.set_level(logging.INFO)
+        raw = '{"session_id":"win","transcript_path":"C:\\Users\\me\\transcript.jsonl"}'
+
+        calls: list[str] = []
+        original = flush.read_hook_input
+
+        def fake_read(text: str) -> dict[str, Any]:
+            calls.append(text)
+            return original(text)
+
+        monkeypatch.setattr(flush, "read_hook_input", fake_read)
+
+        monkeypatch.setattr("sys.stdin", io.StringIO(raw))
+        result = pre_compact.handler([])
+
+        assert result == 0
+        assert len(calls) == 1
+        assert r"C:\Users\me\transcript.jsonl" in caplog.text
 
 
 class TestRegistration:
