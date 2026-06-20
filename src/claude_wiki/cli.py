@@ -16,6 +16,10 @@ from claude_wiki.config import ConfigManager, default_daily_dir
 from claude_wiki.errors import RepoNotFoundError
 from claude_wiki.factories import DefaultConfigResolver
 from claude_wiki.global_index import GlobalIndexManager
+from claude_wiki.hook_detect import (
+    global_claude_settings_path,
+    settings_has_claude_wiki_hooks,
+)
 from claude_wiki.models import MigrationResult
 
 _Handler = Callable[[argparse.Namespace], int]
@@ -206,6 +210,18 @@ def _init(args: argparse.Namespace) -> int:
         config = dataclasses.replace(defaults, **overrides) if overrides else defaults
         use_global_hooks = args.global_flag
 
+    if not args.no_hooks and not use_global_hooks:
+        global_settings = global_claude_settings_path()
+        if settings_has_claude_wiki_hooks(global_settings):
+            print(
+                "Error: Global claude-wiki hooks are already installed in "
+                f"{global_settings}. Run 'claude-wiki init --no-hooks' to skip "
+                "repo-local hooks or 'claude-wiki init --global' to rewrite the "
+                "global settings.",
+                file=sys.stderr,
+            )
+            return 1
+
     # On first init there is no previous state, so no migration is attempted.
     result = migrator.check_and_migrate(repo_root, config, None, dry_run=False)
     if result.migrated:
@@ -222,7 +238,7 @@ def _init(args: argparse.Namespace) -> int:
         )
     else:
         if use_global_hooks:
-            settings_path = Path.home() / ".claude" / "settings.json"
+            settings_path = global_claude_settings_path()
         else:
             settings_path = repo_root / ".claude" / "settings.local.json"
 

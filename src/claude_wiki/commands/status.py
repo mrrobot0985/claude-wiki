@@ -12,6 +12,10 @@ from claude_wiki.catalog_utils import resolve_catalog
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import ConfigError, RepoNotFoundError
 from claude_wiki.global_index import GlobalIndexManager
+from claude_wiki.hook_detect import (
+    global_claude_settings_path,
+    settings_has_claude_wiki_hooks,
+)
 from claude_wiki.models import ProjectConfig
 
 
@@ -149,8 +153,18 @@ def _check_state(repo_root: Path, config: ProjectConfig) -> tuple[str, str, int]
 
 def _check_hooks(repo_root: Path) -> tuple[str, str, int]:
     local = repo_root / ".claude" / "settings.local.json"
-    global_ = Path.home() / ".claude" / "settings.json"
+    global_ = global_claude_settings_path()
     required_events = {"SessionStart", "SessionEnd", "PreCompact"}
+
+    local_has_ours = settings_has_claude_wiki_hooks(local)
+    global_has_ours = settings_has_claude_wiki_hooks(global_)
+
+    if local_has_ours and global_has_ours:
+        return (
+            "Hooks",
+            f"{_StatusIcon['err']} claude-wiki hooks detected in both repo-local and global settings",
+            1,
+        )
 
     for path, label in ((local, "repo-local"), (global_, "global")):
         if not path.exists():

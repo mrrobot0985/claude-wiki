@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from claude_wiki.cli import main
+from claude_wiki.factories import CLAUDE_WIKI_HOOK_COMMAND
 
 
 class TestStatusCommand:
@@ -30,6 +31,54 @@ class TestStatusCommand:
                         "SessionStart": [{"hooks": []}],
                         "SessionEnd": [{"hooks": []}],
                         "PreCompact": [{"hooks": []}],
+                    }
+                }
+            )
+        )
+
+    def _install_claude_wiki_hooks(self, settings_path: Path) -> None:
+        """Write a settings file with real claude-wiki hook commands."""
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": f"{CLAUDE_WIKI_HOOK_COMMAND} SessionStart",
+                                        "timeout": 15,
+                                    }
+                                ],
+                            }
+                        ],
+                        "SessionEnd": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": f"{CLAUDE_WIKI_HOOK_COMMAND} SessionEnd",
+                                        "timeout": 10,
+                                    }
+                                ],
+                            }
+                        ],
+                        "PreCompact": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": f"{CLAUDE_WIKI_HOOK_COMMAND} PreCompact",
+                                        "timeout": 10,
+                                    }
+                                ],
+                            }
+                        ],
                     }
                 }
             )
@@ -203,3 +252,23 @@ class TestStatusCommand:
         captured = capsys.readouterr()
         assert exit_code == 1
         assert "not in a git repository" in captured.err.lower()
+
+    def test_status_reports_conflict_when_local_and_global_have_claude_wiki_hooks(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """status reports an error when both repo-local and global settings contain claude-wiki hooks."""
+        repo = self._repo(tmp_path)
+        self._lock(repo)
+        self._install_claude_wiki_hooks(repo / ".claude" / "settings.local.json")
+        self._install_claude_wiki_hooks(tmp_path / ".claude" / "settings.json")
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        exit_code = main(["status", "--path", str(repo)])
+        captured = capsys.readouterr()
+
+        assert exit_code == 1
+        assert "both" in captured.out.lower()
+        assert "repo-local" in captured.out.lower() or "global" in captured.out.lower()

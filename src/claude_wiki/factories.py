@@ -18,6 +18,10 @@ from claude_wiki.interfaces import (
 from claude_wiki.migration import MigrationManager
 from claude_wiki.models import ProjectConfig
 
+# Common command prefix used for every hook registered by DefaultHookRegistrar.
+# Shared with hook_detect so detection and installation stay in sync.
+CLAUDE_WIKI_HOOK_COMMAND = "uvx --from claude-wiki claude-wiki-hook"
+
 
 class GitRemoteOwnerResolver(RemoteOwnerResolver):
     """Infers repo_owner from the origin remote using git."""
@@ -55,7 +59,7 @@ class DefaultHookRegistrar(HookRegistrar):
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "uvx --from claude-wiki claude-wiki-hook SessionStart",
+                            "command": f"{CLAUDE_WIKI_HOOK_COMMAND} SessionStart",
                             "timeout": 15,
                         }
                     ],
@@ -67,7 +71,7 @@ class DefaultHookRegistrar(HookRegistrar):
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "uvx --from claude-wiki claude-wiki-hook SessionEnd",
+                            "command": f"{CLAUDE_WIKI_HOOK_COMMAND} SessionEnd",
                             "timeout": 10,
                         }
                     ],
@@ -79,7 +83,7 @@ class DefaultHookRegistrar(HookRegistrar):
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "uvx --from claude-wiki claude-wiki-hook PreCompact",
+                            "command": f"{CLAUDE_WIKI_HOOK_COMMAND} PreCompact",
                             "timeout": 10,
                         }
                     ],
