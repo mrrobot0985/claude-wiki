@@ -12,6 +12,7 @@ ______________________________________________________________________
 
 - [Install the Package](how-to/install.md) — pip, uv, or from source
 - [Configure a Repository](how-to/configure-repo.md) — `.claude-wiki.lock` options, migration, and the global registry
+- [Migrate to User Mode](how-to/migrate-project-to-user-mode.md) — move the KB out of the repo and into a central vault
 - [Customise Hook Behaviour](how-to/customize-hooks.md) — event handlers and timeouts
 
 ## Understanding
