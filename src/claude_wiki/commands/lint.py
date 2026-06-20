@@ -105,9 +105,10 @@ def _check_broken_links(kb_root: Path) -> list[_Issue]:
         content = article.read_text(encoding="utf-8")
         rel = article.relative_to(kb_root).as_posix()
         for link in _extract_wikilinks(content):
-            if link.startswith("daily/"):
+            target_link = _wikilink_target(link)
+            if target_link.startswith("daily/"):
                 continue
-            target = kb_root / f"{link}.md"
+            target = kb_root / f"{target_link}.md"
             if not target.exists():
                 issues.append(
                     _Issue(
@@ -307,6 +308,19 @@ def _extract_wikilinks(content: str) -> list[str]:
     return re.findall(r"\[\[([^\]]+)\]\]", content)
 
 
+def _wikilink_target(link: str) -> str:
+    """Normalize a wikilink inner text to its target path.
+
+    Strips Obsidian alias (``[[target|alias]]`` → ``target``) and anchor
+    (``[[target#heading]]`` → ``target``) so link resolution and inbound
+    counting compare the actual target, not the display form.
+    """
+    # Drop alias first (anchor may appear on either side of the pipe).
+    target = link.split("|", 1)[0]
+    target = target.split("#", 1)[0]
+    return target.strip()
+
+
 def _count_inbound_links(
     kb_root: Path, target: str, exclude: Path | None = None
 ) -> int:
@@ -316,8 +330,10 @@ def _count_inbound_links(
         if article == exclude:
             continue
         content = article.read_text(encoding="utf-8")
-        if f"[[{target}]]" in content:
-            count += 1
+        for link in _extract_wikilinks(content):
+            if _wikilink_target(link) == target:
+                count += 1
+                break
     return count
 
 
