@@ -203,6 +203,51 @@ class TestInitCommand:
             data = json.loads((repo / ".claude-wiki.lock").read_text())
             assert data["repo_owner"] == "new-owner"
 
+    def test_init_reinfers_owner_without_force(self, capsys):
+        """Running init without --force updates a stale repo_owner from remotes."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "claude-wiki"
+            repo.mkdir()
+            subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "remote",
+                    "add",
+                    "origin",
+                    "https://github.com/mrrobot0985/claude-wiki.git",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps(
+                    {
+                        "repo_name": "claude-wiki",
+                        "repo_owner": "local",
+                        "kb_dir": "project",
+                        "daily_dir": "daily",
+                        "reports_dir": "reports",
+                        "timezone": "UTC",
+                        "compile_after_hour": 18,
+                    }
+                )
+            )
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager"):
+                    exit_code = main(["init", "--path", str(repo)])
+
+            captured = capsys.readouterr()
+            assert exit_code == 0
+            assert "already initialised" not in captured.err
+            data = json.loads((repo / ".claude-wiki.lock").read_text())
+            assert data["repo_owner"] == "mrrobot0985"
+
     def test_init_interactive_uses_defaults(self):
         """TTY init with empty answers writes default config."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -223,7 +268,7 @@ class TestInitCommand:
             data = json.loads((repo / ".claude-wiki.lock").read_text())
             assert data["repo_owner"] == "local"
             assert data["kb_dir"] == "project"
-            assert data["daily_dir"] == "daily"
+            assert data["daily_dir"] == ".claude/daily"
             assert data["reports_dir"] == "reports"
             assert data["timezone"] == "UTC"
             assert data["compile_after_hour"] == 18
@@ -465,8 +510,8 @@ class TestMigrateCommand:
             lock = json.loads((repo / ".claude-wiki.lock").read_text())
             assert lock["daily_dir"] == "logs"
 
-    def test_migrate_reports_dir_flag(self):
-        """--reports-dir overrides the reports path and persists to config."""
+    def test_migrate_reports_dir_flag_emits_deprecation_warning(self, capsys):
+        """--reports-dir is deprecated and does not affect config."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir) / "my-project"
             repo.mkdir()
@@ -478,9 +523,11 @@ class TestMigrateCommand:
                     ["migrate", "--path", str(repo), "--reports-dir", "custom-reports"]
                 )
 
+            captured = capsys.readouterr()
             assert exit_code == 0
+            assert "--reports-dir is deprecated and ignored" in captured.err
             lock = json.loads((repo / ".claude-wiki.lock").read_text())
-            assert lock["reports_dir"] == "custom-reports"
+            assert lock["reports_dir"] == "reports"
 
 
 class TestCliEdgeCases:

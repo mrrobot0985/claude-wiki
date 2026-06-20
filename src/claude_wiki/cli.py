@@ -129,20 +129,23 @@ def _init(args: argparse.Namespace) -> int:
         return 1
 
     marker = repo_root / ".claude-wiki.lock"
-    if marker.exists() and not args.force:
+    defaults = loader.load(repo_root)
+    inferred_owner = owner_resolver.infer_repo_owner(repo_root)
+
+    needs_update = inferred_owner != "local" or args.force or not marker.exists()
+
+    if not needs_update:
         print(
             f"KB already initialised at {repo_root}. Use --force to overwrite.",
             file=sys.stderr,
         )
         return 0
 
-    defaults = loader.load(repo_root)
-    if args.force or not marker.exists():
-        defaults = dataclasses.replace(
-            defaults,
-            repo_name=repo_root.name,
-            repo_owner=owner_resolver.infer_repo_owner(repo_root),
-        )
+    defaults = dataclasses.replace(
+        defaults,
+        repo_name=repo_root.name,
+        repo_owner=inferred_owner,
+    )
 
     interactive_mode = _is_interactive(args)
     if interactive_mode and marker.exists() and args.force:
@@ -211,13 +214,14 @@ def _migrate(args: argparse.Namespace) -> int:
         return 1
 
     previous = loader.load(repo_root)
+    if args.reports_dir:
+        print("Warning: --reports-dir is deprecated and ignored.", file=sys.stderr)
+
     overrides: dict[str, Any] = {}
     if args.kb_dir:
         overrides["kb_dir"] = args.kb_dir
     if args.daily_dir:
         overrides["daily_dir"] = args.daily_dir
-    if args.reports_dir:
-        overrides["reports_dir"] = args.reports_dir
     config = dataclasses.replace(previous, **overrides) if overrides else previous
 
     if previous == config:
