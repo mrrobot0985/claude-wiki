@@ -679,3 +679,76 @@ class TestLazyMigration:
                 assert (old_kb / "note.md").exists()
                 data = json.loads(marker.read_text())
                 assert data["layout_version"] == "1"
+
+    def test_migrate_legacy_partial_failure_rolls_back_completed_moves(
+        self, monkeypatch
+    ):
+        """A later move failure reverses earlier successful moves in LIFO order."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            repo = tmpdir_path / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "1",
+                        "kb_dir": "user",
+                    }
+                )
+            )
+
+            env = {
+                "XDG_DATA_HOME": str(tmpdir_path / "data"),
+                "XDG_STATE_HOME": str(tmpdir_path / "state"),
+                "XDG_CACHE_HOME": str(tmpdir_path / "cache"),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                old_kb = tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
+                old_kb.mkdir(parents=True)
+                (old_kb / "article.md").write_text("knowledge")
+                (old_kb / "state.json").write_text('{"hash": "abc"}')
+                (old_kb / "logs").mkdir()
+                (old_kb / "logs" / "flush.log").write_text("log")
+
+                import shutil as _shutil
+
+                original_move = _shutil.move
+
+                def _failing_move(src, dst, **kwargs):
+                    if Path(dst).name == "logs":
+                        raise PermissionError(f"mock failure moving {src} -> {dst}")
+                    return original_move(src, dst, **kwargs)
+
+                monkeypatch.setattr(_shutil, "move", _failing_move)
+
+                manager = ConfigManager()
+                config = manager.load(repo)
+
+                assert config.layout_version == "1"
+
+                # All source locations restored
+                assert old_kb.exists()
+                assert (old_kb / "article.md").exists()
+                assert (old_kb / "state.json").read_text() == '{"hash": "abc"}'
+                assert (old_kb / "logs" / "flush.log").exists()
+
+                # Intermediate destinations gone
+                new_kb = (
+                    tmpdir_path / "data" / "claude-wiki-vault" / "owner" / "my-project"
+                )
+                state_dir = (
+                    tmpdir_path
+                    / "state"
+                    / "claude-wiki"
+                    / "repos"
+                    / "owner"
+                    / "my-project"
+                )
+                assert not new_kb.exists()
+                assert not (state_dir / "state.json").exists()
+
+                data = json.loads(marker.read_text())
+                assert data["layout_version"] == "1"
