@@ -7,9 +7,23 @@ from pathlib import Path
 from typing import Any
 
 from claude_wiki.config import ConfigManager
-from claude_wiki.interfaces import ConfigLoader, HookRegistrar, Migrator, RepoDetector
+from claude_wiki.git_utils import infer_repo_owner
+from claude_wiki.interfaces import (
+    ConfigLoader,
+    HookRegistrar,
+    Migrator,
+    RemoteOwnerResolver,
+    RepoDetector,
+)
 from claude_wiki.migration import MigrationManager
 from claude_wiki.models import ProjectConfig
+
+
+class GitRemoteOwnerResolver(RemoteOwnerResolver):
+    """Infers repo_owner from the origin remote using git."""
+
+    def infer_repo_owner(self, repo_root: Path) -> str:
+        return infer_repo_owner(repo_root)
 
 
 class DefaultHookRegistrar(HookRegistrar):
@@ -84,9 +98,12 @@ class DefaultConfigResolver:
     """Factory convenience — holds the production wiring."""
 
     @staticmethod
-    def build() -> tuple[RepoDetector, ConfigLoader, HookRegistrar, Migrator]:
+    def build() -> tuple[
+        RepoDetector, ConfigLoader, HookRegistrar, Migrator, RemoteOwnerResolver
+    ]:
         detector = ConfigManager()
         loader = detector  # same object implements both protocols
         registrar = DefaultHookRegistrar()
         migrator = MigrationManager(detector)
-        return detector, loader, registrar, migrator
+        owner_resolver = GitRemoteOwnerResolver()
+        return detector, loader, registrar, migrator, owner_resolver

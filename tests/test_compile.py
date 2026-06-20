@@ -230,3 +230,379 @@ class TestCompileCommand:
         assert exit_code == 1
         compile_mock.assert_not_called()
         assert "not found" in captured.err
+
+
+class TestDailySymlink:
+    """Tests for issue #7: daily log wikilinks when KB is outside the repo."""
+
+    def _make_user_repo(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> tuple[Path, Path, Path]:
+        """Create a repo configured with kb_dir='user' and return repo, kb_root, daily_dir."""
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        xdg_data = tmp_path / "xdg-data"
+        xdg_data.mkdir()
+        monkeypatch.setenv("XDG_DATA_HOME", str(xdg_data))
+
+        kb_root = xdg_data / "claude-wiki" / "local" / "my-project"
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {
+                    "repo_name": "my-project",
+                    "repo_owner": "local",
+                    "kb_dir": "user",
+                    "daily_dir": "daily",
+                    "timezone": "UTC",
+                }
+            )
+        )
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        return repo, kb_root, daily_dir
+
+    def test_user_mode_creates_absolute_daily_symlink(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """With kb_dir='user', an absolute daily/ symlink is created in KB root."""
+        repo, kb_root, daily_dir = self._make_user_repo(tmp_path, monkeypatch)
+        (daily_dir / "2026-06-19.md").write_text("log content")
+
+        monkeypatch.chdir(repo)
+        mocker.patch("claude_wiki.commands.compile._compile_one", return_value=0.0)
+
+        exit_code = main(["compile"])
+
+        assert exit_code == 0
+        symlink = kb_root / "daily"
+        assert symlink.is_symlink()
+        assert symlink.resolve() == daily_dir.resolve()
+        assert not str(symlink.readlink()).startswith("..")
+
+    def test_project_mode_creates_relative_daily_symlink(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """With kb_dir='project', a relative daily/ symlink keeps KB relocatable."""
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb_root = repo / ".claude" / "knowledge"
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {
+                    "repo_name": "my-project",
+                    "repo_owner": "local",
+                    "kb_dir": "project",
+                    "daily_dir": "daily",
+                    "timezone": "UTC",
+                }
+            )
+        )
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-19.md").write_text("log content")
+
+        monkeypatch.chdir(repo)
+        mocker.patch("claude_wiki.commands.compile._compile_one", return_value=0.0)
+
+        exit_code = main(["compile"])
+
+        assert exit_code == 0
+        symlink = kb_root / "daily"
+        assert symlink.is_symlink()
+        # Relative link should walk up from .claude/knowledge/daily to repo/daily.
+        assert str(symlink.readlink()) == "../../daily"
+        assert symlink.resolve() == daily_dir.resolve()
+
+    def test_absolute_kb_dir_creates_daily_symlink(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """With an absolute kb_dir path, an absolute daily symlink is created."""
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb_root = tmp_path / "custom-kb"
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {
+                    "repo_name": "my-project",
+                    "repo_owner": "local",
+                    "kb_dir": str(kb_root),
+                    "daily_dir": "daily",
+                    "timezone": "UTC",
+                }
+            )
+        )
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-19.md").write_text("log content")
+
+        monkeypatch.chdir(repo)
+        mocker.patch("claude_wiki.commands.compile._compile_one", return_value=0.0)
+
+        exit_code = main(["compile"])
+
+        assert exit_code == 0
+        symlink = kb_root / "daily"
+        assert symlink.is_symlink()
+        assert symlink.resolve() == daily_dir.resolve()
+
+    def test_missing_daily_dir_skips_symlink(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """If the repo daily directory does not exist, compile skips symlink creation."""
+        repo, kb_root, _daily_dir = self._make_user_repo(tmp_path, monkeypatch)
+
+        monkeypatch.chdir(repo)
+        mocker.patch("claude_wiki.commands.compile._compile_one", return_value=0.0)
+
+        exit_code = main(["compile"])
+
+        assert exit_code == 0
+        assert not (kb_root / "daily").exists()
+
+    def test_existing_daily_path_warns_and_skips(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any, capsys: Any
+    ) -> None:
+        """If kb_root/daily already exists as a file/dir, the command warns and skips."""
+        repo, kb_root, daily_dir = self._make_user_repo(tmp_path, monkeypatch)
+        (daily_dir / "2026-06-19.md").write_text("log content")
+        kb_root.mkdir(parents=True, exist_ok=True)
+        existing = kb_root / "daily"
+        existing.write_text("I am not a symlink")
+
+        monkeypatch.chdir(repo)
+        mocker.patch("claude_wiki.commands.compile._compile_one", return_value=0.0)
+
+        exit_code = main(["compile"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert existing.is_file()
+        assert "not overwriting" in captured.err
+
+    def test_dry_run_does_not_create_symlink(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """``--dry-run`` does not create the daily/ symlink."""
+        repo, kb_root, daily_dir = self._make_user_repo(tmp_path, monkeypatch)
+        (daily_dir / "2026-06-19.md").write_text("log content")
+
+        monkeypatch.chdir(repo)
+        mocker.patch("claude_wiki.commands.compile._compile_one")
+
+        exit_code = main(["compile", "--dry-run"])
+
+        assert exit_code == 0
+        assert not (kb_root / "daily").exists()
+
+    def test_symlink_creation_is_idempotent(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """Re-running compile leaves an existing correct symlink intact."""
+        repo, kb_root, daily_dir = self._make_user_repo(tmp_path, monkeypatch)
+        (daily_dir / "2026-06-19.md").write_text("log content")
+
+        monkeypatch.chdir(repo)
+        mocker.patch("claude_wiki.commands.compile._compile_one", return_value=0.0)
+
+        main(["compile"])
+        first_link = kb_root / "daily"
+        assert first_link.is_symlink()
+        first_target = first_link.readlink()
+
+        main(["compile"])
+        second_link = kb_root / "daily"
+
+        assert second_link.readlink() == first_target
+
+
+class TestDailyBacklinks:
+    """Tests for issue #10: bidirectional provenance via daily log backlinks."""
+
+    def _make_repo(self, tmp_path: Path) -> tuple[Path, Path, Path]:
+        """Create a project-mode repo and return repo, kb_root, daily_dir."""
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb_root = repo / ".claude" / "knowledge"
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {
+                    "repo_name": "my-project",
+                    "repo_owner": "local",
+                    "kb_dir": "project",
+                    "daily_dir": "daily",
+                    "timezone": "UTC",
+                }
+            )
+        )
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        return repo, kb_root, daily_dir
+
+    def _fake_compile_with_articles(self, repo_root: Path, kb_root: Path) -> Any:
+        """Return a fake compile function that writes concepts/connections articles."""
+
+        def fake(log_path: Path, _repo_root: Path, root: Path, _config: Any) -> float:
+            concept_dir = root / "concepts"
+            concept_dir.mkdir(parents=True, exist_ok=True)
+            (concept_dir / "asyncio-patterns.md").write_text(
+                '---\ntitle: asyncio patterns\nsources:\n  - "daily/2026-06-19.md"\n---\n'
+            )
+            connection_dir = root / "connections"
+            connection_dir.mkdir(parents=True, exist_ok=True)
+            (connection_dir / "asyncio-concurrency.md").write_text(
+                '---\ntitle: asyncio concurrency\nsources:\n  - "daily/2026-06-19.md"\n---\n'
+            )
+            qa_dir = root / "qa"
+            qa_dir.mkdir(parents=True, exist_ok=True)
+            (qa_dir / "why-asyncio.md").write_text(
+                '---\ntitle: why asyncio\nsources:\n  - "daily/2026-06-19.md"\n---\n'
+            )
+            return 0.0
+
+        return fake
+
+    def test_appends_compiled_knowledge_section(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """A successful compile adds a backlink section to the daily log."""
+        repo, _kb_root, daily_dir = self._make_repo(tmp_path)
+        log = daily_dir / "2026-06-19.md"
+        log.write_text("discussed asyncio patterns")
+
+        monkeypatch.chdir(repo)
+        mocker.patch(
+            "claude_wiki.commands.compile._compile_one",
+            side_effect=self._fake_compile_with_articles(
+                repo, repo / ".claude" / "knowledge"
+            ),
+        )
+
+        exit_code = main(["compile"])
+
+        assert exit_code == 0
+        content = log.read_text()
+        assert "## Compiled Knowledge" in content
+        assert "[[concepts/asyncio-patterns]]" in content
+        assert "[[connections/asyncio-concurrency]]" in content
+        assert "[[qa/why-asyncio]]" in content
+
+    def test_recompile_replaces_existing_backlinks_section(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """Re-compiling the same log replaces the old backlink section."""
+        repo, _kb_root, daily_dir = self._make_repo(tmp_path)
+        log = daily_dir / "2026-06-19.md"
+        log.write_text(
+            "original log content\n\n## Compiled Knowledge\n\n- [[concepts/stale]]\n"
+        )
+
+        monkeypatch.chdir(repo)
+        mocker.patch(
+            "claude_wiki.commands.compile._compile_one",
+            side_effect=self._fake_compile_with_articles(
+                repo, repo / ".claude" / "knowledge"
+            ),
+        )
+
+        main(["compile"])
+        content = log.read_text()
+
+        assert content.count("## Compiled Knowledge") == 1
+        assert "[[concepts/stale]]" not in content
+        assert "[[concepts/asyncio-patterns]]" in content
+
+    def test_no_articles_writes_empty_backlinks_section(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """If compilation produces no articles, the section is written empty."""
+        repo, _kb_root, daily_dir = self._make_repo(tmp_path)
+        log = daily_dir / "2026-06-19.md"
+        log.write_text("random chat with no concepts")
+
+        def fake_no_articles(
+            _log_path: Path, _repo_root: Path, _root: Path, _config: Any
+        ) -> float:
+            return 0.0
+
+        monkeypatch.chdir(repo)
+        mocker.patch(
+            "claude_wiki.commands.compile._compile_one", side_effect=fake_no_articles
+        )
+
+        exit_code = main(["compile"])
+
+        assert exit_code == 0
+        content = log.read_text()
+        assert "## Compiled Knowledge" in content
+        assert "No articles compiled" in content
+
+    def test_dry_run_does_not_update_backlinks(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """``--dry-run`` does not touch the daily log backlink section."""
+        repo, _kb_root, daily_dir = self._make_repo(tmp_path)
+        log = daily_dir / "2026-06-19.md"
+        log.write_text("discussed asyncio patterns")
+
+        monkeypatch.chdir(repo)
+        mocker.patch("claude_wiki.commands.compile._compile_one")
+
+        exit_code = main(["compile", "--dry-run"])
+
+        assert exit_code == 0
+        assert "## Compiled Knowledge" not in log.read_text()
+
+    def test_failed_compile_does_not_update_backlinks(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """If compilation raises, the daily log keeps its original content."""
+        repo, _kb_root, daily_dir = self._make_repo(tmp_path)
+        log = daily_dir / "2026-06-19.md"
+        log.write_text("original content")
+
+        def fake_error(
+            _log_path: Path, _repo_root: Path, _root: Path, _config: Any
+        ) -> float:
+            raise RuntimeError("compiler exploded")
+
+        monkeypatch.chdir(repo)
+        mocker.patch(
+            "claude_wiki.commands.compile._compile_one", side_effect=fake_error
+        )
+
+        exit_code = main(["compile"])
+
+        assert exit_code == 0
+        assert log.read_text() == "original content"
+
+    def test_only_compiled_logs_get_backlinks(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """``--file`` only updates the target log's backlink section."""
+        repo, _kb_root, daily_dir = self._make_repo(tmp_path)
+        first = daily_dir / "2026-06-18.md"
+        first.write_text("old discussion")
+        second = daily_dir / "2026-06-19.md"
+        second.write_text("discussed asyncio patterns")
+
+        monkeypatch.chdir(repo)
+        mocker.patch(
+            "claude_wiki.commands.compile._compile_one",
+            side_effect=self._fake_compile_with_articles(
+                repo, repo / ".claude" / "knowledge"
+            ),
+        )
+
+        exit_code = main(["compile", "--file", "daily/2026-06-19.md"])
+
+        assert exit_code == 0
+        assert "## Compiled Knowledge" in second.read_text()
+        assert "## Compiled Knowledge" not in first.read_text()
