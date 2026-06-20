@@ -7,12 +7,15 @@ requires-python = ">=3.12"
 license = {text = "MIT"}
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Topic :: Text Processing :: General",
+    "Typing :: Typed",
 ]
 dependencies = [
     "claude-agent-sdk>=0.1.29",
@@ -38,6 +41,9 @@ dev = [
 Homepage = "https://github.com/mrrobot0985/claude-wiki"
 Repository = "https://github.com/mrrobot0985/claude-wiki"
 Funding = "https://github.com/sponsors/mrrobot0985"
+Documentation = "https://github.com/mrrobot0985/claude-wiki#documentation"
+Changelog = "https://github.com/mrrobot0985/claude-wiki/blob/main/CHANGELOG.md"
+Issues = "https://github.com/mrrobot0985/claude-wiki/issues"
 
 [project.scripts]
 claude-wiki = "claude_wiki.cli:main"
@@ -49,6 +55,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/claude_wiki"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"completions/claude-wiki.bash" = "claude_wiki/data/completions/claude-wiki.bash"
+"completions/claude-wiki.zsh" = "claude_wiki/data/completions/claude-wiki.zsh"
+"completions/claude-wiki.fish" = "claude_wiki/data/completions/claude-wiki.fish"
+"docs/man/claude-wiki.1" = "claude_wiki/data/man/claude-wiki.1"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

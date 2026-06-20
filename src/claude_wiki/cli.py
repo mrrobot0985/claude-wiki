@@ -38,9 +38,12 @@ def _resolve_kb_mode(kb_dir: Path) -> str:
 _Handler = Callable[[argparse.Namespace], int]
 
 
-def main(argv: list[str] | None = None) -> int:
-    configure_stderr_logging()
+def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, _Handler]]:
+    """Build the argparse parser exactly as the live CLI uses it.
 
+    Factored out so completion generators and tests can introspect the
+    parser without duplicating its declaration.
+    """
     # Lazy import: `claude_wiki.cli` is imported by `claude_wiki/__init__.py`
     # before `__version__` is bound there, so a top-level import would cycle.
     from claude_wiki import __version__
@@ -111,6 +114,14 @@ def main(argv: list[str] | None = None) -> int:
     # Dynamically register subcommands from commands/ modules
     handlers: dict[str, _Handler] = {}
     _register_commands(subparsers, handlers)
+
+    return parser, handlers
+
+
+def main(argv: list[str] | None = None) -> int:
+    configure_stderr_logging()
+
+    parser, handlers = _build_parser()
 
     args = parser.parse_args(argv)
 

@@ -1,0 +1,86 @@
+.TH CLAUDE-WIKI 1 "2026-06-20" "claude-wiki 0.9.0" "User Commands"
+.SH NAME
+claude-wiki \- installable hooks and CLI for a personal knowledge base
+.SH SYNOPSIS
+.B claude-wiki
+.RI [ OPTIONS ]
+.I COMMAND
+.RI [ ARGS ]
+.SH DESCRIPTION
+.B claude-wiki
+captures Claude Code conversation context through hooks, then compiles daily
+logs into a wiki of atomic articles stored in a knowledge base. It provides
+commands to initialise repositories, compile logs, query the knowledge base,
+lint articles, and manage the global registry.
+.SH OPTIONS
+.TP
+.BR \-h , " \-\-help"
+Show the help message and exit.
+.TP
+.BR \-v , " \-\-version"
+Show the version and exit.
+.SH COMMANDS
+.TP
+.B init
+Initialise a knowledge base for the current repo.
+.TP
+.B migrate
+Check and migrate data when configured paths change.
+.TP
+.B compile
+Compile daily logs into the knowledge base.
+.TP
+.B query
+Ask a question and answer it from the knowledge base.
+.TP
+.B lint
+Run health checks on the knowledge base.
+.TP
+.B register
+Register an existing .claude-wiki.lock with the global index.
+.TP
+.B registry
+Manage the global knowledge-base registry. Subcommands: list, show, remove, clean.
+.TP
+.B rename-catalog
+Rename index.md to the repo-named catalog and rewrite wikilinks.
+.TP
+.B status
+Diagnose repository health.
+.SH ENVIRONMENT
+.TP
+.B CLAUDE_WIKI_PROJECT_DIR
+Override the project directory used for path resolution.
+.TP
+.B CLAUDE_WIKI_DAILY_DIR
+Override the daily log directory.
+.TP
+.B CLAUDE_WIKI_STATE_DIR
+Override the machine-state directory.
+.TP
+.B CLAUDE_WIKI_CACHE_DIR
+Override the cache directory.
+.TP
+.B CLAUDE_WIKI_DEBUG
+When set, enable DEBUG-level logging output.
+.SH FILES
+.TP
+.IR .claude-wiki.lock
+Per-repo configuration marker and machine-managed config.
+.TP
+.IR .claude/settings.local.json
+Repo-local Claude Code hook settings.
+.TP
+.IR ~/.claude/settings.json
+Global Claude Code hook settings.
+.TP
+.IR .claude/knowledge/
+Project-mode knowledge base.
+.TP
+.IR ~/.local/share/claude-wiki-vault/
+User-mode knowledge base vault.
+.TP
+.IR ~/.local/state/claude-wiki/
+Machine state such as compilation hashes and build logs.
+.SH SEE ALSO
+Project homepage: https://github.com/mrrobot0985/claude-wiki
