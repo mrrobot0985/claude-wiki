@@ -142,7 +142,7 @@ class TestGlobalIndexManager:
             assert mgr.list_entries() == []
 
     def test_generated_markdown_links_to_index(self):
-        """Each generated entry links to the repo's index.md."""
+        """Each generated entry links to the repo's catalog via wikilink."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
             kb = base / "kb"
@@ -151,7 +151,7 @@ class TestGlobalIndexManager:
             mgr.register("my-repo", "owner", kb, articles=2, last_compiled="2026-06-19")
 
             text = (base / "core.md").read_text()
-            assert str(kb / "index.md") in text
+            assert "[[kb/my-repo|my-repo]]" in text
             assert "owner/my-repo" in text
             assert "**Articles:** 2" in text
             assert "2026-06-19" in text
@@ -416,8 +416,8 @@ class TestGlobalIndexManager:
             assert len(evicted) == 0
             assert len(mgr.list_entries()) == 1
 
-    def test_generate_markdown_uses_absolute_paths(self):
-        """core.md links use absolute KB and repo paths."""
+    def test_generate_markdown_uses_wikilinks_and_plain_text(self):
+        """core.md uses Obsidian wikilinks for KB indexes and plain text for directories."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
             mgr = GlobalIndexManager(base_dir=base)
@@ -429,11 +429,12 @@ class TestGlobalIndexManager:
 
             mgr.register("repo", "local", kb, repo_root=repo)
             text = (base / "core.md").read_text()
-            assert str(kb.resolve() / "index.md") in text
-            assert str(repo.resolve()) in text
+            assert "[[kb/repo|repo]]" in text
+            assert f"`{repo.resolve()}`" in text
+            assert f"`{(repo / 'daily').resolve()}`" in text
 
     def test_core_md_links_repo_root_and_daily_dir(self):
-        """core.md contains repo root and daily log links."""
+        """core.md contains repo root and daily log paths plus wikilink to KB catalog."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
             mgr = GlobalIndexManager(base_dir=base)
@@ -454,12 +455,12 @@ class TestGlobalIndexManager:
 
             mgr.register("repo", "local", kb, repo_root=repo)
             text = (base / "core.md").read_text()
-            assert str(repo.resolve()) in text
-            assert str((repo / "daily").resolve()) in text
-            assert str(kb.resolve() / "index.md") in text
+            assert f"`{repo.resolve()}`" in text
+            assert f"`{(repo / 'daily').resolve()}`" in text
+            assert "[[kb/repo|repo]]" in text
 
     def test_core_md_legacy_entry_omits_repo_links(self):
-        """Entries without repo_root keep only the KB link."""
+        """Entries without repo_root keep only the KB wikilink."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
             mgr = GlobalIndexManager(base_dir=base)
@@ -468,7 +469,7 @@ class TestGlobalIndexManager:
 
             mgr.register("legacy", "local", kb)
             text = (base / "core.md").read_text()
-            assert str(kb.resolve() / "index.md") in text
+            assert "[[kb/legacy|legacy]]" in text
             assert "Repo root" not in text
             assert "Daily logs" not in text
 

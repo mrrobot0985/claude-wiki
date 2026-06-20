@@ -135,23 +135,29 @@ class GlobalIndexManager:
             return "\n".join(lines)
         for e in sorted(entries, key=lambda x: (x.repo_owner, x.repo_name)):
             kb_root = self._resolve_path(e.kb_root, e.repo_root)
-            idx_link = self._format_link(kb_root / "index.md")
             compiled = e.last_compiled or "never"
             mode_suffix = ""
             if e.repo_root is not None:
                 mode_label = self._derive_kb_mode_label(Path(e.repo_root))
                 mode_suffix = f" *({mode_label})*"
             lines.append(f"## {e.repo_owner}/{e.repo_name}{mode_suffix}")
-            lines.append(
-                f"- **KB index:** [{e.repo_owner}/{e.repo_name}/index.md]({idx_link})"
-            )
+
+            # Wikilink for KB index (Obsidian-style); fall back to plain text
+            # when the KB lives outside the global vault root.
+            try:
+                vault_rel = Path(kb_root).relative_to(self.base_dir)
+                idx_wikilink = (
+                    f"[[{(vault_rel / e.repo_name).as_posix()}|{e.repo_name}]]"
+                )
+            except ValueError:
+                idx_wikilink = f"{e.repo_owner}/{e.repo_name}"
+            lines.append(f"- **KB index:** {idx_wikilink}")
+
             if e.repo_root is not None:
                 root_path = Path(e.repo_root)
-                root_link = self._format_link(root_path)
                 daily_dir = self._get_daily_dir(root_path)
-                daily_link = self._format_link(daily_dir)
-                lines.append(f"- **Repo root:** [{root_path.name}]({root_link})")
-                lines.append(f"- **Daily logs:** [{daily_dir.name}]({daily_link})")
+                lines.append(f"- **Repo root:** `{root_path.resolve()}`")
+                lines.append(f"- **Daily logs:** `{daily_dir.resolve()}`")
             lines.append(f"- **Articles:** {e.articles} | Last compiled: {compiled}")
             lines.append("")
         return "\n".join(lines)
