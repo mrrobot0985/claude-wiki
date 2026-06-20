@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - `.gitignore` entries for `.claude-wiki.lock` and `coverage.json`
+- PyPI and CI badges to README ([#75](https://github.com/mrrobot0985/claude-wiki/issues/75))
 - `CONTRIBUTING.md` at repo root with branch naming and PR checklist
   ([#78](https://github.com/mrrobot0985/claude-wiki/issues/78))
 - GitHub issue templates for bug reports and feature requests
@@ -14,6 +15,10 @@ All notable changes to this project are documented in this file.
 - Expanded quickstart tutorial with project-vs-user mode, sample output, and
   Obsidian integration ([#77](https://github.com/mrrobot0985/claude-wiki/issues/77))
 - `examples/minimal-walkthrough` with synthetic daily log and compiled KB ([#76](https://github.com/mrrobot0985/claude-wiki/issues/76))
+
+### Changed
+
+- PyPI classifier upgraded from Development Status :: 3 - Alpha to 4 - Beta ([#75](https://github.com/mrrobot0985/claude-wiki/issues/75))
 
 ### Removed
 
