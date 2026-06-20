@@ -20,6 +20,8 @@ All notable changes to this project are documented in this file.
 - Expanded quickstart tutorial with project-vs-user mode, sample output, and
   Obsidian integration ([#77](https://github.com/mrrobot0985/claude-wiki/issues/77))
 - `examples/minimal-walkthrough` with synthetic daily log and compiled KB ([#76](https://github.com/mrrobot0985/claude-wiki/issues/76))
+- `claude-wiki register [--path]` command to register an existing `.claude-wiki.lock`
+  without re-running `init` ([#68](https://github.com/mrrobot0985/claude-wiki/issues/68))
 
 ### Changed
 
