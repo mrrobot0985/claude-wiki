@@ -1,0 +1,50 @@
+name: Bug Report
+description: Report something that is not working correctly.
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: What version of claude-wiki are you running?
+      placeholder: e.g., 0.5.1
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: e.g., 3.14.4
+    validations:
+      required: false
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the exact commands or code that trigger the issue.
+      placeholder: |
+        1. Run `claude-wiki init`
+        2. Run `claude-wiki compile`
+        3. Observe error ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Logs, stack traces, or environment details.
+      render: shell
+    validations:
+      required: false
