@@ -36,6 +36,11 @@ class GlobalIndexManager:
 
     _REGISTRY_NAME = ".registry.json"
     _INDEX_NAME = "core.md"
+
+    # Non-blocking registry lock: bounded retries instead of an unbounded
+    # blocking fcntl lock so a stuck peer cannot hang the process forever.
+    _LOCK_RETRIES = 50
+    _LOCK_RETRY_INTERVAL = 0.1
     _ALLOWED_FIELDS = {f.name for f in fields(RegistryEntry)}
 
     def __init__(self, base_dir: Path | None = None) -> None:
@@ -54,21 +59,49 @@ class GlobalIndexManager:
 
     @contextmanager
     def _registry_lock(self) -> Iterator[None]:
-        """Advisory lock protecting registry read-modify-write cycles."""
+        """Advisory lock protecting registry read-modify-write cycles.
+
+        Uses a non-blocking acquire with bounded retries so a peer holding the
+        lock cannot block this process indefinitely; raises ``TimeoutError`` if
+        the lock cannot be acquired within the retry budget.
+        """
         lock_path = self._registry_path().with_suffix(".json.lock")
         self._ensure_base()
         with open(lock_path, "w") as lock_file:
-            fcntl.lockf(lock_file.fileno(), fcntl.LOCK_EX)
+            acquired = False
+            for _ in range(self._LOCK_RETRIES):
+                try:
+                    fcntl.lockf(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except BlockingIOError:
+                    time.sleep(self._LOCK_RETRY_INTERVAL)
+            if not acquired:
+                raise TimeoutError(f"timed out acquiring registry lock at {lock_path}")
             try:
                 yield
             finally:
                 fcntl.lockf(lock_file.fileno(), fcntl.LOCK_UN)
 
+    def _save_index(self, markdown: str) -> None:
+        """Atomically write the human-readable core index."""
+        self._ensure_base()
+        path = self._index_path()
+        temp = path.parent / f".{path.name}.tmp.{os.getpid()}"
+        temp.write_text(markdown, encoding="utf-8")
+        os.replace(temp, path)
+
     def _load_registry(self) -> list[RegistryEntry]:
         path = self._registry_path()
         if not path.exists():
             return []
-        raw = path.read_text(encoding="utf-8")
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.warning(
+                "Unreadable registry at %s: %s; treating as empty", path, exc
+            )
+            return []
         if not raw.strip():
             return []
         try:
@@ -172,7 +205,16 @@ class GlobalIndexManager:
             )
             return None
         try:
-            data = json.loads(marker.read_text(encoding="utf-8"))
+            raw = marker.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.warning(
+                "Unreadable lock file at %s: %s; using defaults",
+                repo_root.resolve(strict=False),
+                exc,
+            )
+            return None
+        try:
+            data = json.loads(raw)
         except json.JSONDecodeError as exc:
             logger.warning(
                 "Corrupt lock file at %s: %s; using defaults",
@@ -284,9 +326,7 @@ class GlobalIndexManager:
                     else:
                         evicted.append(e)
                 self._save_registry(survivors)
-                self._index_path().write_text(
-                    self._generate_markdown(survivors), encoding="utf-8"
-                )
+                self._save_index(self._generate_markdown(survivors))
         return evicted
 
     def register(
@@ -344,9 +384,7 @@ class GlobalIndexManager:
 
             entries.append(new)
             self._save_registry(entries)
-            self._index_path().write_text(
-                self._generate_markdown(entries), encoding="utf-8"
-            )
+            self._save_index(self._generate_markdown(entries))
 
         self.sanitize()
 
@@ -360,9 +398,7 @@ class GlobalIndexManager:
                 if not (e.repo_name == repo_name and e.repo_owner == repo_owner)
             ]
             self._save_registry(entries)
-            self._index_path().write_text(
-                self._generate_markdown(entries), encoding="utf-8"
-            )
+            self._save_index(self._generate_markdown(entries))
 
     def list_entries(self) -> list[RegistryEntry]:
         """Return all registry entries, sorted by owner then name."""
