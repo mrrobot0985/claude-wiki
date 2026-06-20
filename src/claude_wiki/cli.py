@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from claude_wiki import interactive
-from claude_wiki.config import ConfigManager
+from claude_wiki.config import ConfigManager, default_daily_dir
 from claude_wiki.errors import RepoNotFoundError
 from claude_wiki.factories import DefaultConfigResolver
 from claude_wiki.global_index import GlobalIndexManager
@@ -53,6 +53,18 @@ def main(argv: list[str] | None = None) -> int:
         dest="no_hooks",
         action="store_true",
         help="Skip Claude Code hook installation (settings files are not created)",
+    )
+    init_parser.add_argument(
+        "--kb-dir",
+        dest="kb_dir",
+        type=Path,
+        help='KB directory mode: "project", "user", or a custom path',
+    )
+    init_parser.add_argument(
+        "--daily-dir",
+        dest="daily_dir",
+        type=Path,
+        help="Daily log directory (default depends on --kb-dir mode)",
     )
 
     # migrate
@@ -107,6 +119,10 @@ def _is_interactive(args: argparse.Namespace) -> bool:
     if args.global_flag:
         return False
     if args.no_hooks:
+        return False
+    if args.kb_dir is not None:
+        return False
+    if args.daily_dir is not None:
         return False
     return True
 
@@ -177,7 +193,17 @@ def _init(args: argparse.Namespace) -> int:
             print("\nAborted.", file=sys.stderr)
             return 1
     else:
-        config = defaults
+        overrides: dict[str, Any] = {}
+        if args.kb_dir is not None:
+            overrides["kb_dir"] = args.kb_dir
+        if args.daily_dir is not None:
+            overrides["daily_dir"] = args.daily_dir
+        if args.daily_dir is None and args.kb_dir is not None:
+            kb_mode = str(args.kb_dir)
+            overrides["daily_dir"] = default_daily_dir(
+                kb_mode, defaults.repo_owner, defaults.repo_name
+            )
+        config = dataclasses.replace(defaults, **overrides) if overrides else defaults
         use_global_hooks = args.global_flag
 
     # On first init there is no previous state, so no migration is attempted.

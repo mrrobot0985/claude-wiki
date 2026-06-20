@@ -15,6 +15,7 @@ import pytest
 from claude_wiki.cli import _print_migration_result, _register_commands, main
 from claude_wiki.config import ConfigManager
 from claude_wiki.models import MigrationResult, ProjectConfig
+from platformdirs import user_data_dir
 
 
 class TestInitCommand:
@@ -434,6 +435,137 @@ class TestInitCommand:
             assert (repo / ".claude-wiki.lock").exists()
             assert not (repo / ".claude" / "settings.local.json").exists()
             assert not (claude_dir / "settings.json").exists()
+
+    def test_init_kb_dir_user_flag(self):
+        """--kb-dir user writes lock with user mode and canonical XDG daily path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+            expected_daily = (
+                Path(user_data_dir("claude-wiki-daily", appauthor=False))
+                / "local"
+                / "my-project"
+            )
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager"):
+                    with patch("sys.stdin.isatty", return_value=True):
+                        with patch("builtins.input") as mock_input:
+                            exit_code = main(
+                                ["init", "--path", str(repo), "--kb-dir", "user"]
+                            )
+                            assert exit_code == 0
+                            mock_input.assert_not_called()
+
+            data = json.loads((repo / ".claude-wiki.lock").read_text())
+            assert data["kb_dir"] == "user"
+            assert data["daily_dir"] == str(expected_daily)
+
+    def test_init_kb_dir_project_flag(self):
+        """--kb-dir project writes lock with project mode and repo-local daily path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager"):
+                    with patch("sys.stdin.isatty", return_value=True):
+                        with patch("builtins.input") as mock_input:
+                            exit_code = main(
+                                ["init", "--path", str(repo), "--kb-dir", "project"]
+                            )
+                            assert exit_code == 0
+                            mock_input.assert_not_called()
+
+            data = json.loads((repo / ".claude-wiki.lock").read_text())
+            assert data["kb_dir"] == "project"
+            assert data["daily_dir"] == ".claude/daily"
+
+    def test_init_kb_dir_user_daily_dir_override(self):
+        """--kb-dir user with --daily-dir uses the explicit daily path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager"):
+                    with patch("sys.stdin.isatty", return_value=True):
+                        with patch("builtins.input") as mock_input:
+                            exit_code = main(
+                                [
+                                    "init",
+                                    "--path",
+                                    str(repo),
+                                    "--kb-dir",
+                                    "user",
+                                    "--daily-dir",
+                                    "/tmp/custom-daily",
+                                ]
+                            )
+                            assert exit_code == 0
+                            mock_input.assert_not_called()
+
+            data = json.loads((repo / ".claude-wiki.lock").read_text())
+            assert data["kb_dir"] == "user"
+            assert data["daily_dir"] == "/tmp/custom-daily"
+
+    def test_init_kb_dir_and_daily_dir_absolute(self):
+        """Absolute --kb-dir and --daily-dir values are stored as-is."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager"):
+                    with patch("sys.stdin.isatty", return_value=True):
+                        with patch("builtins.input") as mock_input:
+                            exit_code = main(
+                                [
+                                    "init",
+                                    "--path",
+                                    str(repo),
+                                    "--kb-dir",
+                                    "/tmp/wiki",
+                                    "--daily-dir",
+                                    "/tmp/daily",
+                                ]
+                            )
+                            assert exit_code == 0
+                            mock_input.assert_not_called()
+
+            data = json.loads((repo / ".claude-wiki.lock").read_text())
+            assert data["kb_dir"] == "/tmp/wiki"
+            assert data["daily_dir"] == "/tmp/daily"
+
+    def test_init_default_without_new_flags_keeps_project_mode(self):
+        """init without --kb-dir/--daily-dir keeps existing project-mode behavior."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager"):
+                    exit_code = main(["init", "--path", str(repo)])
+                    assert exit_code == 0
+
+            data = json.loads((repo / ".claude-wiki.lock").read_text())
+            assert data["kb_dir"] == "project"
+            assert data["daily_dir"] == ".claude/daily"
 
     def test_init_interactive_invalid_input_reprompts(self):
         """Out-of-range compile hour is rejected and re-prompted."""
