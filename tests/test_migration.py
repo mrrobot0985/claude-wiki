@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-
+from claude_wiki.config import ConfigManager, default_daily_dir
 from claude_wiki.migration import MigrationManager
 from claude_wiki.models import ProjectConfig
 
@@ -18,6 +18,10 @@ class FakeConfigManager:
         if str(config.kb_dir) == "user":
             return Path.home() / ".local" / "share" / "claude-wiki" / "local" / "test"
         return self.repo / "project"
+
+    def get_machine_state_dir(self, _repo_root: Path, _config: ProjectConfig) -> Path:
+        """Return a stable state dir so existing user-mode tests keep working."""
+        return self.repo / ".claude" / "state"
 
 
 class TestMigrationManager:
@@ -573,3 +577,190 @@ class TestMigrationManager:
         mgr = MigrationManager()
         absolute = Path("/absolute/daily")
         assert mgr._resolve_dir(absolute, Path("/fake/repo")) == absolute
+
+    # ------------------------------------------------------------------
+    # Issue #70: machine-state directory moves with kb_dir mode switch
+    # ------------------------------------------------------------------
+
+    def test_state_dir_moved_on_kb_mode_switch(self, monkeypatch, tmp_path):
+        """A project -> user mode switch also migrates the machine-state dir."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        xdg_data = tmp_path / "xdg-data"
+        xdg_state = tmp_path / "xdg-state"
+
+        def _fake_user_data_dir(app: str, appauthor: bool = False) -> Path:  # noqa: ARG001
+            return xdg_data / app
+
+        monkeypatch.setattr(
+            "claude_wiki.config.user_data_dir",
+            _fake_user_data_dir,
+        )
+        monkeypatch.setattr(
+            "claude_wiki.config.user_state_dir",
+            lambda app, appauthor=False: xdg_state,
+        )
+
+        old_kb = repo / ".claude" / "knowledge"
+        old_kb.mkdir(parents=True)
+        (old_kb / "index.md").write_text("# Index")
+        old_daily = repo / ".claude" / "daily"
+        old_daily.mkdir(parents=True)
+        (old_daily / "2024-01-01.md").write_text("log")
+        old_state = repo / ".claude" / "state"
+        old_state.mkdir(parents=True)
+        (old_state / "state.json").write_text("{}")
+        (old_state / "logs").mkdir(parents=True)
+        (old_state / "logs" / "compile.log").write_text("log")
+
+        current = ProjectConfig(
+            repo_name="test",
+            repo_owner="local",
+            kb_dir=Path("user"),
+            daily_dir=default_daily_dir("user", "local", "test"),
+        )
+        previous = ProjectConfig(
+            repo_name="test",
+            repo_owner="local",
+            kb_dir=Path("project"),
+            daily_dir=Path(".claude/daily"),
+        )
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+        config_mgr = ConfigManager()
+
+        assert result.migrated
+        assert result.old_state_dir == old_state
+        assert result.new_state_dir == config_mgr.get_machine_state_dir(repo, current)
+        assert not result.errors
+        assert not old_state.exists()
+        assert (result.new_state_dir / "state.json").exists()
+        assert (result.new_state_dir / "logs" / "compile.log").exists()
+
+    def test_state_dir_rollback_on_failure(self, monkeypatch, tmp_path):
+        """A failed state move rolls back already-completed kb/daily moves."""
+        import shutil as _shutil
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        xdg_data = tmp_path / "xdg-data"
+        xdg_state = tmp_path / "xdg-state"
+
+        def _fake_user_data_dir(app: str, appauthor: bool = False) -> Path:  # noqa: ARG001
+            return xdg_data / app
+
+        monkeypatch.setattr(
+            "claude_wiki.config.user_data_dir",
+            _fake_user_data_dir,
+        )
+        monkeypatch.setattr(
+            "claude_wiki.config.user_state_dir",
+            lambda app, appauthor=False: xdg_state,
+        )
+
+        old_kb = repo / ".claude" / "knowledge"
+        old_kb.mkdir(parents=True)
+        (old_kb / "index.md").write_text("# Index")
+        old_daily = repo / ".claude" / "daily"
+        old_daily.mkdir(parents=True)
+        (old_daily / "2024-01-01.md").write_text("log")
+        old_state = repo / ".claude" / "state"
+        old_state.mkdir(parents=True)
+        (old_state / "state.json").write_text("{}")
+        (old_state / "logs").mkdir(parents=True)
+        (old_state / "logs" / "compile.log").write_text("log")
+
+        config_mgr = ConfigManager()
+        current = ProjectConfig(
+            repo_name="test",
+            repo_owner="local",
+            kb_dir=Path("user"),
+            daily_dir=default_daily_dir("user", "local", "test"),
+        )
+        new_state = config_mgr.get_machine_state_dir(repo, current)
+
+        previous = ProjectConfig(
+            repo_name="test",
+            repo_owner="local",
+            kb_dir=Path("project"),
+            daily_dir=Path(".claude/daily"),
+        )
+
+        original_move = _shutil.move
+
+        def _failing_move(src, dst, **kwargs):
+            if Path(dst).resolve() == new_state.resolve():
+                raise PermissionError(f"mock failure moving {src} -> {dst}")
+            return original_move(src, dst, **kwargs)
+
+        monkeypatch.setattr(_shutil, "move", _failing_move)
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+        assert not result.migrated
+        assert result.errors
+        assert result.rolled_back
+        assert old_kb.exists()
+        # kb_dir post-processing renamed index.md -> test.md before rollback.
+        assert (old_kb / "test.md").exists()
+        assert old_daily.exists()
+        assert (old_daily / "2024-01-01.md").exists()
+        assert old_state.exists()
+        assert (old_state / "state.json").exists()
+
+    def test_state_dir_dry_run_reports_move(self, monkeypatch, tmp_path, capsys):
+        """Dry-run reports the prospective state_dir move without touching disk."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        xdg_data = tmp_path / "xdg-data"
+        xdg_state = tmp_path / "xdg-state"
+
+        def _fake_user_data_dir(app: str, appauthor: bool = False) -> Path:  # noqa: ARG001
+            return xdg_data / app
+
+        monkeypatch.setattr(
+            "claude_wiki.config.user_data_dir",
+            _fake_user_data_dir,
+        )
+        monkeypatch.setattr(
+            "claude_wiki.config.user_state_dir",
+            lambda app, appauthor=False: xdg_state,
+        )
+
+        old_kb = repo / ".claude" / "knowledge"
+        old_kb.mkdir(parents=True)
+        (old_kb / "index.md").write_text("# Index")
+        old_daily = repo / ".claude" / "daily"
+        old_daily.mkdir(parents=True)
+        (old_daily / "2024-01-01.md").write_text("log")
+        old_state = repo / ".claude" / "state"
+        old_state.mkdir(parents=True)
+        (old_state / "state.json").write_text("{}")
+
+        current = ProjectConfig(
+            repo_name="test",
+            repo_owner="local",
+            kb_dir=Path("user"),
+            daily_dir=default_daily_dir("user", "local", "test"),
+        )
+        previous = ProjectConfig(
+            repo_name="test",
+            repo_owner="local",
+            kb_dir=Path("project"),
+            daily_dir=Path(".claude/daily"),
+        )
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(repo, current, previous, dry_run=True)
+        config_mgr = ConfigManager()
+
+        assert result.migrated
+        assert result.old_state_dir == old_state
+        assert result.new_state_dir == config_mgr.get_machine_state_dir(repo, current)
+        assert old_kb.exists()
+        assert old_daily.exists()
+        assert old_state.exists()
+        captured = capsys.readouterr()
+        assert "Would move state_dir" in captured.out

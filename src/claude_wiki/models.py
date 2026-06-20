@@ -149,6 +149,8 @@ class MigrationResult:
     new_kb_dir: Path | None = None
     old_daily_dir: Path | None = None
     new_daily_dir: Path | None = None
+    old_state_dir: Path | None = None
+    new_state_dir: Path | None = None
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     rolled_back: list[tuple[str, Path, Path]] = field(default_factory=list)
