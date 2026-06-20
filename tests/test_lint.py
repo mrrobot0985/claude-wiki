@@ -201,6 +201,49 @@ class TestLintStructural:
         report_path = repo / ".claude" / "reports" / "lint-2026-06-19.md"
         assert report_path.exists()
 
+    def test_broken_links_ignores_anchor(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An anchored wikilink whose base target exists is not broken (issue #49)."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        (concepts / "foo.md").write_text(long_text)
+        (concepts / "bar.md").write_text(long_text + "\n[[concepts/foo#Heading]]")
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "Broken link" not in captured.out
+
+    def test_orphan_counts_aliased_and_anchored_inbound(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Inbound links via [[target|alias]] and [[target#anchor]] count (issue #49)."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        # a.md is linked from b.md via an alias and an anchor; a must not be orphan.
+        (concepts / "a.md").write_text(long_text + "\n[[concepts/b]]")
+        (concepts / "b.md").write_text(
+            long_text + "\n[[concepts/a|Alias]] [[concepts/a#section]]"
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert (
+            "Orphan page: no other articles link to [[concepts/a]]" not in captured.out
+        )
+
 
 class TestLintLLM:
     """The LLM contradiction check is included in full lint mode."""
