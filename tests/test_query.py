@@ -279,6 +279,24 @@ class TestQueryCommand:
                 os.chdir(old_cwd)
             assert exit_code == 1
 
+    def test_query_cli_path_flag_resolves_repo_from_outside(self) -> None:
+        """`--path` targets a repo without `cd`-ing into it (issue #44)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+
+            elsewhere = Path(tmpdir) / "elsewhere"
+            elsewhere.mkdir()
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(elsewhere)
+                exit_code = main(["query", "test", "--path", str(repo)])
+            finally:
+                os.chdir(old_cwd)
+            assert exit_code == 0
+
     def test_query_cli_empty_kb(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir) / "repo"

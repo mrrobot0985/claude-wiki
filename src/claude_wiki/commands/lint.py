@@ -42,14 +42,20 @@ def register(subparsers: Any, handlers: dict[str, Any]) -> None:
         action="store_true",
         help="Skip LLM-based contradiction checks (faster, no API cost)",
     )
+    parser.add_argument(
+        "--path",
+        type=Path,
+        help="Repo root (default: auto-detect from current directory)",
+    )
     handlers["lint"] = _lint_handler
 
 
 def _lint_handler(args: argparse.Namespace) -> int:
     """Execute kb lint and save a report."""
     manager = ConfigManager()
+    start = args.path if args.path else Path.cwd()
     try:
-        repo_root = manager.find_repo_root(Path.cwd())
+        repo_root = manager.find_repo_root(start)
     except RepoNotFoundError:
         print("Error: Not in a git repository.", file=sys.stderr)
         return 1

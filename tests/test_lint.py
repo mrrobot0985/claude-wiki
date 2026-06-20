@@ -167,6 +167,30 @@ class TestLintStructural:
         report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
         assert "All checks passed" in report
 
+    def test_path_flag_resolves_repo_from_outside(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`--path` targets a repo without `cd`-ing into it (issue #44)."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        (concepts / "a.md").write_text(long_text + "\n[[concepts/b]]")
+        (concepts / "b.md").write_text(long_text + "\n[[concepts/a]]")
+
+        # Run from an unrelated directory — only --path should find the repo.
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        exit_code = main(["lint", "--path", str(repo), "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "Results: 0 errors, 0 warnings, 0 suggestions" in captured.out
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
+        assert "All checks passed" in report
+
     def test_report_saved_location(self, monkeypatch, tmp_path: Path) -> None:
         """The report is written to reports/lint-YYYY-MM-DD.md under the KB root."""
         repo, kb_root = self._repo_and_kb(tmp_path)
