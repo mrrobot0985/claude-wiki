@@ -190,7 +190,7 @@ def _file_back(
     qa_dir = kb_root / "qa"
     qa_dir.mkdir(parents=True, exist_ok=True)
 
-    slug = _slugify(question)
+    slug = _slugify(question) or "question"
     qa_file = qa_dir / f"{slug}.md"
 
     tz = ZoneInfo(timezone)

@@ -172,6 +172,30 @@ class TestProjectConfigValidation:
         assert data["kb_dir"] == "my-kb"
         assert data["repo_name"] == "test"
 
+    def test_post_init_rejects_invalid_timezone(self):
+        """A timezone string that is not a real IANA zone raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig(repo_name="test", timezone="Mars/Phobos")
+
+    def test_post_init_expands_user_daily_dir(self):
+        """A leading ~ in daily_dir is expanded to the user's home (issue #46)."""
+        config = ProjectConfig(repo_name="test", daily_dir=Path("~/.claude/daily"))
+        assert config.daily_dir == Path.home() / ".claude" / "daily"
+        assert "~" not in config.daily_dir.parts
+
+    def test_from_dict_expands_user_daily_dir(self):
+        """A leading ~ in a string daily_dir is expanded via from_dict (issue #46)."""
+        config = ProjectConfig.from_dict(
+            {
+                "repo_name": "test",
+                "repo_owner": "local",
+                "compile_after_hour": 18,
+                "daily_dir": "~/.claude/daily",
+            }
+        )
+        assert config.daily_dir == Path.home() / ".claude" / "daily"
+        assert "~" not in config.daily_dir.parts
+
 
 class TestResultModels:
     """Smoke tests for lightweight result dataclasses."""
