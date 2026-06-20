@@ -8,6 +8,32 @@ All notable changes to this project are documented in this file.
 
 - `.gitignore` entries for `.claude-wiki.lock` and `coverage.json`
 
+## [0.5.0] - 2026-06-20
+
+### Added
+
+- *(cli)* Add --version flag, __version__, and --path for query/lint ([#57](https://github.com/mrrobot0985/claude-wiki/issues/57))
+
+### Documentation
+
+- Align all documentation with v0.4.0 implementation ([#41](https://github.com/mrrobot0985/claude-wiki/issues/41))
+- Align CLI and config reference with shipped behavior ([#61](https://github.com/mrrobot0985/claude-wiki/issues/61))
+
+### Fixed
+
+- *(registry)* Bound lock wait, handle unreadable files, atomic core.md ([#60](https://github.com/mrrobot0985/claude-wiki/issues/60))
+- Validate timezone, expand ~ in paths, guard empty slug and max_turns=0 ([#58](https://github.com/mrrobot0985/claude-wiki/issues/58))
+- *(lint)* Normalize wikilink targets before resolving and counting ([#59](https://github.com/mrrobot0985/claude-wiki/issues/59))
+
+### Maintenance
+
+- *(deps)* Bump pydantic-settings from 2.14.1 to 2.14.2 ([#40](https://github.com/mrrobot0985/claude-wiki/issues/40))
+- Validate release tag version and add installed-wheel smoke test ([#62](https://github.com/mrrobot0985/claude-wiki/issues/62))
+
+### Testing
+
+- Isolate suite from live user state ([#56](https://github.com/mrrobot0985/claude-wiki/issues/56))
+
 ## [0.4.0] - 2026-06-20
 
 ### Added
