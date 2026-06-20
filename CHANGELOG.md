@@ -6,6 +6,20 @@ All notable changes to this project are documented in this file.
 
 Nothing yet.
 
+## [0.7.0] - 2026-06-20
+
+### Added
+
+- `--kb-dir {project|user|PATH}` and `--daily-dir PATH` flags on `init` for
+  non-interactive onboarding into project or user mode
+  ([#65](https://github.com/mrrobot0985/claude-wiki/issues/65))
+
+### Documentation
+
+- Document `--version`, `--path`, timezone validation, and `~` expansion in the
+  CLI and config reference docs
+  ([#99](https://github.com/mrrobot0985/claude-wiki/issues/99))
+
 ## [0.6.0] - 2026-06-20
 
 ### Added
