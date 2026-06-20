@@ -22,7 +22,16 @@ _Handler = Callable[[argparse.Namespace], int]
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Lazy import: `claude_wiki.cli` is imported by `claude_wiki/__init__.py`
+    # before `__version__` is bound there, so a top-level import would cycle.
+    from claude_wiki import __version__
+
     parser = argparse.ArgumentParser(prog="claude-wiki")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"claude-wiki {__version__}",
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     # init
