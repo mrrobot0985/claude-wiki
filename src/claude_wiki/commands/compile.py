@@ -60,8 +60,12 @@ Deeper explanation.
 
 ## Sources
 
-- [[daily/YYYY-MM-DD.md]] - context
+- daily/YYYY-MM-DD.md - context
 ```
+
+Daily logs live outside the Obsidian vault (ADR-007), so a `daily/…` citation is
+**plain text, never a `[[wikilink]]`** — a wikilink to a file outside the vault is a
+dead link and, across repos, collapses to the same missing graph node.
 
 ## Connection articles (`knowledge/connections/`)
 
@@ -243,7 +247,7 @@ async def _compile_daily_log_async(
 4. Update `{kb_root / f"{config.repo_name}.md"}` with a row for every new or updated article.
 5. Append a timestamped entry to `{kb_root / "log.md"}`.
 
-Every concept article must have YAML frontmatter, at least two wikilinks, 3-5 key points, and cite `daily/{log_path.name}` in its sources.
+Every concept article must have YAML frontmatter, at least two wikilinks, 3-5 key points, and cite `daily/{log_path.name}` in its sources. Cite the daily log as **plain text** (`- daily/{log_path.name} - context`), never as a `[[wikilink]]` — daily logs live outside the vault, so a `[[daily/…]]` link is dead and collapses across repos (ADR-007).
 """
 
     cost = 0.0
