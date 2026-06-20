@@ -136,7 +136,7 @@ class TestKBWorkflow:
         (repo / ".git").mkdir()
 
         home = tmp_path / "home"
-        home.mkdir()
+        home.mkdir(exist_ok=True)
         monkeypatch.setenv("HOME", str(home))
         monkeypatch.chdir(repo)
 

@@ -17,8 +17,12 @@ def pre_compact():
     """Import the handler module with a mocked shared flush function."""
     from claude_wiki.hook_handlers import pre_compact as mod
 
+    original = mod._spawn_flush
     mod._spawn_flush = MagicMock()
-    return mod
+    try:
+        yield mod
+    finally:
+        mod._spawn_flush = original
 
 
 @pytest.fixture
