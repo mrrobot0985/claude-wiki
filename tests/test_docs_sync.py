@@ -11,6 +11,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLI_DOC = REPO_ROOT / "docs" / "reference" / "cli.md"
+INDEX_DOC = REPO_ROOT / "docs" / "index.md"
+HOWTO_DIR = REPO_ROOT / "docs" / "how-to"
 
 
 def _run_claude_wiki(*args: str) -> str:
@@ -58,3 +60,23 @@ def test_cli_reference_documents_registry_subcommands() -> None:
         cmd for cmd in subcommands if f"`claude-wiki registry {cmd}`" not in markdown
     ]
     assert not missing, f"Registry subcommands missing from {CLI_DOC}: {missing}"
+
+
+def test_how_to_guides_are_linked_from_index() -> None:
+    """Every docs/how-to/*.md file is referenced from docs/index.md."""
+    if not INDEX_DOC.exists():
+        pytest.skip("docs/index.md is missing")
+    if not HOWTO_DIR.exists():
+        pytest.skip("docs/how-to directory is missing")
+
+    markdown = INDEX_DOC.read_text()
+    linked = set(re.findall(r"\[.*?\]\((how-to/[^)]+)\)", markdown))
+    docs_root = REPO_ROOT / "docs"
+    how_to_files = {
+        path.relative_to(docs_root).as_posix()
+        for path in HOWTO_DIR.glob("*.md")
+        if path.is_file()
+    }
+
+    missing = how_to_files - linked
+    assert not missing, f"How-to guides missing from {INDEX_DOC}: {missing}"

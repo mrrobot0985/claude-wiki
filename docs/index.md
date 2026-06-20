@@ -14,6 +14,11 @@ ______________________________________________________________________
 - [Configure a Repository](how-to/configure-repo.md) — `.claude-wiki.lock` options, migration, and the global registry
 - [Migrate to User Mode](how-to/migrate-project-to-user-mode.md) — move the KB out of the repo and into a central vault
 - [Customise Hook Behaviour](how-to/customize-hooks.md) — event handlers and timeouts
+- [Use Tags](how-to/use-tags.md) — add tags, query by tag, and interpret `tag_single_use` suggestions
+- [Install Shell Completions and the Man Page](how-to/install-shell-completions.md) — bash, zsh, fish, and `man claude-wiki`
+- [Suppress Lint False Positives](how-to/suppress-lint-false-positives.md) — `.claude-wiki-lint-ignore` rules and fnmatch globs
+- [Use JSON Output in CI and Scripts](how-to/use-json-output.md) — `query --json` and `lint --json` schemas plus exit codes
+- [Scope Queries](how-to/scope-queries.md) — category, date, tag, and context filters
 
 ## Understanding
 
