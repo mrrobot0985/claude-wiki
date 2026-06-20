@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file.
 - Integration test exercising full `init -> compile -> query -> lint` lifecycle with mocked LLM calls ([#84](https://github.com/mrrobot0985/claude-wiki/issues/84))
 - How-to guide for migrating from project mode to user mode ([#85](https://github.com/mrrobot0985/claude-wiki/issues/85))
 - CI job to validate example lock JSON, markdown formatting, and daily log filenames ([#86](https://github.com/mrrobot0985/claude-wiki/issues/86))
+- Architecture deep-dive for Obsidian graph hygiene — naming, wikilinks, directory references, troubleshooting table ([#87](https://github.com/mrrobot0985/claude-wiki/issues/87))
 - `.gitignore` entries for `.claude-wiki.lock` and `coverage.json`
 - PyPI and CI badges to README ([#75](https://github.com/mrrobot0985/claude-wiki/issues/75))
 - `CONTRIBUTING.md` at repo root with branch naming and PR checklist

@@ -17,7 +17,7 @@ ______________________________________________________________________
 
 ## Layer 2: Knowledge Base (Compiled)
 
-- `index.md` — master catalog (read first by SessionStart)
+- `{repo_name}.md` — master catalog (read first by SessionStart)
 - `concepts/` — one article per atomic piece of knowledge
 - `connections/` — cross-cutting insights linking concepts
 - `qa/` — filed query answers
@@ -32,7 +32,7 @@ ______________________________________________________________________
 ## Layer 4: Global Registry
 
 - `~/.local/share/claude-wiki/.registry.json` — machine-managed list of all repos
-- `~/.local/share/claude-wiki/core.md` — human-readable global catalog linking every repo's `index.md`
+- `~/.local/share/claude-wiki/core.md` — human-readable global catalog linking every repo's `{repo_name}.md`
 - Updated automatically by `init`, `compile`, and `migrate`
 - Injected into SessionStart context so the agent knows about other knowledge bases
 
