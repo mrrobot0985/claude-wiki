@@ -1116,3 +1116,137 @@ class TestLintTags:
         issue = next(i for i in payload["issues"] if i["check"] == "tag_single_use")
         assert issue["severity"] == "suggestion"
         assert "unique" in issue["message"]
+
+
+class TestLintFix:
+    """Auto-fix for safe structural issues."""
+
+    def _repo_and_kb(self, tmp_path: Path) -> tuple[Path, Path]:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb_root = repo / ".claude" / "knowledge"
+        kb_root.mkdir(parents=True)
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {
+                    "repo_name": "repo",
+                    "repo_owner": "local",
+                    "kb_dir": "project",
+                    "daily_dir": "daily",
+                    "timezone": "UTC",
+                }
+            )
+        )
+        return repo, kb_root
+
+    @pytest.fixture(autouse=True)
+    def fixed_today(self) -> None:
+        with patch("claude_wiki.commands.lint._today_iso", return_value="2026-06-19"):
+            yield
+
+    def test_fix_repairs_trailing_newline_and_daily_wikilink(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--fix repairs safe structural issues in place and exits cleanly."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        (concepts / "a.md").write_text(
+            _article_with_frontmatter(
+                long_text + "\n[[concepts/b]]\n[[daily/2026-06-18]]",
+                title="A",
+                tags="[shared]",
+            )
+        )
+        (concepts / "b.md").write_text(
+            _article_with_frontmatter(
+                long_text + "\n[[concepts/a]]",
+                title="B",
+                tags="[shared]",
+            )
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--fix", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "Fixed" in captured.out
+        fixed_a = (concepts / "a.md").read_text(encoding="utf-8")
+        assert fixed_a.endswith("\n")
+        assert "[[daily/2026-06-18]]" not in fixed_a
+        assert "daily/2026-06-18" in fixed_a
+
+        follow_up = main(["lint", "--structural-only"])
+        captured2 = capsys.readouterr()
+        assert follow_up == 0
+        assert "0 errors, 0 warnings, 0 suggestions" in captured2.out
+
+    def test_fix_dry_run_does_not_write(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--dry-run shows the plan without modifying files."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        original = _article_with_frontmatter(
+            long_text + "\n[[daily/2026-06-18]]",
+            title="A",
+            tags="[shared]",
+        )
+        (concepts / "a.md").write_text(original)
+        (concepts / "b.md").write_text(
+            _article_with_frontmatter(
+                long_text + "\n[[concepts/a]]",
+                title="B",
+                tags="[shared]",
+            )
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--dry-run", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "Dry-run" in captured.out
+        assert (concepts / "a.md").read_text(encoding="utf-8") == original
+
+    def test_fix_json_includes_auto_fixable(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--fix --json exposes the auto_fixable flag for each issue."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        (concepts / "a.md").write_text(
+            _article_with_frontmatter(
+                long_text + "\n[[daily/2026-06-18]]",
+                title="A",
+                tags="[shared]",
+            )
+        )
+        (concepts / "b.md").write_text(
+            _article_with_frontmatter(
+                long_text + "\n[[concepts/a]]",
+                title="B",
+                tags="[shared]",
+            )
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--dry-run", "--structural-only", "--json"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        payload = json.loads(captured.out)
+        fixable = [i for i in payload["issues"] if i.get("auto_fixable")]
+        assert len(fixable) >= 1
+        assert any(i["check"] == "daily_wikilink" for i in fixable)

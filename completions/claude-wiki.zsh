@@ -37,7 +37,9 @@ _claude_wiki() {
             ;;
         (lint)
             _arguments -C \
+                '--dry-run[]' \
                 '--fail-on-warning[]' \
+                '--fix[]' \
                 '--help[]' \
                 '--json[]' \
                 '--path[]' \

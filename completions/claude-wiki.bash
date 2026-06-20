@@ -23,7 +23,7 @@ _claude_wiki_completion() {
         return 0
     fi
     if [ "$cmd" = "lint" ]; then
-        local lint_opts=(--fail-on-warning --help --json --path --structural-only --threshold)
+        local lint_opts=(--dry-run --fail-on-warning --fix --help --json --path --structural-only --threshold)
         COMPREPLY=( $(compgen -W "${lint_opts[*]}" -- "$cur") )
         return 0
     fi
