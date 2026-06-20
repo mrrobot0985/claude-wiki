@@ -14,12 +14,62 @@ import pytest
 
 from claude_wiki.cli import _print_migration_result, _register_commands, main
 from claude_wiki.config import ConfigManager
+from claude_wiki.factories import CLAUDE_WIKI_HOOK_COMMAND
 from claude_wiki.models import MigrationResult, ProjectConfig
 from platformdirs import user_data_dir
 
 
 class TestInitCommand:
     """Tests for kb init CLI command."""
+
+    def _install_global_hooks(self, home_dir: Path) -> None:
+        """Write a fake ~/.claude/settings.json with claude-wiki hook commands."""
+        claude_dir = home_dir / ".claude"
+        claude_dir.mkdir(parents=True, exist_ok=True)
+        (claude_dir / "settings.json").write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": f"{CLAUDE_WIKI_HOOK_COMMAND} SessionStart",
+                                        "timeout": 15,
+                                    }
+                                ],
+                            }
+                        ],
+                        "SessionEnd": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": f"{CLAUDE_WIKI_HOOK_COMMAND} SessionEnd",
+                                        "timeout": 10,
+                                    }
+                                ],
+                            }
+                        ],
+                        "PreCompact": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": f"{CLAUDE_WIKI_HOOK_COMMAND} PreCompact",
+                                        "timeout": 10,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                }
+            )
+        )
 
     def test_init_creates_marker_and_local_settings(self):
         """kb init defaults to repo-local .claude/settings.local.json."""
@@ -435,6 +485,96 @@ class TestInitCommand:
             assert (repo / ".claude-wiki.lock").exists()
             assert not (repo / ".claude" / "settings.local.json").exists()
             assert not (claude_dir / "settings.json").exists()
+
+    def test_init_aborts_when_global_hooks_exist(self, capsys):
+        """kb init aborts before writing repo-local settings if global hooks exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            self._install_global_hooks(Path(tmpdir))
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager"):
+                    exit_code = main(["init", "--path", str(repo)])
+
+            captured = capsys.readouterr()
+            assert exit_code == 1
+            assert not (repo / ".claude" / "settings.local.json").exists()
+            assert "--no-hooks" in captured.err
+            assert "--global" in captured.err
+
+    def test_init_no_hooks_succeeds_when_global_hooks_exist(self, capsys):
+        """kb init --no-hooks succeeds and skips all settings files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            self._install_global_hooks(Path(tmpdir))
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager") as mock_global:
+                    exit_code = main(["init", "--path", str(repo), "--no-hooks"])
+                    mock_global.return_value.register.assert_called_once()
+
+            captured = capsys.readouterr()
+            assert exit_code == 0
+            assert (repo / ".claude-wiki.lock").exists()
+            assert not (repo / ".claude" / "settings.local.json").exists()
+            assert "hooks skipped" in captured.out.lower()
+
+    def test_init_global_succeeds_when_global_hooks_exist(self, capsys):
+        """kb init --global succeeds and rewrites global settings."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            self._install_global_hooks(Path(tmpdir))
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager") as mock_global:
+                    exit_code = main(["init", "--path", str(repo), "--global"])
+                    mock_global.return_value.register.assert_called_once()
+
+            captured = capsys.readouterr()
+            assert exit_code == 0
+            assert not (repo / ".claude" / "settings.local.json").exists()
+            global_settings = Path(tmpdir) / ".claude" / "settings.json"
+            assert global_settings.exists()
+            data = json.loads(global_settings.read_text())
+            assert "claude-wiki-hook" in json.dumps(data)
+            assert "hooks skipped" not in captured.out.lower()
+
+    def test_init_default_succeeds_with_unrelated_global_hooks(self):
+        """kb init installs repo-local hooks when global settings lack claude-wiki hooks."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+            (claude_dir / "settings.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "SessionStart": [
+                                {
+                                    "hooks": [
+                                        {"type": "command", "command": "echo unrelated"}
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                )
+            )
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager"):
+                    exit_code = main(["init", "--path", str(repo)])
+
+            assert exit_code == 0
+            assert (repo / ".claude" / "settings.local.json").exists()
 
     def test_init_kb_dir_user_flag(self):
         """--kb-dir user writes lock with user mode and canonical XDG daily path."""
