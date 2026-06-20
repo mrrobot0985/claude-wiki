@@ -207,6 +207,22 @@ class TestFileBack:
             content = qa_file.read_text(encoding="utf-8")
             assert "No sources available" in content
 
+    def test_file_back_empty_slug_falls_back(self) -> None:
+        """A question that slugifies to empty must not write qa/.md (issue #48)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "test.md").write_text("# Index")
+            (kb / "log.md").write_text("# Build Log")
+
+            result = QueryResult(answer="Answer", citations=[])
+            _file_back(kb, "!!!???---", result, repo_name="test")
+
+            assert not (kb / "qa" / ".md").exists()
+            qa_files = list((kb / "qa").glob("*.md"))
+            assert len(qa_files) == 1
+            assert qa_files[0].name != ".md"
+
 
 class TestUpdateIndexEdgeCases:
     """Tests for index update edge cases."""
