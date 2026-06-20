@@ -125,8 +125,8 @@ class TestLoadHandlers:
 
         assert handlers == {}
 
-    def test_load_handlers_continues_on_import_error(self, mocker) -> None:
-        """A failing module import does not stop discovery."""
+    def test_load_handlers_continues_on_import_error(self, mocker, caplog) -> None:
+        """A failing module import is logged and does not stop discovery."""
         handlers: dict[str, hooks._Handler] = {}
 
         mocker.patch(
@@ -141,12 +141,17 @@ class TestLoadHandlers:
             side_effect=ImportError("module load failed"),
         )
 
-        hooks._load_handlers(handlers)
+        with caplog.at_level("ERROR", logger="claude_wiki.hooks"):
+            hooks._load_handlers(handlers)
 
         assert handlers == {}
+        assert "claude_wiki.hook_handlers.broken" in caplog.text
+        assert "module load failed" in caplog.text
 
-    def test_load_handlers_continues_on_registration_error(self, mocker) -> None:
-        """A register() that raises is caught and discovery continues."""
+    def test_load_handlers_continues_on_registration_error(
+        self, mocker, caplog
+    ) -> None:
+        """A register() that raises is logged and discovery continues."""
         handlers: dict[str, hooks._Handler] = {}
         fake_module = MagicMock()
         fake_module.register.side_effect = RuntimeError("registration failed")
@@ -160,7 +165,10 @@ class TestLoadHandlers:
             return_value=fake_module,
         )
 
-        hooks._load_handlers(handlers)
+        with caplog.at_level("ERROR", logger="claude_wiki.hooks"):
+            hooks._load_handlers(handlers)
 
         fake_module.register.assert_called_once_with(handlers)
         assert handlers == {}
+        assert "claude_wiki.hook_handlers.bad_register" in caplog.text
+        assert "registration failed" in caplog.text

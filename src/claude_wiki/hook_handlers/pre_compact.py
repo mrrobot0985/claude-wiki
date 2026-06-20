@@ -13,12 +13,15 @@ from typing import Any, cast
 
 from claude_wiki import flush
 from claude_wiki.config import ConfigManager
+from claude_wiki.logging_setup import configure_stderr_logging
 
 _spawn_flush: Any = None
 try:
     from claude_wiki.flush import spawn_flush as _spawn_flush
-except ImportError:
-    pass
+except ImportError as exc:
+    logging.getLogger(__name__).warning(
+        "Shared flush spawn function unavailable: %s", exc
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +60,8 @@ def _extract_context(transcript_path: Path) -> tuple[str, int]:
                 continue
             try:
                 entry = json.loads(line)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                logger.debug("Skipping malformed transcript line: %s", exc)
                 continue
 
             msg = entry.get("message", {})
@@ -117,6 +121,8 @@ def _read_hook_input() -> dict[str, Any]:
 
 def handler(_args: list[str]) -> int:
     """Handle the PreCompact hook event."""
+    configure_stderr_logging()
+
     # Recursion guard: flush processes must not re-trigger this hook.
     if os.environ.get("CLAUDE_INVOKED_BY"):
         return 0

@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import pkgutil
 import sys
 from collections.abc import Callable
 
+from claude_wiki.logging_setup import configure_stderr_logging
+
 _Handler = Callable[[list[str]], int]
+
+logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> int:
     """claude-wiki-hook <Event>"""
+    configure_stderr_logging()
+
     if not argv:
         argv = sys.argv[1:]
 
@@ -49,5 +56,5 @@ def _load_handlers(handlers: dict[str, _Handler]) -> None:
             mod = importlib.import_module(name)
             if hasattr(mod, "register"):
                 mod.register(handlers)
-        except Exception:
-            continue
+        except Exception as exc:
+            logger.error("Failed to load hook handler %s: %s", name, exc)

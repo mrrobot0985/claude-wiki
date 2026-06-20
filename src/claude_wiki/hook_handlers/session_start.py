@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from claude_wiki.config import ConfigManager
 from claude_wiki.global_index import GlobalIndexManager
+from claude_wiki.logging_setup import configure_stderr_logging
 from claude_wiki.models import ProjectConfig
+
+logger = logging.getLogger(__name__)
 
 MAX_CONTEXT_CHARS = 20_000
 MAX_LOG_LINES = 30
@@ -19,7 +23,8 @@ def _find_repo_root(start: Path | None = None) -> Path | None:
     manager = ConfigManager()
     try:
         return manager.find_repo_root(start or Path.cwd())
-    except Exception:
+    except Exception as exc:
+        logger.warning("Could not locate repo root: %s", exc)
         return None
 
 
@@ -29,7 +34,8 @@ def _load_config(repo_root: Path | None) -> ProjectConfig | None:
         return None
     try:
         return ConfigManager().load(repo_root)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Could not load repo config: %s", exc)
         return None
 
 
@@ -60,7 +66,8 @@ def _get_global_summary(
     """Return a compact summary of other registered knowledge bases."""
     try:
         return GlobalIndexManager().compact_summary(repo_name, repo_owner)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Could not build global summary: %s", exc)
         return ""
 
 
@@ -76,7 +83,8 @@ def _build_context(repo_root: Path | None, config: ProjectConfig | None) -> str:
             kb_root = ConfigManager().get_kb_root(repo_root, config)
             index = _get_kb_index(kb_root, config.repo_name)
             parts.append(f"## Knowledge Base Index\n\n{index}")
-        except Exception:
+        except Exception as exc:
+            logger.warning("Could not read knowledge index: %s", exc)
             parts.append(
                 "## Knowledge Base Index\n\n(empty - no articles compiled yet)"
             )
@@ -85,7 +93,8 @@ def _build_context(repo_root: Path | None, config: ProjectConfig | None) -> str:
             daily_dir = repo_root / config.daily_dir
             recent_log = _get_recent_daily_log(daily_dir)
             parts.append(f"## Recent Daily Log\n\n{recent_log}")
-        except Exception:
+        except Exception as exc:
+            logger.warning("Could not read recent daily log: %s", exc)
             parts.append("## Recent Daily Log\n\n(no recent daily log)")
 
         global_summary = _get_global_summary(config.repo_name, config.repo_owner)
@@ -105,6 +114,8 @@ def _build_context(repo_root: Path | None, config: ProjectConfig | None) -> str:
 
 def _session_start(argv: list[str]) -> int:
     """Handle the SessionStart hook event."""
+    configure_stderr_logging()
+
     repo_root = _find_repo_root()
     config = _load_config(repo_root)
     context = _build_context(repo_root, config)

@@ -12,8 +12,9 @@ from typing import Any
 from claude_wiki import flush
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import ClaudeKBError
+from claude_wiki.logging_setup import configure_stderr_logging
 
-logger = logging.getLogger("claude_wiki.session_end")
+logger = logging.getLogger(__name__)
 
 
 def _handle_session_end(argv: list[str]) -> int:
@@ -23,6 +24,8 @@ def _handle_session_end(argv: list[str]) -> int:
     transcript, and spawns ``claude_wiki.flush`` in the background to do the
     LLM work.
     """
+    configure_stderr_logging()
+
     # Recursion guard: if a nested Claude invocation triggered by the Agent SDK
     # somehow fires this hook, exit immediately without doing any work.
     if os.environ.get("CLAUDE_INVOKED_BY"):
@@ -107,8 +110,8 @@ def _try_log(message: str) -> None:
         logs_dir = flush.get_logs_dir(config, repo_root)
         flush.configure_logging(logs_dir / "flush.log")
         logger.info(message)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Best-effort logging unavailable: %s", exc)
 
 
 def _try_log_error(message: str) -> None:
@@ -120,8 +123,8 @@ def _try_log_error(message: str) -> None:
         logs_dir = flush.get_logs_dir(config, repo_root)
         flush.configure_logging(logs_dir / "flush.log")
         logger.error(message)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Best-effort error logging unavailable: %s", exc)
 
 
 def register(handlers: dict[str, Any]) -> None:

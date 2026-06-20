@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import importlib
+import logging
 import pkgutil
 import sys
 from collections.abc import Callable
@@ -20,7 +21,10 @@ from claude_wiki.hook_detect import (
     global_claude_settings_path,
     settings_has_claude_wiki_hooks,
 )
+from claude_wiki.logging_setup import configure_stderr_logging
 from claude_wiki.models import MigrationResult
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_kb_mode(kb_dir: Path) -> str:
@@ -35,6 +39,8 @@ _Handler = Callable[[argparse.Namespace], int]
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_stderr_logging()
+
     # Lazy import: `claude_wiki.cli` is imported by `claude_wiki/__init__.py`
     # before `__version__` is bound there, so a top-level import would cycle.
     from claude_wiki import __version__
@@ -154,9 +160,8 @@ def _register_commands(
             mod = importlib.import_module(name)
             if hasattr(mod, "register"):
                 mod.register(subparsers, handlers)
-        except Exception:
-            # Skip broken command modules during discovery
-            continue
+        except Exception as exc:
+            logger.error("Failed to load command module %s: %s", name, exc)
 
 
 def _init(args: argparse.Namespace) -> int:
