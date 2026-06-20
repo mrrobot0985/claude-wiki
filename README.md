@@ -27,10 +27,11 @@ claude-wiki init
 Daily commands:
 
 ```bash
-claude-wiki compile
-claude-wiki query "your question"
+claude-wiki compile [--all] [--file FILE] [--dry-run] [--path PATH]
+claude-wiki query "your question" [--file-back]
 claude-wiki lint [--structural-only]
-claude-wiki migrate [--dry-run]
+claude-wiki migrate [--dry-run] [--path PATH] [--kb-dir KB_DIR] [--daily-dir DAILY_DIR]
+claude-wiki rename-catalog [--dry-run] [--path PATH]
 ```
 
 Hook entry points (called by Claude Code via `.claude/settings.local.json` by default):
@@ -47,10 +48,11 @@ claude-wiki-hook PreCompact
 my-project/
 ├── .claude-wiki.lock              # per-repo config (machine-managed)
 ├── .claude/settings.local.json   # repo-local hook registration (default)
-└── daily/                         # conversation logs (created on first flush)
+└── .claude/daily/                 # conversation logs (created on first flush)
 ```
 
 Use `claude-wiki init --global` to write hooks to `~/.claude/settings.json` instead.
+Use `claude-wiki init --path PATH` to target a different repository root.
 
 ## Configuration
 
@@ -60,15 +62,24 @@ Use `claude-wiki init --global` to write hooks to `~/.claude/settings.json` inst
 {
   "repo_name": "my-project",
   "repo_owner": "local",
+  "layout_version": "2",
   "kb_dir": "project",
-  "daily_dir": "daily",
+  "daily_dir": ".claude/daily",
   "reports_dir": "reports",
   "timezone": "UTC",
   "compile_after_hour": 18
 }
 ```
 
+- `layout_version` tracks the internal directory-layout generation. New repositories use `"2"`.
+- `daily_dir` defaults to `.claude/daily` in project mode and `~/.local/share/claude-wiki-daily/<owner>/<repo>/` in user mode.
+- `reports_dir` is **deprecated**; reports are written to the cache directory (`<repo>/.claude/reports/` in project mode).
+
 Set `CLAUDE_WIKI_PROJECT_DIR` to override the knowledge base location.
+
+## Documentation
+
+Full docs are in [`docs/`](docs/).
 
 ## Development
 

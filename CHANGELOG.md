@@ -4,7 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-06-19
+### Added
+
+- `.gitignore` entries for `.claude-wiki.lock` and `coverage.json`
+
+## [0.4.0] - 2026-06-20
+
+### Added
+
+- ADR-006: Vault naming and Obsidian graph hygiene (#38)
+- Per-repo catalog renamed from `index.md` to `{repo_name}.md`
+- `core.md` uses Obsidian wikilinks for cross-repo navigation
+- Plain-text directory references (no phantom markdown links)
+- `claude-wiki rename-catalog` command with `--dry-run`
+- SessionStart hook injects `{repo_name}.md` with legacy `index.md` fallback
+
+### Changed
+
+- Version bump to 0.4.0 (#39)
+
+## [0.3.0] - 2026-06-20
 
 ### Added
 
