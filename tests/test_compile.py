@@ -4,11 +4,22 @@ All LLM calls are mocked so these tests run offline and deterministically.
 """
 
 import json
+import types
 from pathlib import Path
 from typing import Any
 
 from claude_wiki.cli import main
 from claude_wiki.commands import compile as _compile_module  # noqa: F401
+from claude_wiki.commands.compile import (
+    _collect_backlinks,
+    _compile_one,
+    _ensure_daily_symlink,
+    _extract_sources,
+    _list_existing_articles,
+    _read_index,
+    _read_schema,
+)
+from claude_wiki.models import ProjectConfig
 
 
 def _make_repo(tmpdir: str) -> tuple[Path, Path]:
@@ -606,3 +617,240 @@ class TestDailyBacklinks:
         assert exit_code == 0
         assert "## Compiled Knowledge" in second.read_text()
         assert "## Compiled Knowledge" not in first.read_text()
+
+
+class TestCompileGaps:
+    """Cover edge cases and small helpers not exercised by the main flows."""
+
+    def test_ensure_daily_symlink_dry_run(self, tmp_path: Path) -> None:
+        """``dry_run`` skips creating the daily/ symlink."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb = tmp_path / "kb"
+        (repo / "daily").mkdir()
+        config = ProjectConfig(repo_name="dry-run", kb_dir=kb)
+
+        _ensure_daily_symlink(repo, kb, config, dry_run=True)
+
+        assert not (kb / "daily").exists()
+
+    def test_ensure_daily_symlink_missing_source(self, tmp_path: Path) -> None:
+        """If the repo daily directory is missing, symlink creation is skipped."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb = tmp_path / "kb"
+        config = ProjectConfig(repo_name="no-daily", kb_dir=kb)
+
+        _ensure_daily_symlink(repo, kb, config, dry_run=False)
+
+        assert not (kb / "daily").exists()
+
+    def test_ensure_daily_symlink_idempotent(self, tmp_path: Path) -> None:
+        """An existing correct symlink is left untouched."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        daily = repo / "daily"
+        daily.mkdir()
+        link = kb / "daily"
+        link.symlink_to(daily.resolve(), target_is_directory=True)
+        config = ProjectConfig(repo_name="idempotent", kb_dir=kb)
+
+        _ensure_daily_symlink(repo, kb, config, dry_run=False)
+
+        assert link.is_symlink()
+        assert link.resolve() == daily.resolve()
+
+    def test_ensure_daily_symlink_existing_wrong_target_warns(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        """A symlink pointing elsewhere triggers a warning and is preserved."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        daily = repo / "daily"
+        daily.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
+        link = kb / "daily"
+        link.symlink_to(other.resolve(), target_is_directory=True)
+        config = ProjectConfig(repo_name="wrong-link", kb_dir=kb)
+
+        _ensure_daily_symlink(repo, kb, config, dry_run=False)
+        captured = capsys.readouterr()
+
+        assert "not overwriting" in captured.err
+        assert link.resolve() == other.resolve()
+
+    def test_extract_sources_no_frontmatter(self) -> None:
+        """Content without YAML frontmatter returns an empty source list."""
+        assert _extract_sources("plain markdown with no frontmatter") == []
+
+    def test_extract_sources_missing_closing(self) -> None:
+        """A frontmatter opener without a closer returns an empty source list."""
+        assert _extract_sources("---\ntitle: no closing") == []
+
+    def test_extract_sources_inline_list(self) -> None:
+        """Inline YAML list syntax is parsed into individual source entries."""
+        content = '---\nsources: ["daily/2026-06-19.md", "daily/2026-06-18.md"]\n---\n'
+        assert _extract_sources(content) == [
+            "daily/2026-06-19.md",
+            "daily/2026-06-18.md",
+        ]
+
+    def test_extract_sources_inline_single(self) -> None:
+        """A single inline source value is captured."""
+        content = '---\nsources: "daily/2026-06-19.md"\n---\n'
+        assert _extract_sources(content) == ["daily/2026-06-19.md"]
+
+    def test_extract_sources_stops_at_colon(self) -> None:
+        """Source parsing stops when a new key is encountered."""
+        content = '---\nsources:\n  - "daily/2026-06-19.md"\ntitle: next key\n---\n'
+        assert _extract_sources(content) == ["daily/2026-06-19.md"]
+
+    def test_collect_backlinks_skips_missing_subdir(self, tmp_path: Path) -> None:
+        """If no KB subdirectories exist, no backlinks are found."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        assert _collect_backlinks(kb, "daily/2026-06-19.md") == []
+
+    def test_list_existing_articles(self, tmp_path: Path) -> None:
+        """All articles under concepts/, connections/, and qa/ are loaded."""
+        kb = tmp_path / "kb"
+        for subdir in ("concepts", "connections", "qa"):
+            (kb / subdir).mkdir(parents=True)
+            (kb / subdir / f"{subdir}-x.md").write_text(f"---\ntitle: {subdir}\n---\n")
+
+        articles = _list_existing_articles(kb)
+
+        assert sorted(articles.keys()) == [
+            "concepts/concepts-x.md",
+            "connections/connections-x.md",
+            "qa/qa-x.md",
+        ]
+
+    def test_read_schema_default(self, monkeypatch: Any) -> None:
+        """When the package resource is unavailable, the built-in schema is used."""
+
+        def boom(package: str) -> Any:
+            raise OSError("resource unavailable")
+
+        monkeypatch.setattr("importlib.resources.files", boom)
+        schema = _read_schema()
+
+        assert "# Knowledge Base Schema" in schema
+
+    def test_read_index_exists(self, tmp_path: Path) -> None:
+        """An existing index.md is returned verbatim."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        (kb / "index.md").write_text("# Custom Index\n")
+
+        assert _read_index(kb) == "# Custom Index\n"
+
+    def test_compile_one_mocks_sdk(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """`_compile_one` drives the async LLM helper with a fake SDK."""
+
+        class TextBlock:
+            pass
+
+        class AssistantMessage:
+            content = [TextBlock()]
+
+        class ResultMessage:
+            total_cost_usd = 0.42
+
+        class ClaudeAgentOptions:
+            def __init__(self, **kwargs: Any) -> None:
+                pass
+
+        async def query(**kwargs: Any) -> Any:
+            yield AssistantMessage()
+            yield ResultMessage()
+
+        fake_sdk = types.SimpleNamespace(
+            AssistantMessage=AssistantMessage,
+            ClaudeAgentOptions=ClaudeAgentOptions,
+            ResultMessage=ResultMessage,
+            TextBlock=TextBlock,
+            query=query,
+        )
+
+        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "claude_agent_sdk":
+                return fake_sdk
+            raise ImportError(name)
+
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        daily = repo / "daily"
+        daily.mkdir()
+        log = daily / "2026-06-19.md"
+        log.write_text("discussed asyncio patterns")
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+        (kb / "concepts" / "existing.md").write_text("---\ntitle: existing\n---\n")
+        config = ProjectConfig(repo_name="sdk-test")
+
+        cost = _compile_one(log, repo, kb, config)
+
+        assert cost == 0.42
+
+    def test_compile_file_absolute_path(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """``--file`` accepts an absolute path to a daily log."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        log = daily_dir / "2026-06-19.md"
+        log.write_text("x")
+
+        monkeypatch.chdir(repo)
+        compile_mock = mocker.patch(
+            "claude_wiki.commands.compile._compile_one", return_value=0.0
+        )
+
+        exit_code = main(["compile", "--file", str(log.resolve())])
+
+        assert exit_code == 0
+        compile_mock.assert_called_once()
+        assert compile_mock.call_args[0][0].name == "2026-06-19.md"
+
+    def test_compile_file_repo_relative_path(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """``--file`` falls back to resolving the path from the repo root."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        logs_dir = repo / "logs"
+        logs_dir.mkdir()
+        log = logs_dir / "2026-06-19.md"
+        log.write_text("x")
+
+        monkeypatch.chdir(repo)
+        compile_mock = mocker.patch(
+            "claude_wiki.commands.compile._compile_one", return_value=0.0
+        )
+
+        exit_code = main(["compile", "--file", "logs/2026-06-19.md"])
+
+        assert exit_code == 0
+        compile_mock.assert_called_once()
+        assert compile_mock.call_args[0][0].name == "2026-06-19.md"
+
+    def test_compile_outside_git_repo(self, tmp_path: Path, capsys: Any) -> None:
+        """Running compile outside a git repository prints an error."""
+        exit_code = main(["compile", "--path", str(tmp_path / "not-a-repo")])
+        captured = capsys.readouterr()
+
+        assert exit_code == 1
+        assert "Not in a git repository." in captured.err

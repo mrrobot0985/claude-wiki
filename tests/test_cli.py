@@ -1,12 +1,20 @@
 """CLI-level integration tests — orchestration of ConfigManager + HookRegistrar."""
 
+import importlib
 import json
+import pkgutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
-from claude_wiki.cli import main
+import pytest
+
+from claude_wiki.cli import _print_migration_result, _register_commands, main
+from claude_wiki.config import ConfigManager
+from claude_wiki.models import MigrationResult, ProjectConfig
 
 
 class TestInitCommand:
@@ -473,3 +481,291 @@ class TestMigrateCommand:
             assert exit_code == 0
             lock = json.loads((repo / ".claude-wiki.lock").read_text())
             assert lock["reports_dir"] == "custom-reports"
+
+
+class TestCliEdgeCases:
+    """Tests covering uncovered paths in cli.py."""
+
+    def test_main_no_command_prints_help(self, capsys):
+        """Calling main with no arguments prints help and exits 1."""
+        exit_code = main([])
+        captured = capsys.readouterr()
+        assert exit_code == 1
+        assert "usage:" in captured.out
+
+    def test_main_unimplemented_command(self, monkeypatch, capsys):
+        """A subparser without a matching handler prints not implemented."""
+
+        def fake_register(subparsers, handlers):
+            subparsers.add_parser("unimplemented", help="test command")
+            # Intentionally not adding to handlers
+
+        monkeypatch.setattr("claude_wiki.cli._register_commands", fake_register)
+        exit_code = main(["unimplemented"])
+        captured = capsys.readouterr()
+        assert exit_code == 1
+        assert "not yet implemented" in captured.err
+
+    def test_register_commands_skips_broken_modules(self, monkeypatch):
+        """Broken command modules are skipped during discovery without crashing."""
+        fake_subparsers = type("Subparsers", (), {"add_parser": lambda *a, **k: None})()
+        handlers: dict[str, Any] = {}
+
+        def fake_iter_modules(*_args, **_kwargs):
+            yield (None, "claude_wiki.commands.broken", False)
+
+        def fake_import_module(_name):
+            raise ImportError("boom")
+
+        monkeypatch.setattr(pkgutil, "iter_modules", fake_iter_modules)
+        monkeypatch.setattr(importlib, "import_module", fake_import_module)
+
+        _register_commands(fake_subparsers, handlers)
+        assert handlers == {}
+
+    def test_init_not_git_repo(self, capsys, tmp_path):
+        """init outside a git repo prints an error and exits 1."""
+        exit_code = main(["init", "--path", str(tmp_path)])
+        captured = capsys.readouterr()
+        assert exit_code == 1
+        assert "Not in a git repository" in captured.err
+
+    def test_init_marker_exists_without_force(self, capsys, tmp_path, monkeypatch):
+        """init on an already-initialised repo without --force exits 0."""
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / ".claude-wiki.lock").write_text(
+            json.dumps(
+                {
+                    "repo_name": "old-name",
+                    "repo_owner": "old-owner",
+                    "kb_dir": "project",
+                    "daily_dir": "daily",
+                    "reports_dir": "reports",
+                    "timezone": "UTC",
+                    "compile_after_hour": 18,
+                }
+            )
+        )
+
+        with patch.dict("os.environ", {"HOME": str(tmp_path)}, clear=False):
+            with patch("claude_wiki.cli.GlobalIndexManager"):
+                exit_code = main(["init", "--path", str(repo)])
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "already initialised" in captured.err
+        data = json.loads((repo / ".claude-wiki.lock").read_text())
+        assert data["repo_name"] == "old-name"
+
+    def test_init_migration_performed_prints_result(
+        self, mocker, monkeypatch, tmp_path, capsys
+    ):
+        """When init migrator reports a migration, the result is printed."""
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (tmp_path / ".claude").mkdir()
+        defaults = ProjectConfig(repo_name=repo.name)
+
+        fake_detector = ConfigManager()
+        fake_detector.find_repo_root = mocker.MagicMock(return_value=repo)
+        fake_detector.get_kb_root = mocker.MagicMock(
+            return_value=repo / ".claude" / "knowledge"
+        )
+        fake_loader = mocker.MagicMock()
+        fake_loader.load.return_value = defaults
+        fake_migrator = mocker.MagicMock()
+        fake_migrator.check_and_migrate.return_value = MigrationResult(
+            migrated=True,
+            old_kb_dir=Path("old_kb"),
+            new_kb_dir=Path("new_kb"),
+        )
+        fake_owner = mocker.MagicMock()
+        fake_owner.infer_repo_owner.return_value = "local"
+
+        mocker.patch(
+            "claude_wiki.cli.DefaultConfigResolver.build",
+            return_value=(
+                fake_detector,
+                fake_loader,
+                mocker.MagicMock(),
+                fake_migrator,
+                fake_owner,
+            ),
+        )
+        mocker.patch("claude_wiki.cli.GlobalIndexManager")
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+
+        with patch.dict("os.environ", {"HOME": str(tmp_path)}, clear=False):
+            exit_code = main(["init", "--path", str(repo)])
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "Migration performed:" in captured.out
+        assert "kb_dir: old_kb -> new_kb" in captured.out
+
+    def test_init_migration_errors_printed(self, mocker, monkeypatch, tmp_path, capsys):
+        """When init migrator reports errors, they are printed to stderr."""
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (tmp_path / ".claude").mkdir()
+        defaults = ProjectConfig(repo_name=repo.name)
+
+        fake_detector = ConfigManager()
+        fake_detector.find_repo_root = mocker.MagicMock(return_value=repo)
+        fake_detector.get_kb_root = mocker.MagicMock(
+            return_value=repo / ".claude" / "knowledge"
+        )
+        fake_loader = mocker.MagicMock()
+        fake_loader.load.return_value = defaults
+        fake_migrator = mocker.MagicMock()
+        fake_migrator.check_and_migrate.return_value = MigrationResult(
+            migrated=False, errors=["migration failed"]
+        )
+        fake_owner = mocker.MagicMock()
+        fake_owner.infer_repo_owner.return_value = "local"
+
+        mocker.patch(
+            "claude_wiki.cli.DefaultConfigResolver.build",
+            return_value=(
+                fake_detector,
+                fake_loader,
+                mocker.MagicMock(),
+                fake_migrator,
+                fake_owner,
+            ),
+        )
+        mocker.patch("claude_wiki.cli.GlobalIndexManager")
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+
+        with patch.dict("os.environ", {"HOME": str(tmp_path)}, clear=False):
+            exit_code = main(["init", "--path", str(repo)])
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "Error: migration failed" in captured.err
+
+    def test_migrate_not_git_repo(self, capsys, tmp_path):
+        """migrate outside a git repo prints an error and exits 1."""
+        exit_code = main(["migrate", "--path", str(tmp_path)])
+        captured = capsys.readouterr()
+        assert exit_code == 1
+        assert "Not in a git repository" in captured.err
+
+    def test_migrate_no_lock_file(self, capsys, tmp_path):
+        """migrate in a git repo without a lock file prints an error and exits 1."""
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        exit_code = main(["migrate", "--path", str(repo)])
+        captured = capsys.readouterr()
+        assert exit_code == 1
+        assert "Run 'claude-wiki init' first" in captured.err
+
+    def test_migrate_no_changes(self, capsys, tmp_path):
+        """migrate with no path overrides reports no migration needed."""
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / ".claude-wiki.lock").write_text(
+            json.dumps(
+                {
+                    "repo_name": repo.name,
+                    "repo_owner": "local",
+                    "kb_dir": "knowledge",
+                    "daily_dir": "daily",
+                    "reports_dir": "reports",
+                    "timezone": "UTC",
+                    "compile_after_hour": 18,
+                }
+            )
+        )
+
+        exit_code = main(["migrate", "--path", str(repo)])
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "No migration needed" in captured.out
+
+    def test_migrate_errors_return_one(self, mocker, tmp_path, capsys):
+        """When migrate reports errors, cli exits with status 1."""
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / ".claude-wiki.lock").write_text(
+            json.dumps(
+                {
+                    "repo_name": repo.name,
+                    "repo_owner": "local",
+                    "kb_dir": "knowledge",
+                    "daily_dir": "daily",
+                    "reports_dir": "reports",
+                    "timezone": "UTC",
+                    "compile_after_hour": 18,
+                }
+            )
+        )
+        previous = ProjectConfig.from_dict(
+            {
+                "repo_name": repo.name,
+                "repo_owner": "local",
+                "kb_dir": "knowledge",
+                "daily_dir": "daily",
+                "reports_dir": "reports",
+                "timezone": "UTC",
+                "compile_after_hour": 18,
+            }
+        )
+
+        fake_detector = mocker.MagicMock()
+        fake_detector.find_repo_root.return_value = repo
+        fake_loader = mocker.MagicMock()
+        fake_loader.load.return_value = previous
+        fake_migrator = mocker.MagicMock()
+        fake_migrator.check_and_migrate.return_value = MigrationResult(
+            migrated=True,
+            old_kb_dir=Path("knowledge"),
+            new_kb_dir=Path("wiki"),
+            errors=["move failed"],
+        )
+
+        mocker.patch(
+            "claude_wiki.cli.DefaultConfigResolver.build",
+            return_value=(
+                fake_detector,
+                fake_loader,
+                mocker.MagicMock(),
+                fake_migrator,
+                mocker.MagicMock(),
+            ),
+        )
+        mocker.patch("claude_wiki.cli.GlobalIndexManager")
+
+        exit_code = main(["migrate", "--path", str(repo), "--kb-dir", "wiki"])
+        captured = capsys.readouterr()
+        assert exit_code == 1
+        assert "Error: move failed" in captured.out
+
+    def test_print_migration_result_warnings_and_errors(self, capsys):
+        """_print_migration_result emits warnings and errors."""
+        result = MigrationResult(
+            migrated=False,
+            errors=["err1"],
+            warnings=["warn1"],
+        )
+        _print_migration_result(result)
+        captured = capsys.readouterr()
+        assert "Warning: warn1" in captured.out
+        assert "Error: err1" in captured.out
+
+    def test_main_module_invocation(self, monkeypatch):
+        """Running cli.py as __main__ with no args exits 1."""
+        import runpy
+
+        monkeypatch.setattr(sys, "argv", ["claude-wiki.cli"])
+        with pytest.raises(SystemExit) as exc_info:
+            runpy.run_module("claude_wiki.cli", run_name="__main__")
+        assert exc_info.value.code == 1

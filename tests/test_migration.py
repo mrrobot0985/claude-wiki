@@ -501,3 +501,75 @@ class TestMigrationManager:
             # daily move failed
             assert old_daily.exists()
             assert (old_daily / "2024-01-01.md").exists()
+
+    def test_rollback_reports_its_own_errors(self, monkeypatch):
+        """A rollback failure appends an error to the result."""
+        import shutil as _shutil
+
+        original_move = _shutil.move
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            old_kb = repo / "knowledge"
+            old_kb.mkdir()
+            (old_kb / "kb.md").write_text("kb content")
+
+            old_daily = repo / "daily"
+            old_daily.mkdir()
+            (old_daily / "2024-01-01.md").write_text("daily content")
+            new_daily = repo / "logs"
+            new_daily.mkdir()
+
+            def _failing_move(src, dst, **kwargs):
+                if Path(dst).name == "logs":
+                    raise PermissionError(f"mock failure moving {src} -> {dst}")
+                # Let the first move succeed, but make rollback fail.
+                if Path(dst).name == "knowledge":
+                    raise OSError("rollback blocked")
+                return original_move(src, dst, **kwargs)
+
+            monkeypatch.setattr(_shutil, "move", _failing_move)
+
+            current = ProjectConfig(
+                repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("logs")
+            )
+            previous = ProjectConfig(
+                repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+            )
+
+            mgr = MigrationManager()
+            result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+            assert not result.migrated
+            assert any(
+                "rollback" in e.lower() and "blocked" in e.lower()
+                for e in result.errors
+            )
+
+    def test_paths_overlap_when_nested(self):
+        """_paths_overlap returns True when one path is inside the other."""
+        mgr = MigrationManager()
+        assert mgr._paths_overlap(Path("/a/b"), Path("/a")) is True
+        assert mgr._paths_overlap(Path("/a"), Path("/a/b")) is True
+
+    def test_paths_overlap_when_equal(self):
+        """_paths_overlap returns True for identical paths."""
+        mgr = MigrationManager()
+        assert mgr._paths_overlap(Path("/a"), Path("/a")) is True
+
+    def test_paths_overlap_when_unrelated(self):
+        """_paths_overlap returns False for unrelated paths."""
+        mgr = MigrationManager()
+        assert mgr._paths_overlap(Path("/a"), Path("/b")) is False
+
+    def test_resolve_dir_relative_anchors_to_repo_root(self):
+        """Relative paths resolve against repo_root."""
+        mgr = MigrationManager()
+        repo = Path("/fake/repo")
+        assert mgr._resolve_dir(Path("daily"), repo) == repo / "daily"
+
+    def test_resolve_dir_absolute_unchanged(self):
+        """Absolute paths are returned unchanged."""
+        mgr = MigrationManager()
+        absolute = Path("/absolute/daily")
+        assert mgr._resolve_dir(absolute, Path("/fake/repo")) == absolute
