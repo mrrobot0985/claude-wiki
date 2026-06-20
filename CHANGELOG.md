@@ -6,6 +6,30 @@ All notable changes to this project are documented in this file.
 
 Nothing yet.
 
+## [0.10.0] - 2026-06-20
+
+### Added
+
+- `query` scope filters: `--category` (repeatable), `--since YYYY-MM-DD`, and
+  `--max-chars N` cap, so queries no longer read the entire KB into one prompt
+  ([#117](https://github.com/mrrobot0985/claude-wiki/issues/117))
+- `lint` frontmatter-schema enforcement (required `title`/`sources` are errors;
+  `aliases`/`tags`/`created`/`updated` are warnings), a `.claude-wiki-lint-ignore`
+  file (`path::check::reason`, fnmatch globs), and a `--threshold N` override
+  ([#118](https://github.com/mrrobot0985/claude-wiki/issues/118))
+- YAML tag indexing: a `claude-wiki tags` command, a repeatable `query --tag`
+  filter (union, composes by AND with the other scope filters), and a
+  `tag_single_use` lint suggestion ([#119](https://github.com/mrrobot0985/claude-wiki/issues/119))
+- Bash/zsh/fish shell completions (generated from the live parser with a
+  drift-guard test), a `claude-wiki.1` man page shipped in the wheel, and richer
+  PyPI classifiers/URLs ([#120](https://github.com/mrrobot0985/claude-wiki/issues/120))
+
+### Changed
+
+- CLI reference (`docs/reference/cli.md`) resynced against the actual
+  `claude-wiki --help` output to cover all new query/lint flags and the `tags`
+  subcommand
+
 ## [0.9.0] - 2026-06-20
 
 ### Added
