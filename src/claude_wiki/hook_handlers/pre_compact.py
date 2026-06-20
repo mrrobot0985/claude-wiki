@@ -5,11 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from claude_wiki import flush
 from claude_wiki.config import ConfigManager
@@ -49,76 +48,6 @@ def _setup_logging(logs_dir: Path) -> None:
     logger.addHandler(handler)
 
 
-def _extract_context(transcript_path: Path) -> tuple[str, int]:
-    """Read a JSONL transcript and return the recent conversation context."""
-    turns: list[str] = []
-
-    with transcript_path.open(encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError as exc:
-                logger.debug("Skipping malformed transcript line: %s", exc)
-                continue
-
-            msg = entry.get("message", {})
-            if isinstance(msg, dict):
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-            else:
-                role = entry.get("role", "")
-                content = entry.get("content", "")
-
-            if role not in ("user", "assistant"):
-                continue
-
-            if isinstance(content, list):
-                text_parts: list[str] = []
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        text_parts.append(block.get("text", ""))
-                    elif isinstance(block, str):
-                        text_parts.append(block)
-                content = "\n".join(text_parts)
-
-            if isinstance(content, str) and content.strip():
-                label = "User" if role == "user" else "Assistant"
-                turns.append(f"**{label}:** {content.strip()}\n")
-
-    recent = turns[-MAX_TURNS:]
-    context = "\n".join(recent)
-
-    if len(context) > MAX_CONTEXT_CHARS:
-        context = context[-MAX_CONTEXT_CHARS:]
-        boundary = context.find("\n**")
-        if boundary > 0:
-            context = context[boundary + 1 :]
-
-    return context, len(recent)
-
-
-def _read_hook_input() -> dict[str, Any]:
-    """Parse JSON hook input from stdin, tolerating lightly-escaped JSON."""
-    raw = sys.stdin.read()
-    if not raw.strip():
-        return {}
-
-    def _coerce(text: str) -> dict[str, Any]:
-        parsed = json.loads(text)
-        if not isinstance(parsed, dict):
-            raise ValueError("hook input is not a JSON object")
-        return cast(dict[str, Any], parsed)
-
-    try:
-        return _coerce(raw)
-    except json.JSONDecodeError:
-        fixed = re.sub(r"(?<!\\)\\(?!\"\\)", r"\\\\", raw)
-        return _coerce(fixed)
-
-
 def handler(_args: list[str]) -> int:
     """Handle the PreCompact hook event."""
     configure_stderr_logging()
@@ -138,11 +67,15 @@ def handler(_args: list[str]) -> int:
     logs_dir = flush.get_logs_dir(config, repo_root)
     _setup_logging(logs_dir)
 
-    try:
-        hook_input = _read_hook_input()
-    except (json.JSONDecodeError, ValueError, EOFError) as exc:
-        logger.error("Failed to parse stdin: %s", exc)
-        return 1
+    raw = sys.stdin.read()
+    if raw.strip():
+        try:
+            hook_input = flush.read_hook_input(raw)
+        except (json.JSONDecodeError, ValueError) as exc:
+            logger.error("Failed to parse stdin: %s", exc)
+            return 1
+    else:
+        hook_input = {}
 
     session_id = hook_input.get("session_id", "unknown")
     transcript_path_str = hook_input.get("transcript_path", "")
@@ -159,7 +92,11 @@ def handler(_args: list[str]) -> int:
         return 0
 
     try:
-        context, turn_count = _extract_context(transcript_path)
+        context, turn_count = flush.extract_conversation_context(
+            transcript_path,
+            max_turns=MAX_TURNS,
+            max_chars=MAX_CONTEXT_CHARS,
+        )
     except Exception as exc:
         logger.error("Context extraction failed: %s", exc)
         return 1
