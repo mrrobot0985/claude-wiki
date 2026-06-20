@@ -53,3 +53,12 @@ repos:
       - id: conventional-pre-commit
         name: Validate conventional commit message
         stages: [commit-msg]
+
+  - repo: local
+    hooks:
+      - id: block-ai-attribution
+        name: Block AI attribution in commit message
+        entry: scripts/commit-msg-guard.sh
+        language: system
+        stages: [commit-msg]
+        pass_filenames: true
