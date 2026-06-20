@@ -1,5 +1,6 @@
 """Tests for GlobalIndexManager registry and generated core.md."""
 
+import errno
 import json
 import multiprocessing
 import os
@@ -140,6 +141,50 @@ class TestGlobalIndexManager:
             (base / ".registry.json").write_text("not json")
             mgr = GlobalIndexManager(base_dir=base)
             assert mgr.list_entries() == []
+
+    def test_unreadable_registry_returns_empty(self, monkeypatch):
+        """An unreadable registry (permissions) is treated as empty, not a crash."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            reg = base / ".registry.json"
+            reg.write_text("[]")
+            reg.chmod(0o000)
+            try:
+                mgr = GlobalIndexManager(base_dir=base)
+                assert mgr.list_entries() == []
+            finally:
+                reg.chmod(0o600)
+
+    def test_lock_times_out_when_blocked(self, monkeypatch):
+        """A contended registry lock raises TimeoutError instead of hanging (issue #50)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+
+            def blocking_lockf(
+                _fd: int, _op: int, *args: object, **kwargs: object
+            ) -> None:
+                raise BlockingIOError(errno.EAGAIN, "resource busy")
+
+            monkeypatch.setattr("claude_wiki.global_index.fcntl.lockf", blocking_lockf)
+            monkeypatch.setattr("claude_wiki.global_index.time.sleep", lambda *_: None)
+
+            with pytest.raises(TimeoutError):
+                with mgr._registry_lock():
+                    pass  # pragma: no cover - should never acquire
+
+    def test_save_index_is_atomic(self):
+        """_save_index writes core.md via temp+replace and leaves no temp file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            mgr = GlobalIndexManager(base_dir=base)
+            mgr._save_index("# Global Index\n\nbody")
+
+            index = base / "core.md"
+            assert index.exists()
+            assert index.read_text(encoding="utf-8") == "# Global Index\n\nbody"
+            leftovers = [p for p in base.iterdir() if ".tmp" in p.name]
+            assert leftovers == []
 
     def test_generated_markdown_links_to_index(self):
         """Each generated entry links to the repo's catalog via wikilink."""
