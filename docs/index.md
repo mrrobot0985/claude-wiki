@@ -18,6 +18,7 @@ ______________________________________________________________________
 ## Understanding
 
 - [Architecture Overview](explanation/architecture.md) — how the pieces fit together
+- [Obsidian Graph Hygiene](explanation/obsidian-graph-hygiene.md) — keeping the graph readable at scale
 - [Design Principles](explanation/design-principles.md) — why we made these choices
 
 ## Architecture Decision Records
