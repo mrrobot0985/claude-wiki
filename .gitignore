@@ -20,3 +20,5 @@ bin/
 *.code-workspace
 .coverage
 htmlcov/
+.claude-wiki.lock
+coverage.json
