@@ -135,3 +135,70 @@ jobs:
       - name: Run pre-commit
         if: steps.evaluate.outputs.run == 'true'
         run: uv run pre-commit run --all-files
+
+  smoke:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate if smoke test is needed
+        id: evaluate
+        run: echo "run=${{ needs.detect-changes.outputs.code }}" >> "$GITHUB_OUTPUT"
+
+      - name: No-op — no code changes
+        if: steps.evaluate.outputs.run == 'false'
+        run: echo "No code changes detected. Skipping smoke test." && exit 0
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: steps.evaluate.outputs.run == 'true'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        if: steps.evaluate.outputs.run == 'true'
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        if: steps.evaluate.outputs.run == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel
+        if: steps.evaluate.outputs.run == 'true'
+        run: uv build
+
+      - name: Install wheel in a clean venv
+        if: steps.evaluate.outputs.run == 'true'
+        run: |
+          uv venv /tmp/smoke
+          uv pip install --python /tmp/smoke/bin/python dist/claude_wiki-*.whl
+
+      - name: Exercise console entry points
+        if: steps.evaluate.outputs.run == 'true'
+        run: |
+          /tmp/smoke/bin/claude-wiki --help
+          # Hook entry point is installed and parses args (unknown event exits 1).
+          set +e
+          /tmp/smoke/bin/claude-wiki-hook BogusEvent > /tmp/hook.out 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          grep -q "Unknown hook event" /tmp/hook.out
+
+      - name: Bootstrap a repo with the installed CLI
+        if: steps.evaluate.outputs.run == 'true'
+        env:
+          XDG_DATA_HOME: /tmp/xdg-data
+        run: |
+          git config --global user.email "smoke@example.com"
+          git config --global user.name "smoke"
+          REPO=$(mktemp -d)
+          git -C "$REPO" init -q
+          git -C "$REPO" config user.email "smoke@example.com"
+          git -C "$REPO" config user.name "smoke"
+          echo "hello" > "$REPO/README.md"
+          git -C "$REPO" add .
+          git -C "$REPO" commit -q -m "chore: initial commit"
+          /tmp/smoke/bin/claude-wiki init --path "$REPO"
+          test -f "$REPO/.claude-wiki.lock"
+          test -f "$REPO/.claude/settings.local.json"
