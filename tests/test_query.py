@@ -70,16 +70,19 @@ def _write_article(
     *,
     updated: str | None = None,
     created: str | None = None,
+    tags: list[str] | None = None,
 ) -> Path:
-    """Create a KB article with optional YAML frontmatter dates."""
+    """Create a KB article with optional YAML frontmatter dates and tags."""
     (kb / category).mkdir(parents=True, exist_ok=True)
     parts = ["---"]
+    if tags is not None:
+        parts.append("tags: [" + ", ".join(f'"{t}"' for t in tags) + "]")
     if updated is not None:
         parts.append(f"updated: {updated}")
     if created is not None:
         parts.append(f"created: {created}")
     parts.append("---")
-    frontmatter = "\n".join(parts) + "\n\n" if updated or created else ""
+    frontmatter = "\n".join(parts) + "\n\n" if parts[1:] else ""
     article = kb / category / f"{name}.md"
     article.write_text(frontmatter + body, encoding="utf-8")
     return article
@@ -251,6 +254,82 @@ class TestReadKbContentScope:
             assert count == 2
             assert "## concepts/a.md" in content
             assert "## concepts/b.md" in content
+
+    def test_tag_filter_single(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "rust", "# Rust", tags=["rust"])
+            _write_article(kb, "concepts", "python", "# Python", tags=["python"])
+
+            content, count = _read_kb_content(kb, repo_name="repo", tags={"rust"})
+            assert count == 1
+            assert "## concepts/rust.md" in content
+            assert "## concepts/python.md" not in content
+
+    def test_tag_filter_multiple_is_union(self) -> None:
+        """Repeatable --tag matches articles tagged with any given tag."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "rust", "# Rust", tags=["rust"])
+            _write_article(kb, "concepts", "python", "# Python", tags=["python"])
+            _write_article(kb, "concepts", "js", "# JS", tags=["js"])
+
+            content, count = _read_kb_content(
+                kb, repo_name="repo", tags={"rust", "python"}
+            )
+            assert count == 2
+            assert "## concepts/rust.md" in content
+            assert "## concepts/python.md" in content
+            assert "## concepts/js.md" not in content
+
+    def test_tag_filter_composes_with_category(self) -> None:
+        """Tag and category filters AND together."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "rust", "# Rust", tags=["rust"])
+            _write_article(kb, "connections", "rust-web", "# Rust web", tags=["rust"])
+            _write_article(kb, "concepts", "python", "# Python", tags=["python"])
+
+            content, count = _read_kb_content(
+                kb,
+                repo_name="repo",
+                categories=["concepts"],
+                tags={"rust"},
+            )
+            assert count == 1
+            assert "## concepts/rust.md" in content
+            assert "## connections/rust-web.md" not in content
+            assert "## concepts/python.md" not in content
+
+    def test_tag_filter_composes_with_since_and_max_chars(self) -> None:
+        """Tag filter AND-combines with date and size filters."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(
+                kb, "concepts", "old", "# Old\n\nx", tags=["rust"], updated="2026-05-01"
+            )
+            _write_article(
+                kb, "concepts", "new", "# New\n\ny", tags=["rust"], updated="2026-06-15"
+            )
+
+            content, count = _read_kb_content(
+                kb,
+                repo_name="repo",
+                tags={"rust"},
+                since=date(2026, 6, 1),
+                max_chars=100,
+            )
+            assert count == 1
+            assert "## concepts/new.md" in content
+            assert "## concepts/old.md" not in content
 
 
 class TestRunQuery:
@@ -856,3 +935,100 @@ class TestQueryCommand:
             assert "## concepts/new.md" in prompt_capture["prompt"]
             assert "## concepts/old.md" not in prompt_capture["prompt"]
             assert "## INDEX" in prompt_capture["prompt"]
+
+    def test_query_cli_tag_filter_prompt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--tag restricts the prompt to articles with the requested tag."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            kb = repo / "knowledge"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "rust", "# Rust", tags=["rust"])
+            _write_article(kb, "concepts", "python", "# Python", tags=["python"])
+
+            prompt_capture: dict[str, str] = {}
+            fake = _capturing_fake_sdk_query(prompt_capture, "Use [[concepts/rust]].")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(repo)
+                with (
+                    patch.dict(
+                        "os.environ", {"CLAUDE_WIKI_PROJECT_DIR": str(kb)}, clear=False
+                    ),
+                    patch("claude_agent_sdk.query", fake),
+                ):
+                    exit_code = main(["query", "how do I auth?", "--tag", "rust"])
+            finally:
+                os.chdir(old_cwd)
+
+            assert exit_code == 0
+            assert "## concepts/rust.md" in prompt_capture["prompt"]
+            assert "## concepts/python.md" not in prompt_capture["prompt"]
+
+    def test_query_cli_multiple_tags_union(self) -> None:
+        """Repeatable --tag includes articles matching any named tag."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            kb = repo / "knowledge"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "rust", "# Rust", tags=["rust"])
+            _write_article(kb, "concepts", "python", "# Python", tags=["python"])
+            _write_article(kb, "concepts", "js", "# JS", tags=["js"])
+
+            prompt_capture: dict[str, str] = {}
+            fake = _capturing_fake_sdk_query(prompt_capture, "answer")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(repo)
+                with (
+                    patch.dict(
+                        "os.environ", {"CLAUDE_WIKI_PROJECT_DIR": str(kb)}, clear=False
+                    ),
+                    patch("claude_agent_sdk.query", fake),
+                ):
+                    exit_code = main(["query", "x", "--tag", "rust", "--tag", "python"])
+            finally:
+                os.chdir(old_cwd)
+
+            assert exit_code == 0
+            assert "## concepts/rust.md" in prompt_capture["prompt"]
+            assert "## concepts/python.md" in prompt_capture["prompt"]
+            assert "## concepts/js.md" not in prompt_capture["prompt"]
+
+    def test_query_cli_empty_scope_with_tag(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--tag with no matching articles produces the empty-scope message."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            kb = repo / "knowledge"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "python", "# Python", tags=["python"])
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(repo)
+                with patch.dict(
+                    "os.environ", {"CLAUDE_WIKI_PROJECT_DIR": str(kb)}, clear=False
+                ):
+                    exit_code = main(["query", "x", "--tag", "rust"])
+            finally:
+                os.chdir(old_cwd)
+
+            assert exit_code == 1
+            assert "No articles matched the requested scope." in capsys.readouterr().out

@@ -6,7 +6,7 @@ User-facing commands.
 
 ```text
 usage: claude-wiki [-h] [--version]
-                   {init,migrate,compile,lint,query,register,registry,rename-catalog,status} ...
+                   {init,migrate,compile,lint,query,register,registry,rename-catalog,status,tags} ...
 ```
 
 ### Global options
@@ -57,18 +57,30 @@ usage: claude-wiki compile [-h] [--all] [--file FILE] [--dry-run] [--path PATH]
 Query the knowledge base.
 
 ```text
-usage: claude-wiki query [-h] [--file-back] [--path PATH] [--json] question
+usage: claude-wiki query [-h] [--file-back] [--path PATH] [--json]
+                         [--category {concepts,connections,qa}] [--tag TAG]
+                         [--since SINCE] [--max-chars MAX_CHARS]
+                         question
 ```
 
 | Argument   | Description         |
 | ---------- | ------------------- |
 | `question` | The question to ask |
 
-| Option        | Description                                             |
-| ------------- | ------------------------------------------------------- |
-| `--file-back` | Save the answer to `knowledge/qa/`                      |
-| `--json`      | Emit machine-readable JSON instead of human text        |
-| `--path PATH` | Repo root (default: auto-detect from current directory) |
+| Option                                   | Description                                                     |
+| ---------------------------------------- | --------------------------------------------------------------- |
+| `--file-back`                            | Save the answer to `knowledge/qa/`                              |
+| `--path PATH`                            | Repo root (default: auto-detect from current directory)         |
+| `--json`                                 | Emit machine-readable JSON instead of human text                |
+| `--category {concepts\|connections\|qa}` | Restrict to a KB category (repeatable; union)                   |
+| `--tag TAG`                              | Restrict to articles tagged `TAG` (repeatable; union)           |
+| `--since SINCE`                          | Only articles updated/created on or after `YYYY-MM-DD`          |
+| `--max-chars MAX_CHARS`                  | Cap article context; oldest articles dropped first (index kept) |
+
+Scope filters compose by AND: `--category`, `--tag`, `--since`, and `--max-chars`
+all apply together. An article without `updated`/`created` dates is always
+included by `--since`. If no article matches the scope, the command prints a
+clear message and exits `1`. Default (no scope flags) reads the whole KB.
 
 JSON schema (`--json`):
 
@@ -95,7 +107,7 @@ Run health checks on the knowledge base.
 
 ```text
 usage: claude-wiki lint [-h] [--structural-only] [--fail-on-warning]
-                        [--path PATH] [--json]
+                        [--path PATH] [--json] [--threshold THRESHOLD]
 ```
 
 | Option              | Description                                             |
@@ -104,6 +116,15 @@ usage: claude-wiki lint [-h] [--structural-only] [--fail-on-warning]
 | `--fail-on-warning` | Exit with status `1` when only warnings are present     |
 | `--path PATH`       | Repo root (default: auto-detect from current directory) |
 | `--json`            | Emit machine-readable JSON instead of human text        |
+| `--threshold N`     | Sparse-article word threshold (default: `200`)          |
+
+Checks include broken wikilinks, orphan pages, sparse articles (above the
+threshold), required frontmatter fields (`frontmatter_missing_title`/`_sources`
+are errors; `_aliases`/`_tags`/`_created`/`_updated` are warnings), and
+single-use tags (`tag_single_use`, a suggestion). Suppress false positives with a
+`.claude-wiki-lint-ignore` file at the repo root, one rule per line as
+`path::check::reason` (paths support `fnmatch` globs); matched issues are dropped
+from the report and the exit-code counts.
 
 JSON schema (`--json`):
 
@@ -158,6 +179,24 @@ usage: claude-wiki status [-h] [--path PATH]
 | Option        | Description                                             |
 | ------------- | ------------------------------------------------------- |
 | `--path PATH` | Repo root (default: auto-detect from current directory) |
+
+### `claude-wiki tags`
+
+List every YAML frontmatter tag in the knowledge base with a count and an
+example article.
+
+```text
+usage: claude-wiki tags [-h] [--path PATH] [--json]
+```
+
+| Option        | Description                                             |
+| ------------- | ------------------------------------------------------- |
+| `--path PATH` | Repo root (default: auto-detect from current directory) |
+| `--json`      | Emit machine-readable JSON instead of human text        |
+
+Human output is aligned columns (`tag`, `count`, `example path`). With `--json`,
+emits a list of objects `{"tag", "count", "examples": [...]}`. An empty
+knowledge base prints a clear message and exits non-zero.
 
 ### `claude-wiki register`
 

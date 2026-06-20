@@ -518,7 +518,15 @@ class TestLintJsonAndExitCodes:
         concepts = kb_root / "concepts"
         concepts.mkdir()
         long_text = "word " * 250
-        (concepts / "orphan.md").write_text(_article_with_frontmatter(long_text))
+        # a.md is the orphan; use a shared tag so it is not also a single-use suggestion.
+        (concepts / "a.md").write_text(
+            _article_with_frontmatter(long_text, title="A", tags="[shared]")
+        )
+        (concepts / "b.md").write_text(
+            _article_with_frontmatter(
+                long_text + "\n[[concepts/a]]", title="B", tags="[shared]"
+            )
+        )
 
         monkeypatch.chdir(repo)
 
@@ -527,8 +535,9 @@ class TestLintJsonAndExitCodes:
         payload = json.loads(captured.out)
 
         assert exit_code == 0
-        assert len(payload["issues"]) == 1
-        assert payload["issues"][0]["severity"] == "warning"
+        warning_issues = [i for i in payload["issues"] if i["severity"] == "warning"]
+        assert len(warning_issues) == 1
+        assert warning_issues[0]["check"] == "orphan_page"
 
     def test_lint_fail_on_warning(
         self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -997,3 +1006,113 @@ class TestLintFrontmatter:
         )
         assert issue["severity"] == "error"
         assert issue["file"] == "concepts/note.md"
+
+
+class TestLintTags:
+    """Tag-related structural checks."""
+
+    def _repo_and_kb(self, tmp_path: Path) -> tuple[Path, Path]:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb_root = repo / ".claude" / "knowledge"
+        kb_root.mkdir(parents=True)
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {
+                    "repo_name": "repo",
+                    "repo_owner": "local",
+                    "kb_dir": "project",
+                    "daily_dir": "daily",
+                    "timezone": "UTC",
+                }
+            )
+        )
+        return repo, kb_root
+
+    @pytest.fixture(autouse=True)
+    def fixed_today(self) -> None:
+        with patch("claude_wiki.commands.lint._today_iso", return_value="2026-06-19"):
+            yield
+
+    def test_single_use_tag_is_suggestion(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A tag used on exactly one article is flagged as a suggestion."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        # ``unique`` is used once; ``shared`` is used twice to verify it is not flagged.
+        (concepts / "a.md").write_text(
+            _article_with_frontmatter(
+                long_text + "\n[[concepts/b]]", title="A", tags="[unique, shared]"
+            )
+        )
+        (concepts / "b.md").write_text(
+            _article_with_frontmatter(
+                long_text + "\n[[concepts/a]]", title="B", tags="[shared]"
+            )
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "Results:" in captured.out
+        assert "1 suggestions" in captured.out
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
+        assert "Tag 'unique' appears on only one article" in report
+
+    def test_multi_use_tag_not_flagged(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A tag appearing on two or more articles is not a suggestion."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        (concepts / "a.md").write_text(
+            _article_with_frontmatter(
+                long_text + "\n[[concepts/b]]", title="A", tags="[shared]"
+            )
+        )
+        (concepts / "b.md").write_text(
+            _article_with_frontmatter(
+                long_text + "\n[[concepts/a]]", title="B", tags="[shared]"
+            )
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "Results: 0 errors, 0 warnings, 0 suggestions" in captured.out
+
+    def test_single_use_tag_in_json(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--json exposes tag_single_use suggestions."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        (concepts / "a.md").write_text(
+            _article_with_frontmatter(long_text, title="A", tags="[unique]")
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only", "--json"])
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+
+        assert exit_code == 0
+        issue = next(i for i in payload["issues"] if i["check"] == "tag_single_use")
+        assert issue["severity"] == "suggestion"
+        assert "unique" in issue["message"]
