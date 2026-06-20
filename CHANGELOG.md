@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Integration test exercising full `init -> compile -> query -> lint` lifecycle with mocked LLM calls ([#84](https://github.com/mrrobot0985/claude-wiki/issues/84))
 - `.gitignore` entries for `.claude-wiki.lock` and `coverage.json`
 - PyPI and CI badges to README ([#75](https://github.com/mrrobot0985/claude-wiki/issues/75))
 - `CONTRIBUTING.md` at repo root with branch naming and PR checklist
