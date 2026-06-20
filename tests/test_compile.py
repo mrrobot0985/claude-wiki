@@ -261,6 +261,88 @@ class TestCompileCommand:
         assert log.read_text() == "original content"
         assert log.stat().st_mtime == original_mtime
 
+    def test_compile_default_exits_nonzero_on_error(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any, capsys: Any
+    ) -> None:
+        """A per-log error makes the default compile fail-fast and exit non-zero."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("a")
+        (daily_dir / "2026-06-19.md").write_text("b")
+
+        monkeypatch.chdir(repo)
+
+        def side_effect(log_path: Path, *args: Any, **kwargs: Any) -> float:
+            if log_path.name == "2026-06-18.md":
+                raise RuntimeError("boom")
+            return 0.0
+
+        compile_mock = mocker.patch(
+            "claude_wiki.commands.compile._compile_one", side_effect=side_effect
+        )
+
+        exit_code = main(["compile", "--all"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 1
+        assert compile_mock.call_count == 1
+        assert "Error: boom" in captured.err
+
+    def test_compile_continue_on_error_records_successes(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any, capsys: Any
+    ) -> None:
+        """--continue-on-error compiles every log, records successes, and exits non-zero if any failed."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("a")
+        (daily_dir / "2026-06-19.md").write_text("b")
+        (daily_dir / "2026-06-20.md").write_text("c")
+
+        monkeypatch.chdir(repo)
+
+        def side_effect(log_path: Path, *args: Any, **kwargs: Any) -> float:
+            if log_path.name == "2026-06-19.md":
+                raise RuntimeError("mid")
+            return 0.0
+
+        compile_mock = mocker.patch(
+            "claude_wiki.commands.compile._compile_one", side_effect=side_effect
+        )
+
+        exit_code = main(["compile", "--all", "--continue-on-error"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 1
+        assert compile_mock.call_count == 3
+        assert "Error: mid" in captured.err
+
+        state = json.loads((repo / ".claude" / "state" / "state.json").read_text())
+        assert "2026-06-18.md" in state["ingested"]
+        assert "2026-06-19.md" not in state["ingested"]
+        assert "2026-06-20.md" in state["ingested"]
+
+    def test_compile_continue_on_error_exits_zero_when_all_succeed(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """--continue-on-error exits zero when every log compiles successfully."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("a")
+        (daily_dir / "2026-06-19.md").write_text("b")
+
+        monkeypatch.chdir(repo)
+        compile_mock = mocker.patch(
+            "claude_wiki.commands.compile._compile_one", return_value=0.0
+        )
+
+        exit_code = main(["compile", "--all", "--continue-on-error"])
+
+        assert exit_code == 0
+        assert compile_mock.call_count == 2
+
 
 class TestCompileGaps:
     """Cover edge cases and small helpers not exercised by the main flows."""

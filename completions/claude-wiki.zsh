@@ -18,6 +18,7 @@ _claude_wiki() {
         (compile)
             _arguments -C \
                 '--all[]' \
+                '--continue-on-error[]' \
                 '--dry-run[]' \
                 '--file[]' \
                 '--help[]' \
