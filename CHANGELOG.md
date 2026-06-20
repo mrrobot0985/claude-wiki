@@ -19,6 +19,10 @@ All notable changes to this project are documented in this file.
 
 - Temporary `index.md` fallback from SessionStart hook and catalog resolution ([#74](https://github.com/mrrobot0985/claude-wiki/issues/74))
 
+### Removed
+
+- Temporary `index.md` fallback from SessionStart hook and catalog resolution ([#74](https://github.com/mrrobot0985/claude-wiki/issues/74))
+
 ## [0.5.0] - 2026-06-20
 
 ### Added
