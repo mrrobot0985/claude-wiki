@@ -44,13 +44,21 @@ claude-wiki compile [--all] [--file FILE] [--dry-run] [--path PATH]
 Query the knowledge base.
 
 ```
-claude-wiki query QUESTION [--file-back]
+claude-wiki query QUESTION [--file-back] [--path PATH] [--version]
 ```
 
-| Option        | Description                        |
-| ------------- | ---------------------------------- |
-| `QUESTION`    | The question to ask                |
-| `--file-back` | Save the answer to `knowledge/qa/` |
+| Option        | Description                                             |
+| ------------- | ------------------------------------------------------- |
+| `QUESTION`    | The question to ask                                     |
+| `--file-back` | Save the answer to `knowledge/qa/`                      |
+| `--path`      | Repo root (default: auto-detect from current directory) |
+| `--version`   | Show `claude-wiki <version>` and exit                   |
+
+Check the installed version:
+
+```bash
+claude-wiki query --version
+```
 
 ### `claude-wiki migrate`
 
@@ -75,12 +83,14 @@ Use after editing `kb_dir` or `daily_dir` in `.claude-wiki.lock`. Always run `--
 Run health checks.
 
 ```
-claude-wiki lint [--structural-only]
+claude-wiki lint [--structural-only] [--path PATH] [--version]
 ```
 
-| Option              | Description                  |
-| ------------------- | ---------------------------- |
-| `--structural-only` | Skip LLM contradiction check |
+| Option              | Description                                             |
+| ------------------- | ------------------------------------------------------- |
+| `--structural-only` | Skip LLM contradiction check                            |
+| `--path`            | Repo root (default: auto-detect from current directory) |
+| `--version`         | Show `claude-wiki <version>` and exit                   |
 
 ### `claude-wiki rename-catalog`
 

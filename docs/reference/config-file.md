@@ -49,6 +49,18 @@ claude-wiki migrate --dry-run
 claude-wiki migrate
 ```
 
+## Timezone Validation
+
+`timezone` is validated at load time against the IANA Time Zone Database. Values such as `"UTC"`, `"America/New_York"`, and `"Europe/Berlin"` are accepted. An invalid timezone raises a config error before any command runs:
+
+```
+ConfigError: timezone is not a valid IANA zone: Mars/Phobos
+```
+
+## Home Directory Expansion
+
+`kb_dir`, `daily_dir`, and `reports_dir` values containing `~` are expanded to the user's home directory before path resolution. A value of `"~/wiki"` resolves to `/home/<user>/wiki` (or the equivalent on your platform) rather than creating a literal `~/wiki` directory under the repo root. This expansion applies both to `.claude-wiki.lock` values and to the `CLAUDE_WIKI_PROJECT_DIR`, `CLAUDE_WIKI_DAILY_DIR`, and `CLAUDE_WIKI_STATE_DIR` environment overrides.
+
 ## Examples
 
 ### In-repo knowledge base (gitignored)
