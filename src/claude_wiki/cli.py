@@ -48,6 +48,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Install hooks into ~/.claude/settings.json instead of repo-local .claude/settings.local.json",
     )
+    init_parser.add_argument(
+        "--no-hooks",
+        dest="no_hooks",
+        action="store_true",
+        help="Skip Claude Code hook installation (settings files are not created)",
+    )
 
     # migrate
     migrate_parser = subparsers.add_parser(
@@ -99,6 +105,8 @@ def _is_interactive(args: argparse.Namespace) -> bool:
     if not sys.stdin.isatty():
         return False
     if args.global_flag:
+        return False
+    if args.no_hooks:
         return False
     return True
 
@@ -182,15 +190,20 @@ def _init(args: argparse.Namespace) -> int:
 
     loader.write(repo_root, config)
 
-    if use_global_hooks:
-        settings_path = Path.home() / ".claude" / "settings.json"
+    if args.no_hooks:
+        print(
+            "Hooks skipped; run 'claude-wiki init' without --no-hooks to install them later."
+        )
     else:
-        settings_path = repo_root / ".claude" / "settings.local.json"
+        if use_global_hooks:
+            settings_path = Path.home() / ".claude" / "settings.json"
+        else:
+            settings_path = repo_root / ".claude" / "settings.local.json"
 
-    registrar.install_hooks(repo_root, config, settings_path=settings_path)
+        registrar.install_hooks(repo_root, config, settings_path=settings_path)
 
-    target_label = "global" if use_global_hooks else "repo-local"
-    print(f"Installed hooks into {target_label} settings: {settings_path}")
+        target_label = "global" if use_global_hooks else "repo-local"
+        print(f"Installed hooks into {target_label} settings: {settings_path}")
 
     kb_root = detector.get_kb_root(repo_root, config)
     GlobalIndexManager().register(
