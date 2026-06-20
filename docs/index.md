@@ -27,6 +27,7 @@ ______________________________________________________________________
 - [ADR-004](adr/004-fail-fast-local-defensive-global.md) — Fail-Fast for Local State, Defensive for Global State
 - [ADR-005](adr/005-kb-directory-redesign.md) — Knowledge Base Directory Redesign
 - [ADR-006](adr/006-vault-naming-and-obsidian-graph-hygiene.md) — Vault Naming and Obsidian Graph Hygiene
+- [ADR-007](adr/007-no-wikilinks-to-daily-logs.md) — No Wikilinks to Daily Logs
 
 ## Project Planning
 
