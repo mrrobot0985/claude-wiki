@@ -470,7 +470,7 @@ class TestMigrateCommand:
         }
         (repo / ".claude-wiki.lock").write_text(json.dumps(config))
         (repo / "knowledge").mkdir()
-        (repo / "knowledge" / "index.md").write_text("# Index")
+        (repo / "knowledge" / f"{repo.name}.md").write_text("# Index")
         (repo / "daily").mkdir()
         (repo / "daily" / "2024-01-01.md").write_text("log")
 

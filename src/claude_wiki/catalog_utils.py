@@ -22,8 +22,6 @@ def resolve_catalog(kb_root: Path, repo_name: str | None = None) -> Path:
     named = [p for p in candidates if p.name != "index.md"]
     if len(named) == 1:
         return named[0]
-    if (kb_root / "index.md").exists():
-        return kb_root / "index.md"
     return kb_root / "index.md"
 
 

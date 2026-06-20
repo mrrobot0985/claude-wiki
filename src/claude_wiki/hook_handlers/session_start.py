@@ -34,13 +34,10 @@ def _load_config(repo_root: Path | None) -> ProjectConfig | None:
 
 
 def _get_kb_index(kb_root: Path, repo_name: str) -> str:
-    """Read knowledge/{repo_name}.md if it exists, falling back to index.md."""
+    """Read knowledge/{repo_name}.md if it exists."""
     primary = kb_root / f"{repo_name}.md"
     if primary.exists():
         return primary.read_text(encoding="utf-8")
-    legacy = kb_root / "index.md"
-    if legacy.exists():
-        return legacy.read_text(encoding="utf-8")
     return "(empty - no articles compiled yet)"
 
 

@@ -358,9 +358,9 @@ class TestLintHelpers:
         """Missing KB subdirectories are silently skipped."""
         kb = tmp_path / "kb"
         kb.mkdir()
-        (kb / "index.md").write_text("# Index")
+        (kb / "repo.md").write_text("# Index")
 
-        content = _read_all_wiki_content(kb)
+        content = _read_all_wiki_content(kb, repo_name="repo")
         assert "## INDEX" in content
         assert "## concepts/" not in content
 
@@ -486,10 +486,10 @@ class TestContradictionDetection:
         """NO_ISSUES in the LLM response produces no contradiction issues."""
         kb = tmp_path / "kb"
         kb.mkdir()
-        (kb / "index.md").write_text("# Index")
+        (kb / "repo.md").write_text("# Index")
 
         with self._fake_sdk("NO_ISSUES"):
-            issues = _run_llm_checks(kb)
+            issues = _run_llm_checks(kb, repo_name="repo")
 
         assert issues == []
 
@@ -497,10 +497,10 @@ class TestContradictionDetection:
         """A CONTRADICTION line is turned into a warning issue."""
         kb = tmp_path / "kb"
         kb.mkdir()
-        (kb / "index.md").write_text("# Index")
+        (kb / "repo.md").write_text("# Index")
 
         with self._fake_sdk("CONTRADICTION: a vs b - conflicting advice"):
-            issues = _run_llm_checks(kb)
+            issues = _run_llm_checks(kb, repo_name="repo")
 
         assert len(issues) == 1
         assert issues[0].severity == "warning"
@@ -511,10 +511,10 @@ class TestContradictionDetection:
         """An INCONSISTENCY line is turned into a warning issue."""
         kb = tmp_path / "kb"
         kb.mkdir()
-        (kb / "index.md").write_text("# Index")
+        (kb / "repo.md").write_text("# Index")
 
         with self._fake_sdk("INCONSISTENCY: a - description here"):
-            issues = _run_llm_checks(kb)
+            issues = _run_llm_checks(kb, repo_name="repo")
 
         assert len(issues) == 1
         assert issues[0].severity == "warning"
@@ -524,7 +524,7 @@ class TestContradictionDetection:
         """Only formatted lines are parsed; other output is ignored."""
         kb = tmp_path / "kb"
         kb.mkdir()
-        (kb / "index.md").write_text("# Index")
+        (kb / "repo.md").write_text("# Index")
         response = (
             "Preamble that should be ignored\n"
             "CONTRADICTION: a vs b - one\n"
@@ -533,7 +533,7 @@ class TestContradictionDetection:
         )
 
         with self._fake_sdk(response):
-            issues = _run_llm_checks(kb)
+            issues = _run_llm_checks(kb, repo_name="repo")
 
         assert len(issues) == 2
         details = {issue.detail for issue in issues}
@@ -559,10 +559,10 @@ class TestContradictionDetection:
 
         kb = tmp_path / "kb"
         kb.mkdir()
-        (kb / "index.md").write_text("# Index")
+        (kb / "repo.md").write_text("# Index")
 
         with self._fake_sdk("CONTRADICTION: x vs y - async path"):
-            issues = asyncio.run(_check_contradictions(kb))
+            issues = asyncio.run(_check_contradictions(kb, repo_name="repo"))
 
         assert len(issues) == 1
         assert "async path" in issues[0].detail
