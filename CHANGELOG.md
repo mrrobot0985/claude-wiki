@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- `claude-wiki status` diagnostic command — checks lock file, daily logs, KB catalog, hooks, registry ([#88](https://github.com/mrrobot0985/claude-wiki/issues/88))
 - Integration test exercising full `init -> compile -> query -> lint` lifecycle with mocked LLM calls ([#84](https://github.com/mrrobot0985/claude-wiki/issues/84))
 - `.gitignore` entries for `.claude-wiki.lock` and `coverage.json`
 - PyPI and CI badges to README ([#75](https://github.com/mrrobot0985/claude-wiki/issues/75))
