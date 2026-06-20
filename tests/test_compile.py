@@ -11,6 +11,7 @@ from typing import Any
 from claude_wiki.cli import main
 from claude_wiki.commands import compile as _compile_module  # noqa: F401
 from claude_wiki.commands.compile import (
+    _DEFAULT_SCHEMA,
     _compile_one,
     _extract_sources,
     _list_existing_articles,
@@ -374,6 +375,71 @@ class TestCompileGaps:
         cost = _compile_one(log, repo, kb, config)
 
         assert cost == 0.42
+
+    def test_schema_cites_daily_logs_as_plain_text(self) -> None:
+        """Daily-log citations are plain text, never [[wikilinks]] (ADR-007)."""
+        assert "[[daily/" not in _DEFAULT_SCHEMA
+        assert "daily/YYYY-MM-DD.md" in _DEFAULT_SCHEMA
+
+    def test_compile_prompt_cites_daily_as_plain_text(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """The prompt sent to the compiler contains no [[daily/…]] wikilinks."""
+
+        class TextBlock:
+            pass
+
+        class AssistantMessage:
+            content = [TextBlock()]
+
+        class ResultMessage:
+            total_cost_usd = 0.0
+
+        class ClaudeAgentOptions:
+            def __init__(self, **kwargs: Any) -> None:
+                pass
+
+        captured: dict[str, Any] = {}
+
+        async def query(**kwargs: Any) -> Any:
+            captured["prompt"] = kwargs.get("prompt", "")
+            yield AssistantMessage()
+            yield ResultMessage()
+
+        fake_sdk = types.SimpleNamespace(
+            AssistantMessage=AssistantMessage,
+            ClaudeAgentOptions=ClaudeAgentOptions,
+            ResultMessage=ResultMessage,
+            TextBlock=TextBlock,
+            query=query,
+        )
+
+        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "claude_agent_sdk":
+                return fake_sdk
+            raise ImportError(name)
+
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        daily = repo / "daily"
+        daily.mkdir()
+        log = daily / "2026-06-19.md"
+        log.write_text("discussed asyncio patterns")
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+        config = ProjectConfig(repo_name="sdk-test")
+
+        _compile_one(log, repo, kb, config)
+
+        prompt = captured["prompt"]
+        # The example citation is plain text; no [[daily/YYYY-MM-DD.md]] example.
+        # (The prohibition text may mention [[daily/…]] with an ellipsis — that's fine.)
+        assert "[[daily/YYYY-MM-DD.md]]" not in prompt
+        assert "daily/2026-06-19.md" in prompt
+        assert "- daily/YYYY-MM-DD.md" in prompt
 
     def test_compile_file_absolute_path(
         self, monkeypatch: Any, tmp_path: Path, mocker: Any

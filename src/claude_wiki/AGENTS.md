@@ -39,8 +39,12 @@ Deeper explanation.
 
 ## Sources
 
-- [[daily/YYYY-MM-DD.md]] - context
+- daily/YYYY-MM-DD.md - context
 ```
+
+Daily logs live outside the Obsidian vault (ADR-007), so cite them as **plain text,
+never a `[[wikilink]]`** — a `[[daily/…]]` link is dead and, across repos, collapses
+to the same missing graph node.
 
 ## Connection articles (`knowledge/connections/`)
 
