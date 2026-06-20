@@ -66,7 +66,7 @@ class TestLintStructural:
         exit_code = main(["lint", "--structural-only"])
         captured = capsys.readouterr()
 
-        assert exit_code == 1
+        assert exit_code == 2
         assert "Results: 1 errors" in captured.out
         report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
         assert "Broken link:" in report
@@ -357,7 +357,7 @@ class TestLintHandlerErrors:
         exit_code = main(["lint", "--structural-only"])
         captured = capsys.readouterr()
 
-        assert exit_code == 1
+        assert exit_code == 2
         assert "Not in a git repository" in captured.err
 
 
@@ -401,6 +401,120 @@ class TestLintHelpers:
         result = _today_iso("Not/A/Timezone")
         assert len(result) == 10
         assert result.count("-") == 2
+
+
+class TestLintJsonAndExitCodes:
+    """Machine-readable output and exit-code contract."""
+
+    def _repo_and_kb(self, tmp_path: Path) -> tuple[Path, Path]:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb_root = repo / ".claude" / "knowledge"
+        kb_root.mkdir(parents=True)
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {
+                    "repo_name": "repo",
+                    "repo_owner": "local",
+                    "kb_dir": "project",
+                    "daily_dir": "daily",
+                    "timezone": "UTC",
+                }
+            )
+        )
+        return repo, kb_root
+
+    @pytest.fixture(autouse=True)
+    def fixed_today(self) -> None:
+        with patch("claude_wiki.commands.lint._today_iso", return_value="2026-06-19"):
+            yield
+
+    def test_lint_json_errors(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--json emits issues and still exits 2 on errors."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        (concepts / "python.md").write_text(
+            long_text + "\nSee [[missing-target]] for details."
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only", "--json"])
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+
+        assert exit_code == 2
+        broken_issues = [i for i in payload["issues"] if i["check"] == "broken_link"]
+        assert len(broken_issues) == 1
+        issue = broken_issues[0]
+        assert issue["severity"] == "error"
+        assert issue["file"] == "concepts/python.md"
+        assert "missing-target" in issue["message"]
+
+    def test_lint_json_warnings(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--json emits warnings and exits 0 by default."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        (concepts / "orphan.md").write_text(long_text)
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only", "--json"])
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+
+        assert exit_code == 0
+        assert len(payload["issues"]) == 1
+        assert payload["issues"][0]["severity"] == "warning"
+
+    def test_lint_fail_on_warning(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Warnings become exit 1 when --fail-on-warning is passed."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        (concepts / "orphan.md").write_text(long_text)
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only", "--fail-on-warning"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 1
+        assert "Results: 0 errors, 1 warnings" in captured.out
+
+    def test_lint_json_clean(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A clean KB emits an empty issues array and exits 0."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        (concepts / "a.md").write_text(long_text + "\n[[concepts/b]]")
+        (concepts / "b.md").write_text(long_text + "\n[[concepts/a]]")
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only", "--json"])
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+
+        assert exit_code == 0
+        assert payload["issues"] == []
+        assert "Report saved to" not in captured.out
 
 
 class TestLintStructuralEdgeCases:

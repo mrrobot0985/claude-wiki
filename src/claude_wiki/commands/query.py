@@ -10,12 +10,18 @@ import sys
 from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from claude_wiki.catalog_utils import resolve_catalog
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
 from claude_wiki.models import QueryResult
+
+
+EXIT_OK = 0
+EXIT_EMPTY_KB = 1
+EXIT_USAGE_OR_SDK_ERROR = 2
 
 
 def register(
@@ -35,6 +41,11 @@ def register(
         type=Path,
         help="Repo root (default: auto-detect from current directory)",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of human text",
+    )
     handlers["query"] = _handle_query
 
 
@@ -46,22 +57,44 @@ def _handle_query(args: argparse.Namespace) -> int:
         repo_root = detector.find_repo_root(start)
     except RepoNotFoundError:
         print("Error: Not in a git repository.", file=sys.stderr)
-        return 1
+        return EXIT_USAGE_OR_SDK_ERROR
 
     config = detector.load(repo_root)
     kb_root = detector.get_kb_root(repo_root, config)
 
-    result = asyncio.run(
-        _run_query(
-            kb_root, args.question, file_back=args.file_back, repo_name=config.repo_name
-        )
-    )
+    if _is_kb_empty(kb_root):
+        message = "No knowledge base found. Run `claude-wiki compile` first."
+        if args.json:
+            _print_query_json(QueryResult(answer=message, citations=[]))
+        else:
+            print(message)
+        return EXIT_EMPTY_KB
 
-    print(result.answer)
-    if result.citations:
-        print("\nSources:")
-        for citation in result.citations:
-            print(f"- [[{citation}]]")
+    try:
+        result = asyncio.run(
+            _run_query(
+                kb_root,
+                args.question,
+                file_back=False,
+                repo_name=config.repo_name,
+            )
+        )
+    except ImportError as exc:
+        message = f"Error: LLM query unavailable: {exc}"
+        if args.json:
+            _print_query_json(QueryResult(answer=message, citations=[]))
+        else:
+            print(message, file=sys.stderr)
+        return EXIT_USAGE_OR_SDK_ERROR
+
+    if args.json:
+        _print_query_json(result)
+    else:
+        print(result.answer)
+        if result.citations:
+            print("\nSources:")
+            for citation in result.citations:
+                print(f"- [[{citation}]]")
 
     if args.file_back:
         _file_back(
@@ -71,9 +104,23 @@ def _handle_query(args: argparse.Namespace) -> int:
             timezone=config.timezone,
             repo_name=config.repo_name,
         )
-        print(f"\nAnswer filed to knowledge/qa/{_slugify(args.question)}.md")
+        if not args.json:
+            print(f"\nAnswer filed to knowledge/qa/{_slugify(args.question)}.md")
 
-    return 0
+    return EXIT_OK
+
+
+def _print_query_json(result: QueryResult) -> None:
+    """Print a machine-readable JSON payload for the query result.
+
+    Confidence is omitted because the current implementation does not
+    compute a meaningful confidence score; emitting 0.0 would be misleading.
+    """
+    payload: dict[str, Any] = {
+        "answer": result.answer,
+        "citations": result.citations,
+    }
+    print(json.dumps(payload, indent=2))
 
 
 async def _run_query(

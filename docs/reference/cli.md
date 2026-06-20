@@ -44,7 +44,7 @@ claude-wiki compile [--all] [--file FILE] [--dry-run] [--path PATH]
 Query the knowledge base.
 
 ```
-claude-wiki query QUESTION [--file-back] [--path PATH] [--version]
+claude-wiki query QUESTION [--file-back] [--path PATH] [--json] [--version]
 ```
 
 | Option        | Description                                             |
@@ -52,7 +52,27 @@ claude-wiki query QUESTION [--file-back] [--path PATH] [--version]
 | `QUESTION`    | The question to ask                                     |
 | `--file-back` | Save the answer to `knowledge/qa/`                      |
 | `--path`      | Repo root (default: auto-detect from current directory) |
+| `--json`      | Emit machine-readable JSON instead of human text        |
 | `--version`   | Show `claude-wiki <version>` and exit                   |
+
+JSON schema (`--json`):
+
+```json
+{
+  "answer": "string",
+  "citations": ["concepts/example"]
+}
+```
+
+Confidence is omitted because the current implementation does not compute a meaningful score; emitting a fixed `0.0` would be misleading.
+
+Exit codes:
+
+| Code | Meaning                                   |
+| ---- | ----------------------------------------- |
+| `0`  | Answer produced                           |
+| `1`  | Empty knowledge base / nothing to answer  |
+| `2`  | Usage error or `claude-agent-sdk` missing |
 
 Check the installed version:
 
@@ -83,14 +103,39 @@ Use after editing `kb_dir` or `daily_dir` in `.claude-wiki.lock`. Always run `--
 Run health checks.
 
 ```
-claude-wiki lint [--structural-only] [--path PATH] [--version]
+claude-wiki lint [--structural-only] [--fail-on-warning] [--path PATH] [--json] [--version]
 ```
 
 | Option              | Description                                             |
 | ------------------- | ------------------------------------------------------- |
 | `--structural-only` | Skip LLM contradiction check                            |
+| `--fail-on-warning` | Exit with status `1` when only warnings are present     |
 | `--path`            | Repo root (default: auto-detect from current directory) |
+| `--json`            | Emit machine-readable JSON instead of human text        |
 | `--version`         | Show `claude-wiki <version>` and exit                   |
+
+JSON schema (`--json`):
+
+```json
+{
+  "issues": [
+    {
+      "severity": "error",
+      "file": "concepts/example.md",
+      "check": "broken_link",
+      "message": "Broken link: [[missing-target]] - target does not exist"
+    }
+  ]
+}
+```
+
+Exit codes:
+
+| Code | Meaning                                                 |
+| ---- | ------------------------------------------------------- |
+| `0`  | Clean (or warnings present without `--fail-on-warning`) |
+| `1`  | Warnings present and `--fail-on-warning` is passed      |
+| `2`  | Errors present, or not inside a git repository          |
 
 ### `claude-wiki rename-catalog`
 

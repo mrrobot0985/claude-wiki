@@ -22,6 +22,11 @@ from claude_wiki.errors import RepoNotFoundError
 KB_SUBDIRS = ("concepts", "connections", "qa")
 SPARSE_WORD_THRESHOLD = 200
 
+EXIT_OK = 0
+EXIT_WARNINGS = 1
+EXIT_ERRORS = 2
+EXIT_USAGE = 2
+
 
 @dataclass(frozen=True)
 class _Issue:
@@ -52,9 +57,19 @@ def register(subparsers: Any, handlers: dict[str, Any]) -> None:
         help="Skip LLM-based contradiction checks (faster, no API cost)",
     )
     parser.add_argument(
+        "--fail-on-warning",
+        action="store_true",
+        help="Exit with status 1 when only warnings are present",
+    )
+    parser.add_argument(
         "--path",
         type=Path,
         help="Repo root (default: auto-detect from current directory)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of human text",
     )
     handlers["lint"] = _lint_handler
 
@@ -67,7 +82,7 @@ def _lint_handler(args: argparse.Namespace) -> int:
         repo_root = manager.find_repo_root(start)
     except RepoNotFoundError:
         print("Error: Not in a git repository.", file=sys.stderr)
-        return 1
+        return EXIT_USAGE
 
     config = manager.load(repo_root)
     kb_root = manager.get_kb_root(repo_root, config)
@@ -87,10 +102,35 @@ def _lint_handler(args: argparse.Namespace) -> int:
     warnings = sum(1 for issue in issues if issue.severity == "warning")
     suggestions = sum(1 for issue in issues if issue.severity == "suggestion")
 
-    print(f"\nResults: {errors} errors, {warnings} warnings, {suggestions} suggestions")
-    print(f"Report saved to: {report_path}")
+    if args.json:
+        _print_lint_json(issues)
+    else:
+        print(
+            f"\nResults: {errors} errors, {warnings} warnings, {suggestions} suggestions"
+        )
+        print(f"Report saved to: {report_path}")
 
-    return 1 if errors else 0
+    if errors:
+        return EXIT_ERRORS
+    if warnings and args.fail_on_warning:
+        return EXIT_WARNINGS
+    return EXIT_OK
+
+
+def _print_lint_json(issues: list[_Issue]) -> None:
+    """Print a machine-readable JSON payload for lint issues."""
+    payload: dict[str, Any] = {
+        "issues": [
+            {
+                "severity": issue.severity,
+                "file": issue.file,
+                "check": issue.check,
+                "message": issue.detail,
+            }
+            for issue in issues
+        ]
+    }
+    print(json.dumps(payload, indent=2))
 
 
 def _build_link_graph(kb_root: Path) -> _LinkGraph:
