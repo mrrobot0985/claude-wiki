@@ -6,6 +6,17 @@ All notable changes to this project are documented in this file.
 
 Nothing yet.
 
+## [0.8.0] - 2026-06-20
+
+### Added
+
+- `init` aborts with exit 1 when global claude-wiki hooks are already
+  installed, pointing to `--no-hooks` or `--global` to prevent double-firing
+  ([#69](https://github.com/mrrobot0985/claude-wiki/issues/69))
+- `migrate --kb-dir` accepts the literal `user`/`project` modes and moves
+  `daily_dir` and the machine-state directory on a mode switch, with rollback
+  on partial failure ([#70](https://github.com/mrrobot0985/claude-wiki/issues/70))
+
 ## [0.7.0] - 2026-06-20
 
 ### Added
