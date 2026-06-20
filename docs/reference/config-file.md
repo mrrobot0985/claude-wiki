@@ -8,26 +8,37 @@ ______________________________________________________________________
 
 ## Schema
 
-| Field                | Type                           | Default        | Description                   |
-| -------------------- | ------------------------------ | -------------- | ----------------------------- |
-| `repo_name`          | `str`                          | directory name | Repository identifier         |
-| `repo_owner`         | `str`                          | `"local"`      | Namespace for XDG path        |
-| `kb_dir`             | `"project"`, `"user"`, or path | `"project"`    | KB location (see modes below) |
-| `daily_dir`          | `str`                          | `"daily"`      | Source log directory          |
-| `timezone`           | `str`                          | `"UTC"`        | Timezone for timestamps       |
-| `reports_dir`        | `str`                          | `"reports"`    | Lint report directory         |
-| `compile_after_hour` | `int`                          | `18`           | Earliest auto-compile hour    |
+| Field                | Type                           | Default                | Description                                              |
+| -------------------- | ------------------------------ | ---------------------- | -------------------------------------------------------- |
+| `repo_name`          | `str`                          | directory name         | Repository identifier                                    |
+| `repo_owner`         | `str`                          | `"local"`              | Namespace for XDG path                                   |
+| `kb_dir`             | `"project"`, `"user"`, or path | `"project"`            | KB location (see modes below)                            |
+| `daily_dir`          | `str`                          | mode-aware (see below) | Source log directory                                     |
+| `timezone`           | `str`                          | `"UTC"`                | IANA timezone for timestamps                             |
+| `reports_dir`        | `str`                          | `"reports"`            | Deprecated and ignored; lint reports go to the cache dir |
+| `compile_after_hour` | `int`                          | `18`                   | Earliest auto-compile hour                               |
 
 ## `kb_dir` Modes
 
-| Mode                | Value         | Resolved path                                                                        |
-| ------------------- | ------------- | ------------------------------------------------------------------------------------ |
-| `project` (default) | `"project"`   | `<repo>/.claude/knowledge/` — colocated with the repo, easy to gitignore or commit   |
-| `user`              | `"user"`      | `~/.local/share/claude-wiki/<owner>/<repo>/` — XDG directory, shared across machines |
-| Custom relative     | `"my-kb"`     | `<repo>/my-kb/`                                                                      |
-| Custom absolute     | `"/abs/path"` | Exact path                                                                           |
+| Mode                | Value         | Resolved path                                                                              |
+| ------------------- | ------------- | ------------------------------------------------------------------------------------------ |
+| `project` (default) | `"project"`   | `<repo>/.claude/knowledge/` — colocated with the repo, easy to gitignore or commit         |
+| `user`              | `"user"`      | `~/.local/share/claude-wiki-vault/<owner>/<repo>/` — XDG directory, shared across machines |
+| Custom relative     | `"my-kb"`     | `<repo>/my-kb/`                                                                            |
+| Custom absolute     | `"/abs/path"` | Exact path                                                                                 |
 
 `CLAUDE_WIKI_PROJECT_DIR` overrides any mode.
+
+## `daily_dir` Defaults
+
+A fresh `claude-wiki init` resolves `daily_dir` based on `kb_dir` mode (legacy locks that predate this keep an explicit `daily_dir` value):
+
+| `kb_dir` mode | Default `daily_dir`                                |
+| ------------- | -------------------------------------------------- |
+| `project`     | `<repo>/.claude/daily`                             |
+| `user`        | `~/.local/share/claude-wiki-daily/<owner>/<repo>/` |
+
+`CLAUDE_WIKI_DAILY_DIR` overrides either default.
 
 ## Changing Paths
 
