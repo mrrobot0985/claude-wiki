@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from claude_wiki.catalog_utils import resolve_catalog
+from claude_wiki.catalog_utils import extract_tags, resolve_catalog
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
 from claude_wiki.models import QueryResult
@@ -56,6 +56,11 @@ def register(
         action="append",
         choices=_KB_SUBDIRS,
         help="Restrict the query to a KB category (repeatable)",
+    )
+    parser.add_argument(
+        "--tag",
+        action="append",
+        help="Restrict the query to articles tagged with NAME (repeatable; union)",
     )
     parser.add_argument(
         "--since",
@@ -117,6 +122,7 @@ def _handle_query(args: argparse.Namespace) -> int:
         return EXIT_EMPTY_KB
 
     categories: set[str] | None = set(args.category) if args.category else None
+    tags: set[str] | None = set(args.tag) if args.tag else None
 
     try:
         result = asyncio.run(
@@ -126,6 +132,7 @@ def _handle_query(args: argparse.Namespace) -> int:
                 file_back=False,
                 repo_name=config.repo_name,
                 categories=categories,
+                tags=tags,
                 since=args.since,
                 max_chars=args.max_chars,
             )
@@ -188,6 +195,7 @@ async def _run_query(
     file_back: bool,
     repo_name: str | None = None,
     categories: Iterable[str] | None = None,
+    tags: Iterable[str] | None = None,
     since: date | None = None,
     max_chars: int | None = None,
     query_func: Callable[..., AsyncIterator[object]] | None = None,
@@ -205,6 +213,7 @@ async def _run_query(
         kb_root,
         repo_name,
         categories=categories,
+        tags=tags,
         since=since,
         max_chars=max_chars,
     )
@@ -278,6 +287,7 @@ def _read_kb_content(
     repo_name: str | None = None,
     *,
     categories: Iterable[str] | None = None,
+    tags: Iterable[str] | None = None,
     since: date | None = None,
     max_chars: int | None = None,
 ) -> tuple[str, int]:
@@ -294,6 +304,7 @@ def _read_kb_content(
         parts.append(f"## INDEX\n\n{index_file.read_text(encoding='utf-8')}")
 
     allowed = set(categories) if categories else set(_KB_SUBDIRS)
+    requested_tags = set(tags) if tags else None
     articles: list[tuple[date, str, str]] = []
 
     for subdir_name in _KB_SUBDIRS:
@@ -307,6 +318,10 @@ def _read_kb_content(
             article_date = _article_effective_date(content)
             if since is not None and article_date is not None and article_date < since:
                 continue
+            if requested_tags is not None:
+                article_tags = set(extract_tags(content))
+                if not (article_tags & requested_tags):
+                    continue
             rel = md_file.relative_to(kb_root).as_posix()
             section = f"## {rel}\n\n{content}"
             articles.append((article_date or date.min, rel, section))

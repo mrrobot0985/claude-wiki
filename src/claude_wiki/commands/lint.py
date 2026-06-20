@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
-from claude_wiki.catalog_utils import resolve_catalog
+from claude_wiki.catalog_utils import extract_tags, resolve_catalog
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
 
@@ -53,6 +53,7 @@ class _LinkGraph:
     outbound: dict[str, set[str]]
     inbound: dict[str, int]
     frontmatter: dict[str, dict[str, str] | None]
+    tags: dict[str, list[str]]
 
 
 def register(subparsers: Any, handlers: dict[str, Any]) -> None:
@@ -162,12 +163,14 @@ def _build_link_graph(kb_root: Path) -> _LinkGraph:
     outbound: dict[str, set[str]] = {}
     inbound: dict[str, int] = {}
     frontmatter: dict[str, dict[str, str] | None] = {}
+    tags: dict[str, list[str]] = {}
 
     for article in _list_articles(kb_root):
         rel = article.relative_to(kb_root).as_posix()
         content = article.read_text(encoding="utf-8")
         articles[rel] = content
         frontmatter[rel] = _parse_frontmatter(content)
+        tags[rel] = extract_tags(content)
 
         targets: set[str] = set()
         for link in _extract_wikilinks(content):
@@ -181,7 +184,11 @@ def _build_link_graph(kb_root: Path) -> _LinkGraph:
         outbound[rel] = targets
 
     return _LinkGraph(
-        articles=articles, outbound=outbound, inbound=inbound, frontmatter=frontmatter
+        articles=articles,
+        outbound=outbound,
+        inbound=inbound,
+        frontmatter=frontmatter,
+        tags=tags,
     )
 
 
@@ -202,6 +209,7 @@ def _run_structural_checks(
     issues.extend(_check_stale_articles(daily_dir, state))
     issues.extend(_check_sparse_articles(graph, threshold=threshold))
     issues.extend(_check_frontmatter(graph))
+    issues.extend(_check_single_use_tags(graph))
     return issues
 
 
@@ -295,6 +303,30 @@ def _check_sparse_articles(
                     check="sparse_article",
                     file=rel,
                     detail=f"Sparse article: {word_count} words (minimum recommended: {threshold})",
+                )
+            )
+    return issues
+
+
+def _check_single_use_tags(graph: _LinkGraph) -> list[_Issue]:
+    """Flag tags that appear on exactly one article as likely typos or orphans."""
+    tag_counts: dict[str, int] = {}
+    tag_example: dict[str, str] = {}
+    for rel, article_tags in graph.tags.items():
+        for tag in article_tags:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+            if tag not in tag_example:
+                tag_example[tag] = rel
+
+    issues: list[_Issue] = []
+    for tag, count in tag_counts.items():
+        if count == 1:
+            issues.append(
+                _Issue(
+                    severity="suggestion",
+                    check="tag_single_use",
+                    file=tag_example[tag],
+                    detail=f"Tag '{tag}' appears on only one article - possible typo or orphan tag",
                 )
             )
     return issues
