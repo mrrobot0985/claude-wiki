@@ -244,6 +244,38 @@ class TestLintStructural:
             "Orphan page: no other articles link to [[concepts/a]]" not in captured.out
         )
 
+    def test_structural_lint_reads_each_article_once(
+        self, monkeypatch: Any, tmp_path: Path
+    ) -> None:
+        """The structural checks build one link graph; each article is read once."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        long_text = "word " * 250
+        for i in range(5):
+            # Chain of links so every article has one inbound and one outbound link.
+            next_i = (i + 1) % 5
+            (concepts / f"article-{i}.md").write_text(
+                long_text + f"\n[[concepts/article-{next_i}]]"
+            )
+
+        article_reads: dict[Path, int] = {}
+        real_read_text = Path.read_text
+
+        def counting_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+            if self.parent == concepts:
+                article_reads[self] = article_reads.get(self, 0) + 1
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", counting_read_text)
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+
+        assert exit_code == 0
+        assert len(article_reads) == 5
+        assert all(count == 1 for count in article_reads.values())
+
 
 class TestLintLLM:
     """The LLM contradiction check is included in full lint mode."""

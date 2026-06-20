@@ -32,6 +32,15 @@ class _Issue:
     auto_fixable: bool = False
 
 
+@dataclass(frozen=True)
+class _LinkGraph:
+    """Single-pass index of wiki articles and their outbound wikilinks."""
+
+    articles: dict[str, str]
+    outbound: dict[str, set[str]]
+    inbound: dict[str, int]
+
+
 def register(subparsers: Any, handlers: dict[str, Any]) -> None:
     """Add the lint subcommand to the CLI."""
     parser = subparsers.add_parser(
@@ -84,26 +93,54 @@ def _lint_handler(args: argparse.Namespace) -> int:
     return 1 if errors else 0
 
 
+def _build_link_graph(kb_root: Path) -> _LinkGraph:
+    """Read every wiki article once and index its outbound wikilinks.
+
+    The broken-link, orphan-page, and sparse-article checks reuse this graph
+    so the KB is read O(articles) times instead of O(articles²).
+    """
+    articles: dict[str, str] = {}
+    outbound: dict[str, set[str]] = {}
+    inbound: dict[str, int] = {}
+
+    for article in _list_articles(kb_root):
+        rel = article.relative_to(kb_root).as_posix()
+        content = article.read_text(encoding="utf-8")
+        articles[rel] = content
+
+        targets: set[str] = set()
+        for link in _extract_wikilinks(content):
+            target = _wikilink_target(link)
+            targets.add(target)
+            # A page never counts as its own inbound link.
+            if target == rel.replace(".md", ""):
+                continue
+            if (kb_root / f"{target}.md").exists():
+                inbound[target] = inbound.get(target, 0) + 1
+        outbound[rel] = targets
+
+    return _LinkGraph(articles=articles, outbound=outbound, inbound=inbound)
+
+
 def _run_structural_checks(
     state_dir: Path, kb_root: Path, daily_dir: Path
 ) -> list[_Issue]:
     """Run all non-LLM health checks."""
     state = _load_state(state_dir)
+    graph = _build_link_graph(kb_root)
     issues: list[_Issue] = []
-    issues.extend(_check_broken_links(kb_root))
-    issues.extend(_check_orphan_pages(kb_root))
+    issues.extend(_check_broken_links(kb_root, graph))
+    issues.extend(_check_orphan_pages(graph))
     issues.extend(_check_orphan_sources(daily_dir, state))
     issues.extend(_check_stale_articles(daily_dir, state))
-    issues.extend(_check_sparse_articles(kb_root))
+    issues.extend(_check_sparse_articles(graph))
     return issues
 
 
-def _check_broken_links(kb_root: Path) -> list[_Issue]:
+def _check_broken_links(kb_root: Path, graph: _LinkGraph) -> list[_Issue]:
     """Find wikilinks that point to non-existent articles."""
     issues: list[_Issue] = []
-    for article in _list_articles(kb_root):
-        content = article.read_text(encoding="utf-8")
-        rel = article.relative_to(kb_root).as_posix()
+    for rel, content in graph.articles.items():
         for link in _extract_wikilinks(content):
             target_link = _wikilink_target(link)
             if target_link.startswith("daily/"):
@@ -121,14 +158,12 @@ def _check_broken_links(kb_root: Path) -> list[_Issue]:
     return issues
 
 
-def _check_orphan_pages(kb_root: Path) -> list[_Issue]:
+def _check_orphan_pages(graph: _LinkGraph) -> list[_Issue]:
     """Find articles with zero inbound links."""
     issues: list[_Issue] = []
-    for article in _list_articles(kb_root):
-        rel = article.relative_to(kb_root).as_posix()
+    for rel in graph.articles:
         link_target = rel.replace(".md", "")
-        inbound = _count_inbound_links(kb_root, link_target, exclude=article)
-        if inbound == 0:
+        if graph.inbound.get(link_target, 0) == 0:
             issues.append(
                 _Issue(
                     severity="warning",
@@ -178,13 +213,12 @@ def _check_stale_articles(daily_dir: Path, state: dict[str, Any]) -> list[_Issue
     return issues
 
 
-def _check_sparse_articles(kb_root: Path) -> list[_Issue]:
+def _check_sparse_articles(graph: _LinkGraph) -> list[_Issue]:
     """Find articles shorter than the recommended word count."""
     issues: list[_Issue] = []
-    for article in _list_articles(kb_root):
-        word_count = _word_count(article)
+    for rel, content in graph.articles.items():
+        word_count = _word_count_content(content)
         if word_count < SPARSE_WORD_THRESHOLD:
-            rel = article.relative_to(kb_root).as_posix()
             issues.append(
                 _Issue(
                     severity="suggestion",
@@ -321,35 +355,23 @@ def _wikilink_target(link: str) -> str:
     return target.strip()
 
 
-def _count_inbound_links(
-    kb_root: Path, target: str, exclude: Path | None = None
-) -> int:
-    """Count how many articles link to a given target."""
-    count = 0
-    for article in _list_articles(kb_root):
-        if article == exclude:
-            continue
-        content = article.read_text(encoding="utf-8")
-        for link in _extract_wikilinks(content):
-            if _wikilink_target(link) == target:
-                count += 1
-                break
-    return count
-
-
 def _file_hash(path: Path) -> str:
     """Return a short SHA-256 hash of a file."""
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
-def _word_count(path: Path) -> int:
-    """Return the word count of an article, excluding YAML frontmatter."""
-    content = path.read_text(encoding="utf-8")
+def _word_count_content(content: str) -> int:
+    """Return the word count of a markdown string, excluding YAML frontmatter."""
     if content.startswith("---"):
         end = content.find("---", 3)
         if end != -1:
             content = content[end + 3 :]
     return len(content.split())
+
+
+def _word_count(path: Path) -> int:
+    """Return the word count of an article, excluding YAML frontmatter."""
+    return _word_count_content(path.read_text(encoding="utf-8"))
 
 
 def _read_all_wiki_content(kb_root: Path, repo_name: str | None = None) -> str:
