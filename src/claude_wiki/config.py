@@ -114,6 +114,7 @@ class ConfigManager(RepoDetector, ConfigLoader):
         errors: list[str] = []
         warnings: list[str] = []
         migrated = False
+        completed_moves: list[tuple[str, Path, Path]] = []
 
         kb_mode = str(config.kb_dir.expanduser())
         is_user_mode = kb_mode == "user"
@@ -147,6 +148,7 @@ class ConfigManager(RepoDetector, ConfigLoader):
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(src), str(dst))
                 migrated = True
+                completed_moves.append((label, src, dst))
             except OSError as exc:
                 errors.append(f"{label}: failed to move {src} -> {dst}: {exc}")
 
@@ -164,6 +166,7 @@ class ConfigManager(RepoDetector, ConfigLoader):
                 os.replace(temp, dst)
                 src.unlink()
                 migrated = True
+                completed_moves.append((label, src, dst))
             except OSError as exc:
                 errors.append(f"{label}: failed to move {src} -> {dst}: {exc}")
 
@@ -184,6 +187,9 @@ class ConfigManager(RepoDetector, ConfigLoader):
             logger.warning("Legacy migration: %s", warning)
 
         if errors:
+            if completed_moves:
+                rollback_errors = self._rollback(completed_moves)
+                errors.extend(rollback_errors)
             logger.error(
                 "Legacy migration failed for %s: %s",
                 repo_root,
@@ -206,6 +212,20 @@ class ConfigManager(RepoDetector, ConfigLoader):
         self.write(repo_root, new_config)
         logger.info("Migrated legacy layout to version 2 for %s", repo_root)
         return True
+
+    def _rollback(self, completed_moves: list[tuple[str, Path, Path]]) -> list[str]:
+        """Reverse already-completed moves in LIFO order.
+
+        Returns a list of error messages for any rollback failures.
+        """
+        errors: list[str] = []
+        for label, src, dst in reversed(completed_moves):
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(dst), str(src))
+            except OSError as exc:
+                errors.append(f"{label}: rollback failed {dst} -> {src}: {exc}")
+        return errors
 
     def get_kb_root(self, repo_root: Path, config: ProjectConfig) -> Path:
         """Resolve KB directory: env > absolute config > mode-based.
