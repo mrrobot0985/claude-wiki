@@ -24,6 +24,31 @@ from claude_wiki.commands.lint import (
 )
 
 
+def _article_with_frontmatter(
+    body: str,
+    *,
+    title: str = "Concept",
+    aliases: str = "[concept]",
+    tags: str = "[tag]",
+    source: str = "daily/2026-06-18.md",
+    created: str = "2026-06-18",
+    updated: str = "2026-06-18",
+) -> str:
+    """Return markdown with a valid concept frontmatter block prepended."""
+    return (
+        f"---\n"
+        f'title: "{title}"\n'
+        f"aliases: {aliases}\n"
+        f"tags: {tags}\n"
+        f"sources:\n"
+        f'  - "{source}"\n'
+        f"created: {created}\n"
+        f"updated: {updated}\n"
+        f"---\n\n"
+        f"{body}"
+    )
+
+
 class TestLintStructural:
     """Structural checks run without any LLM calls."""
 
@@ -59,7 +84,9 @@ class TestLintStructural:
         repo, kb_root = self._repo_and_kb(tmp_path)
         concepts = kb_root / "concepts"
         concepts.mkdir()
-        (concepts / "python.md").write_text("See [[missing-target]] for details.")
+        (concepts / "python.md").write_text(
+            _article_with_frontmatter("See [[missing-target]] for details.")
+        )
 
         monkeypatch.chdir(repo)
 
@@ -80,7 +107,7 @@ class TestLintStructural:
         concepts = kb_root / "concepts"
         concepts.mkdir()
         long_text = "word " * 250
-        (concepts / "orphan.md").write_text(long_text)
+        (concepts / "orphan.md").write_text(_article_with_frontmatter(long_text))
 
         monkeypatch.chdir(repo)
 
@@ -136,7 +163,7 @@ class TestLintStructural:
         repo, kb_root = self._repo_and_kb(tmp_path)
         concepts = kb_root / "concepts"
         concepts.mkdir()
-        (concepts / "short.md").write_text("Too few words.")
+        (concepts / "short.md").write_text(_article_with_frontmatter("Too few words."))
 
         monkeypatch.chdir(repo)
 
@@ -154,8 +181,12 @@ class TestLintStructural:
         concepts = kb_root / "concepts"
         concepts.mkdir()
         long_text = "word " * 250
-        (concepts / "a.md").write_text(long_text + "\n[[concepts/b]]")
-        (concepts / "b.md").write_text(long_text + "\n[[concepts/a]]")
+        (concepts / "a.md").write_text(
+            _article_with_frontmatter(long_text + "\n[[concepts/b]]", title="A")
+        )
+        (concepts / "b.md").write_text(
+            _article_with_frontmatter(long_text + "\n[[concepts/a]]", title="B")
+        )
 
         monkeypatch.chdir(repo)
 
@@ -175,8 +206,12 @@ class TestLintStructural:
         concepts = kb_root / "concepts"
         concepts.mkdir()
         long_text = "word " * 250
-        (concepts / "a.md").write_text(long_text + "\n[[concepts/b]]")
-        (concepts / "b.md").write_text(long_text + "\n[[concepts/a]]")
+        (concepts / "a.md").write_text(
+            _article_with_frontmatter(long_text + "\n[[concepts/b]]", title="A")
+        )
+        (concepts / "b.md").write_text(
+            _article_with_frontmatter(long_text + "\n[[concepts/a]]", title="B")
+        )
 
         # Run from an unrelated directory — only --path should find the repo.
         elsewhere = tmp_path / "elsewhere"
@@ -209,8 +244,14 @@ class TestLintStructural:
         concepts = kb_root / "concepts"
         concepts.mkdir()
         long_text = "word " * 250
-        (concepts / "foo.md").write_text(long_text)
-        (concepts / "bar.md").write_text(long_text + "\n[[concepts/foo#Heading]]")
+        (concepts / "foo.md").write_text(
+            _article_with_frontmatter(long_text, title="Foo")
+        )
+        (concepts / "bar.md").write_text(
+            _article_with_frontmatter(
+                long_text + "\n[[concepts/foo#Heading]]", title="Bar"
+            )
+        )
 
         monkeypatch.chdir(repo)
 
@@ -229,9 +270,13 @@ class TestLintStructural:
         concepts.mkdir()
         long_text = "word " * 250
         # a.md is linked from b.md via an alias and an anchor; a must not be orphan.
-        (concepts / "a.md").write_text(long_text + "\n[[concepts/b]]")
+        (concepts / "a.md").write_text(
+            _article_with_frontmatter(long_text + "\n[[concepts/b]]", title="A")
+        )
         (concepts / "b.md").write_text(
-            long_text + "\n[[concepts/a|Alias]] [[concepts/a#section]]"
+            _article_with_frontmatter(
+                long_text + "\n[[concepts/a|Alias]] [[concepts/a#section]]", title="B"
+            )
         )
 
         monkeypatch.chdir(repo)
@@ -256,7 +301,11 @@ class TestLintStructural:
             # Chain of links so every article has one inbound and one outbound link.
             next_i = (i + 1) % 5
             (concepts / f"article-{i}.md").write_text(
-                long_text + f"\n[[concepts/article-{next_i}]]"
+                _article_with_frontmatter(
+                    long_text + f"\n[[concepts/article-{next_i}]]",
+                    title=f"Article {i}",
+                    aliases=f"[article-{i}]",
+                )
             )
 
         article_reads: dict[Path, int] = {}
@@ -322,8 +371,10 @@ class TestLintLLM:
         concepts = kb_root / "concepts"
         concepts.mkdir()
         long_text = "word " * 250
-        (concepts / "a.md").write_text(long_text)
-        (concepts / "b.md").write_text(long_text + "\n[[concepts/a]]")
+        (concepts / "a.md").write_text(_article_with_frontmatter(long_text, title="A"))
+        (concepts / "b.md").write_text(
+            _article_with_frontmatter(long_text + "\n[[concepts/a]]", title="B")
+        )
 
         monkeypatch.chdir(repo)
 
@@ -440,7 +491,9 @@ class TestLintJsonAndExitCodes:
         concepts.mkdir()
         long_text = "word " * 250
         (concepts / "python.md").write_text(
-            long_text + "\nSee [[missing-target]] for details."
+            _article_with_frontmatter(
+                long_text + "\nSee [[missing-target]] for details.", title="Python"
+            )
         )
 
         monkeypatch.chdir(repo)
@@ -465,7 +518,7 @@ class TestLintJsonAndExitCodes:
         concepts = kb_root / "concepts"
         concepts.mkdir()
         long_text = "word " * 250
-        (concepts / "orphan.md").write_text(long_text)
+        (concepts / "orphan.md").write_text(_article_with_frontmatter(long_text))
 
         monkeypatch.chdir(repo)
 
@@ -485,7 +538,7 @@ class TestLintJsonAndExitCodes:
         concepts = kb_root / "concepts"
         concepts.mkdir()
         long_text = "word " * 250
-        (concepts / "orphan.md").write_text(long_text)
+        (concepts / "orphan.md").write_text(_article_with_frontmatter(long_text))
 
         monkeypatch.chdir(repo)
 
@@ -503,8 +556,12 @@ class TestLintJsonAndExitCodes:
         concepts = kb_root / "concepts"
         concepts.mkdir()
         long_text = "word " * 250
-        (concepts / "a.md").write_text(long_text + "\n[[concepts/b]]")
-        (concepts / "b.md").write_text(long_text + "\n[[concepts/a]]")
+        (concepts / "a.md").write_text(
+            _article_with_frontmatter(long_text + "\n[[concepts/b]]", title="A")
+        )
+        (concepts / "b.md").write_text(
+            _article_with_frontmatter(long_text + "\n[[concepts/a]]", title="B")
+        )
 
         monkeypatch.chdir(repo)
 
@@ -553,7 +610,11 @@ class TestLintStructuralEdgeCases:
         concepts = kb_root / "concepts"
         concepts.mkdir()
         long_text = "word " * 250
-        (concepts / "note.md").write_text(long_text + "\n[[daily/2026-06-18]]")
+        (concepts / "note.md").write_text(
+            _article_with_frontmatter(
+                long_text + "\n[[daily/2026-06-18]]", title="Note"
+            )
+        )
 
         monkeypatch.chdir(repo)
 
@@ -737,8 +798,12 @@ class TestContradictionDetection:
         concepts = kb_root / "concepts"
         concepts.mkdir()
         long_text = "word " * 250
-        (concepts / "a.md").write_text(long_text + "\n[[concepts/b]]")
-        (concepts / "b.md").write_text(long_text + "\n[[concepts/a]]")
+        (concepts / "a.md").write_text(
+            _article_with_frontmatter(long_text + "\n[[concepts/b]]", title="A")
+        )
+        (concepts / "b.md").write_text(
+            _article_with_frontmatter(long_text + "\n[[concepts/a]]", title="B")
+        )
 
         monkeypatch.chdir(repo)
 
@@ -753,3 +818,182 @@ class TestContradictionDetection:
         assert "1 warnings" in captured.out
         report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
         assert "CONTRADICTION: a vs b - conflict" in report
+
+
+class TestLintFrontmatter:
+    """Frontmatter schema enforcement for KB articles."""
+
+    def _repo_and_kb(self, tmp_path: Path) -> tuple[Path, Path]:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb_root = repo / ".claude" / "knowledge"
+        kb_root.mkdir(parents=True)
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {
+                    "repo_name": "repo",
+                    "repo_owner": "local",
+                    "kb_dir": "project",
+                    "daily_dir": "daily",
+                    "timezone": "UTC",
+                }
+            )
+        )
+        return repo, kb_root
+
+    @pytest.fixture(autouse=True)
+    def fixed_today(self) -> None:
+        with patch("claude_wiki.commands.lint._today_iso", return_value="2026-06-19"):
+            yield
+
+    def _frontmatter(self, fields: str, body: str = "word " * 250) -> str:
+        return f"---\n{fields}---\n\n{body}"
+
+    def test_missing_sources_is_error(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A concept article missing sources is reported as an error."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        (concepts / "note.md").write_text(
+            self._frontmatter(
+                'title: "Note"\naliases: [note]\ntags: [tag]\ncreated: 2026-06-18\nupdated: 2026-06-18\n'
+            )
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 2
+        assert "Results: 1 errors" in captured.out
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
+        assert "Missing frontmatter field: sources" in report
+
+    def test_missing_title_is_error(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A concept article missing title is reported as an error."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        (concepts / "note.md").write_text(
+            self._frontmatter(
+                "aliases: [note]\ntags: [tag]\ncreated: 2026-06-18\nupdated: 2026-06-18\n"
+            )
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+
+        assert exit_code == 2
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
+        assert "Missing frontmatter field: title" in report
+
+    def test_missing_created_updated_are_warnings(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Missing created/updated frontmatter fields are warnings."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        (concepts / "note.md").write_text(
+            self._frontmatter(
+                'title: "Note"\naliases: [note]\ntags: [tag]\nsources:\n  - "daily/2026-06-18.md"\n'
+            )
+            + "\n[[concepts/other]]"
+        )
+        (concepts / "other.md").write_text(
+            _article_with_frontmatter("[[concepts/note]]", title="Other")
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+
+        assert exit_code == 0
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
+        assert "Missing frontmatter field: created" in report
+        assert "Missing frontmatter field: updated" in report
+
+    def test_ignore_file_suppresses_issue(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A .claude-wiki-lint-ignore entry drops a matching issue."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        (concepts / "note.md").write_text(
+            self._frontmatter(
+                'title: "Note"\naliases: [note]\ntags: [tag]\ncreated: 2026-06-18\nupdated: 2026-06-18\n'
+            )
+        )
+        (repo / ".claude-wiki-lint-ignore").write_text(
+            "# Ignore legacy article\nconcepts/note.md::frontmatter_missing_sources::legacy article, no source\n"
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "Results: 0 errors" in captured.out
+        assert "frontmatter_missing_sources" not in captured.out
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
+        assert "frontmatter_missing_sources" not in report
+
+    def test_threshold_override(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--threshold N overrides the default 200-word sparse threshold."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        # 25 body words with valid frontmatter; default threshold 200 would not flag it.
+        (concepts / "note.md").write_text(
+            _article_with_frontmatter("word " * 25, title="Note")
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only", "--threshold", "50"])
+
+        assert exit_code == 0
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
+        assert "Sparse article: 25 words (minimum recommended: 50)" in report
+
+    def test_json_includes_frontmatter_issues(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--json exposes the new frontmatter check names."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        (concepts / "note.md").write_text(
+            self._frontmatter(
+                'title: "Note"\naliases: [note]\ntags: [tag]\ncreated: 2026-06-18\nupdated: 2026-06-18\n'
+            )
+            + "\n[[concepts/other]]"
+        )
+        (concepts / "other.md").write_text(
+            _article_with_frontmatter("[[concepts/note]]", title="Other")
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only", "--json"])
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+
+        assert exit_code == 2
+        issue = next(
+            i for i in payload["issues"] if i["check"] == "frontmatter_missing_sources"
+        )
+        assert issue["severity"] == "error"
+        assert issue["file"] == "concepts/note.md"

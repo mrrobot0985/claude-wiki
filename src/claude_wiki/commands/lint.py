@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import fnmatch
 import hashlib
 import json
 import re
@@ -38,12 +39,20 @@ class _Issue:
 
 
 @dataclass(frozen=True)
+class _IgnoreRule:
+    path_pattern: str
+    check: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class _LinkGraph:
     """Single-pass index of wiki articles and their outbound wikilinks."""
 
     articles: dict[str, str]
     outbound: dict[str, set[str]]
     inbound: dict[str, int]
+    frontmatter: dict[str, dict[str, str] | None]
 
 
 def register(subparsers: Any, handlers: dict[str, Any]) -> None:
@@ -71,6 +80,12 @@ def register(subparsers: Any, handlers: dict[str, Any]) -> None:
         action="store_true",
         help="Emit machine-readable JSON instead of human text",
     )
+    parser.add_argument(
+        "--threshold",
+        type=int,
+        default=SPARSE_WORD_THRESHOLD,
+        help=f"Sparse-article word threshold (default: {SPARSE_WORD_THRESHOLD})",
+    )
     handlers["lint"] = _lint_handler
 
 
@@ -90,9 +105,13 @@ def _lint_handler(args: argparse.Namespace) -> int:
     cache_dir = manager.get_cache_dir(repo_root, config)
 
     daily_dir = repo_root / config.daily_dir
-    issues = _run_structural_checks(machine_state_dir, kb_root, daily_dir)
+    ignore_rules = _load_ignore_rules(repo_root)
+    issues = _run_structural_checks(
+        machine_state_dir, kb_root, daily_dir, threshold=args.threshold
+    )
     if not args.structural_only:
         issues.extend(_run_llm_checks(kb_root, repo_name=config.repo_name))
+    issues = [issue for issue in issues if not _is_ignored(issue, ignore_rules)]
 
     today = _today_iso(config.timezone)
     report_path = _save_report(cache_dir, issues, today)
@@ -136,17 +155,19 @@ def _print_lint_json(issues: list[_Issue]) -> None:
 def _build_link_graph(kb_root: Path) -> _LinkGraph:
     """Read every wiki article once and index its outbound wikilinks.
 
-    The broken-link, orphan-page, and sparse-article checks reuse this graph
-    so the KB is read O(articles) times instead of O(articles²).
+    The broken-link, orphan-page, sparse-article, and frontmatter checks reuse
+    this graph so the KB is read O(articles) times instead of O(articles²).
     """
     articles: dict[str, str] = {}
     outbound: dict[str, set[str]] = {}
     inbound: dict[str, int] = {}
+    frontmatter: dict[str, dict[str, str] | None] = {}
 
     for article in _list_articles(kb_root):
         rel = article.relative_to(kb_root).as_posix()
         content = article.read_text(encoding="utf-8")
         articles[rel] = content
+        frontmatter[rel] = _parse_frontmatter(content)
 
         targets: set[str] = set()
         for link in _extract_wikilinks(content):
@@ -159,11 +180,17 @@ def _build_link_graph(kb_root: Path) -> _LinkGraph:
                 inbound[target] = inbound.get(target, 0) + 1
         outbound[rel] = targets
 
-    return _LinkGraph(articles=articles, outbound=outbound, inbound=inbound)
+    return _LinkGraph(
+        articles=articles, outbound=outbound, inbound=inbound, frontmatter=frontmatter
+    )
 
 
 def _run_structural_checks(
-    state_dir: Path, kb_root: Path, daily_dir: Path
+    state_dir: Path,
+    kb_root: Path,
+    daily_dir: Path,
+    *,
+    threshold: int = SPARSE_WORD_THRESHOLD,
 ) -> list[_Issue]:
     """Run all non-LLM health checks."""
     state = _load_state(state_dir)
@@ -173,7 +200,8 @@ def _run_structural_checks(
     issues.extend(_check_orphan_pages(graph))
     issues.extend(_check_orphan_sources(daily_dir, state))
     issues.extend(_check_stale_articles(daily_dir, state))
-    issues.extend(_check_sparse_articles(graph))
+    issues.extend(_check_sparse_articles(graph, threshold=threshold))
+    issues.extend(_check_frontmatter(graph))
     return issues
 
 
@@ -253,18 +281,20 @@ def _check_stale_articles(daily_dir: Path, state: dict[str, Any]) -> list[_Issue
     return issues
 
 
-def _check_sparse_articles(graph: _LinkGraph) -> list[_Issue]:
+def _check_sparse_articles(
+    graph: _LinkGraph, *, threshold: int = SPARSE_WORD_THRESHOLD
+) -> list[_Issue]:
     """Find articles shorter than the recommended word count."""
     issues: list[_Issue] = []
     for rel, content in graph.articles.items():
         word_count = _word_count_content(content)
-        if word_count < SPARSE_WORD_THRESHOLD:
+        if word_count < threshold:
             issues.append(
                 _Issue(
                     severity="suggestion",
                     check="sparse_article",
                     file=rel,
-                    detail=f"Sparse article: {word_count} words (minimum recommended: {SPARSE_WORD_THRESHOLD})",
+                    detail=f"Sparse article: {word_count} words (minimum recommended: {threshold})",
                 )
             )
     return issues
@@ -400,18 +430,137 @@ def _file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
+def _split_frontmatter(content: str) -> tuple[str | None, str]:
+    """Split raw markdown into (frontmatter, body).
+
+    Returns ``(None, content)`` when no YAML frontmatter delimiters are present.
+    """
+    if not content.startswith("---"):
+        return None, content
+    end = content.find("---", 3)
+    if end == -1:
+        return None, content
+    return content[3:end].strip(), content[end + 3 :].lstrip()
+
+
+def _parse_frontmatter(content: str) -> dict[str, str] | None:
+    """Return a simple key/value map for the YAML frontmatter block, if present.
+
+    Only top-level scalar keys are captured; nested list items are skipped.
+    A key with an empty value is still considered present.
+    """
+    fm, _ = _split_frontmatter(content)
+    if fm is None:
+        return None
+    result: dict[str, str] = {}
+    for line in fm.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        result[key.strip()] = value.strip()
+    return result
+
+
 def _word_count_content(content: str) -> int:
     """Return the word count of a markdown string, excluding YAML frontmatter."""
-    if content.startswith("---"):
-        end = content.find("---", 3)
-        if end != -1:
-            content = content[end + 3 :]
-    return len(content.split())
+    _, body = _split_frontmatter(content)
+    return len(body.split())
 
 
 def _word_count(path: Path) -> int:
     """Return the word count of an article, excluding YAML frontmatter."""
     return _word_count_content(path.read_text(encoding="utf-8"))
+
+
+# Required frontmatter fields per article type. title and sources are errors;
+# the rest are warnings.
+_CONCEPT_REQUIRED_FIELDS = (
+    ("title", "error"),
+    ("sources", "error"),
+    ("aliases", "warning"),
+    ("tags", "warning"),
+    ("created", "warning"),
+    ("updated", "warning"),
+)
+_ARTICLE_REQUIRED_FIELDS = (
+    ("title", "error"),
+    ("sources", "error"),
+    ("created", "warning"),
+    ("updated", "warning"),
+)
+
+
+def _check_frontmatter(graph: _LinkGraph) -> list[_Issue]:
+    """Enforce required YAML frontmatter fields in KB article subdirs."""
+    issues: list[_Issue] = []
+    for rel, frontmatter in graph.frontmatter.items():
+        subdir_name = rel.split("/", 1)[0]
+        if subdir_name not in KB_SUBDIRS:
+            continue
+        required = (
+            _CONCEPT_REQUIRED_FIELDS
+            if subdir_name == "concepts"
+            else _ARTICLE_REQUIRED_FIELDS
+        )
+        if frontmatter is None:
+            # Articles without frontmatter are flagged for every required field.
+            for field, severity in required:
+                issues.append(
+                    _Issue(
+                        severity=severity,
+                        check=f"frontmatter_missing_{field}",
+                        file=rel,
+                        detail=f"Missing frontmatter field: {field}",
+                    )
+                )
+            continue
+        for field, severity in required:
+            if field not in frontmatter:
+                issues.append(
+                    _Issue(
+                        severity=severity,
+                        check=f"frontmatter_missing_{field}",
+                        file=rel,
+                        detail=f"Missing frontmatter field: {field}",
+                    )
+                )
+    return issues
+
+
+def _load_ignore_rules(repo_root: Path) -> list[_IgnoreRule]:
+    """Load ``.claude-wiki-lint-ignore`` from the repo root.
+
+    Format: ``path::check::reason`` where path is relative to the KB root.
+    Lines starting with ``#`` and blank lines are skipped.
+    """
+    ignore_file = repo_root / ".claude-wiki-lint-ignore"
+    if not ignore_file.exists():
+        return []
+    rules: list[_IgnoreRule] = []
+    for line in ignore_file.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split("::", 2)
+        if len(parts) != 3:
+            continue
+        rules.append(
+            _IgnoreRule(path_pattern=parts[0], check=parts[1], reason=parts[2])
+        )
+    return rules
+
+
+def _is_ignored(issue: _Issue, rules: list[_IgnoreRule]) -> bool:
+    """Return True when an issue matches an ignore rule."""
+    for rule in rules:
+        if rule.check != issue.check:
+            continue
+        if fnmatch.fnmatch(issue.file, rule.path_pattern):
+            return True
+    return False
 
 
 def _read_all_wiki_content(kb_root: Path, repo_name: str | None = None) -> str:
