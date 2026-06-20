@@ -355,11 +355,11 @@ class TestGlobalIndexManager:
             assert entry.last_compiled == "2026-06-19"
             assert isinstance(entry.last_compiled, str)
 
-    def test_register_normalizes_paths_to_absolute(self):
+    def test_register_normalizes_paths_to_absolute(self, monkeypatch):
         """repo_root and kb_root are stored as absolute paths."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir).resolve()
-            os.chdir(base)
+            monkeypatch.chdir(base)
             mgr = GlobalIndexManager(base_dir=base / "global")
             repo = base / "repo"
             repo.mkdir()
@@ -374,7 +374,7 @@ class TestGlobalIndexManager:
             assert Path(entry.repo_root) == repo
             assert Path(entry.kb_root) == repo / "kb"
 
-    def test_sanitize_preserves_legacy_relative_repo_root(self, caplog):
+    def test_sanitize_preserves_legacy_relative_repo_root(self, caplog, monkeypatch):
         """Relative repo_root legacy entries are kept with a warning."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -392,13 +392,13 @@ class TestGlobalIndexManager:
                 )
             )
             mgr = GlobalIndexManager(base_dir=base)
-            os.chdir("/tmp")
+            monkeypatch.chdir("/tmp")
             evicted = mgr.sanitize()
             assert len(evicted) == 0
             assert len(mgr.list_entries()) == 1
             assert "relative" in caplog.text.lower()
 
-    def test_sanitize_is_cwd_independent_for_absolute_repo_root(self):
+    def test_sanitize_is_cwd_independent_for_absolute_repo_root(self, monkeypatch):
         """Absolute repo_root entries are not evicted by cwd changes."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -410,7 +410,7 @@ class TestGlobalIndexManager:
             mgr = GlobalIndexManager(base_dir=base)
             mgr.register("repo", "local", kb, repo_root=repo)
 
-            os.chdir("/tmp")
+            monkeypatch.chdir("/tmp")
             evicted = mgr.sanitize()
 
             assert len(evicted) == 0
@@ -777,3 +777,18 @@ class TestGlobalIndexManager:
                 assert names == {"none-root", "relative-root"}
         finally:
             os.chdir(original_cwd)
+
+
+def test_default_base_dir_isolated_from_real_home(tmp_path: Path) -> None:
+    """The autouse conftest fixture must redirect XDG_DATA_HOME so a default
+    GlobalIndexManager never resolves to the developer's real vault directory.
+
+    Regression guard for the test-isolation fix (issue #42): without the
+    redirect, ``GlobalIndexManager()`` writes to the live
+    ``~/.local/share/claude-wiki-vault/.registry.json``.
+    """
+    mgr = GlobalIndexManager()
+    assert mgr.base_dir.is_relative_to(tmp_path), (
+        f"default base_dir {mgr.base_dir} escaped the per-test tmp area; "
+        "the suite would mutate real user state"
+    )
