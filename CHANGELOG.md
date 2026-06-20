@@ -6,6 +6,33 @@ All notable changes to this project are documented in this file.
 
 Nothing yet.
 
+## [0.9.0] - 2026-06-20
+
+### Added
+
+- `query --json` and `lint --json` emit machine-readable output, plus a
+  `--fail-on-warning` flag and a documented stable exit-code contract for both
+  commands (query `0`/`1`/`2`, lint `0`/`1`/`2`)
+  ([#108](https://github.com/mrrobot0985/claude-wiki/issues/108))
+- `SECURITY.md`, `CODE_OF_CONDUCT.md`, and a `Funding` project URL
+  ([#109](https://github.com/mrrobot0985/claude-wiki/issues/109))
+
+### Changed
+
+- CLI reference (`docs/reference/cli.md`) resynced against the actual
+  `claude-wiki --help` output — every subcommand and shipped flag documented,
+  `--version` corrected to a global option
+  ([#109](https://github.com/mrrobot0985/claude-wiki/issues/109))
+
+### Fixed
+
+- `ConfigManager` lazy v1→v2 layout migration is now atomic with LIFO rollback on
+  partial failure, so a half-finished migration no longer leaves the knowledge base
+  in a partially-moved state ([#106](https://github.com/mrrobot0985/claude-wiki/issues/106))
+- Hook handler and CLI/hook auto-discovery failures are now logged instead of
+  silently swallowed, giving users a debug trail while keeping hook return codes
+  non-fatal ([#107](https://github.com/mrrobot0985/claude-wiki/issues/107))
+
 ## [0.8.0] - 2026-06-20
 
 ### Added

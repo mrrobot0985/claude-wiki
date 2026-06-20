@@ -1,6 +1,6 @@
 [project]
 name = "claude-wiki"
-version = "0.8.0"
+version = "0.9.0"
 description = "Claude Wiki - installable hooks and CLI for a personal knowledge base"
 readme = "README.md"
 requires-python = ">=3.12"
