@@ -6,6 +6,28 @@ All notable changes to this project are documented in this file.
 
 Nothing yet.
 
+## [0.13.0] - 2026-06-21
+
+### Added
+
+- `status --json`: machine-readable health output (`{repo, total_errors, checks:[{name,status,message,errors}]}`) for CI/scripts, matching `query --json` and `lint --json`. Exit codes unchanged; human output unchanged
+  ([#142](https://github.com/mrrobot0985/claude-wiki/pull/142))
+- `claude-wiki graph`: read-only link-topology report — article counts (per
+  subdir), link count, orphan articles (zero inbound), hub articles (top N by
+  inbound), and connected components (`--path`, `--json`, `--top N`). The
+  Obsidian-killer structural overview. Link-graph primitives extracted from
+  `lint.py` into a shared `graph_utils.py` (lint reuses them; behavior
+  unchanged) ([#143](https://github.com/mrrobot0985/claude-wiki/pull/143))
+
+### Changed
+
+- `release.yml` now rejects any tag whose signature GitHub does not verify
+  (aborts before build/publish) and creates a GitHub Release (wheel + sdist
+  attached, CHANGELOG section as notes) once PyPI publish succeeds
+  ([#144](https://github.com/mrrobot0985/claude-wiki/pull/144))
+- Man page `.TH` version header and CLI reference resynced for `status --json`
+  and the new `graph` command
+
 ## [0.12.0] - 2026-06-21
 
 ### Added
