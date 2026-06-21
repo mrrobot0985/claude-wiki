@@ -6,6 +6,38 @@ All notable changes to this project are documented in this file.
 
 Nothing yet.
 
+## [0.12.0] - 2026-06-21
+
+### Added
+
+- `compile --max-logs N` (alias `--limit`) cost guard: caps the number of daily
+  logs compiled in one run, oldest pending first, with an explicit truncation
+  summary. Applies to both the default changed-only selection and `--all`;
+  `--file` is exempt; default is unlimited (no behavior change when absent)
+  ([#139](https://github.com/mrrobot0985/claude-wiki/pull/139))
+- `lint` catalog↔article completeness check, wired into the structural checks
+  (runs in `--structural-only` and full modes, no LLM call): emits
+  `uncatalogued_article` (warning) for an article missing from the catalog and
+  `stale_catalog_entry` (error) for a catalog reference that resolves to no
+  file. The catalog is the primary retrieval surface, so drift is now caught
+  ([#138](https://github.com/mrrobot0985/claude-wiki/pull/138))
+- v1.0 stability & SemVer policy (`docs/reference/stability.md`) and a 0.x → 1.0
+  upgrade guide (`docs/how-to/upgrade-to-v1.md`), linked from `docs/index.md`
+  ([#140](https://github.com/mrrobot0985/claude-wiki/pull/140))
+
+### Fixed
+
+- `flush` now writes the daily log and the `last-flush.json` dedup state
+  atomically (same-directory tempfile + `os.replace`), so a backgrounded flush
+  interrupted mid-write can no longer corrupt the immutable daily log (the
+  compilation source of truth) or the dedup state
+  ([#137](https://github.com/mrrobot0985/claude-wiki/pull/137))
+
+### Changed
+
+- CLI reference and man page resynced for `--max-logs`; stability policy lists
+  the current per-command flag set including `--max-logs`
+
 ## [0.11.0] - 2026-06-21
 
 ### Added
