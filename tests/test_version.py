@@ -29,3 +29,14 @@ def test_version_flag_prints_version_and_exits_zero(
     assert exc_info.value.code == 0
     captured = capsys.readouterr()
     assert claude_wiki.__version__ in captured.out
+
+
+def test_version_short_flag_prints_version_and_exits_zero(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`claude-wiki -v` is an alias for --version."""
+    with pytest.raises(SystemExit) as exc_info:
+        main(["-v"])
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert claude_wiki.__version__ in captured.out
