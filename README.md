@@ -18,12 +18,17 @@ Adapted from Karpathy's LLM Knowledge Base architecture.
   Claude Code session into immutable daily logs — no manual note-taking.
 - **Compile to atomic articles.** Daily logs are distilled by an LLM into one
   article per concept, plus cross-cutting `connections/` and filed `qa/`
-  answers, each with YAML frontmatter and provenance backlinks.
+  answers, each with YAML frontmatter and provenance backlinks. `--max-logs`
+  caps the cost of a run.
 - **Index-guided query (no RAG).** `query` reads the catalog first, then
   answers from the KB — retrieval grounded in structure rather than embeddings.
-- **Health checks.** `lint` runs structural checks (broken wikilinks, sparse
-  articles, orphans) and optional LLM contradiction checks, with
+- **Health checks.** `lint` runs structural checks (broken wikilinks, orphan
+  pages, sparse articles, frontmatter schema, and catalog↔article completeness)
+  and optional LLM contradiction checks, with `--fix` for safe auto-repairs and
   machine-readable `--json` output and a stable exit-code contract for CI.
+- **Topology & health monitoring.** `graph` reports the link topology —
+  orphans, hubs, and connected components — so you can spot a fragmented KB at a
+  glance; `status` diagnoses repository health with `--json` for CI gating.
 - **Obsidian-friendly output.** Wikilinks, frontmatter, and a per-repo
   `{repo_name}.md` catalog keep the vault clean for Graph view; a global
   `core.md` registry links every registered repo with `[[owner/repo]]` links.
@@ -77,16 +82,18 @@ claude-wiki init
 Daily commands:
 
 ```bash
-claude-wiki compile [--all] [--file FILE] [--dry-run] [--path PATH]
+claude-wiki compile [--all] [--file FILE] [--dry-run] [--continue-on-error] [--max-logs N] [--path PATH]
 claude-wiki query "your question" [--file-back] [--json] [--path PATH]
-claude-wiki lint [--structural-only] [--fail-on-warning] [--json] [--path PATH]
+claude-wiki lint [--structural-only] [--fail-on-warning] [--fix] [--threshold N] [--json] [--path PATH]
+claude-wiki graph [--json] [--top N] [--path PATH]
+claude-wiki status [--json] [--path PATH]
+claude-wiki tags [--json] [--path PATH]
 claude-wiki migrate [--dry-run] [--path PATH] [--kb-dir KB_DIR] [--daily-dir DAILY_DIR]
-claude-wiki status [--path PATH]
 claude-wiki rename-catalog [--dry-run] [--path PATH]
 ```
 
-`query` and `lint` accept `--json` for machine-readable output and follow a
-stable exit-code contract (`0` ok / `1` warnings / `2` errors). See the
+`query`, `lint`, `status`, and `graph` accept `--json` for machine-readable
+output and follow a stable exit-code contract. See the
 [CLI reference](docs/reference/cli.md) for every flag.
 
 Hook entry points (called by Claude Code via `.claude/settings.local.json` by
