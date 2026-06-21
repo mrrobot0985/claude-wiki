@@ -7,10 +7,11 @@ import asyncio
 import hashlib
 import importlib
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from claude_wiki.config import ConfigManager
 from claude_wiki.factories import DefaultConfigResolver
@@ -112,15 +113,27 @@ def _file_hash(path: Path) -> str:
 
 
 def _load_state(state_path: Path) -> dict[str, Any]:
-    """Load compilation state or return a fresh skeleton."""
+    """Load compilation state or return a fresh skeleton.
+
+    Tolerates a missing or corrupt state file (e.g. a partial write left by a
+    crashed prior run) by falling back to a fresh skeleton instead of raising.
+    """
     if state_path.exists():
-        return cast(dict[str, Any], json.loads(state_path.read_text(encoding="utf-8")))
+        try:
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {"ingested": {}, "total_cost": 0.0}
+        if isinstance(data, dict):
+            return data
     return {"ingested": {}, "total_cost": 0.0}
 
 
 def _save_state(state_path: Path, state: dict[str, Any]) -> None:
-    """Persist compilation state atomically."""
-    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    """Persist compilation state atomically via a sibling temp file."""
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    temp = state_path.with_suffix(".json.tmp")
+    temp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    os.replace(temp, state_path)
 
 
 def _iso_timestamp() -> str:
@@ -459,22 +472,33 @@ def _handle_compile(args: argparse.Namespace) -> int:
 
     _save_state(state_path, state)
 
-    article_count = GlobalIndexManager.count_articles(kb_root)
-    GlobalIndexManager().register(
-        config.repo_name,
-        config.repo_owner,
-        kb_root,
-        repo_root=repo_root,
-        articles=article_count,
-        last_compiled=_iso_timestamp(),
-    )
-
-    print(f"\nCompilation complete. Total cost: ${total_cost:.4f}")
-    if capped and not failed_logs:
-        print(
-            f"Compiled {len(to_compile)} of {total_pending} pending logs. "
-            "Re-run to continue (or raise --max-logs)."
+    # Only stamp last_compiled when the run actually produced a usable KB.
+    # Registering on a total failure would advertise a fresh compile that
+    # never happened, misleading `claude-wiki status` and the global catalog.
+    if not failed_logs:
+        article_count = GlobalIndexManager.count_articles(kb_root)
+        GlobalIndexManager().register(
+            config.repo_name,
+            config.repo_owner,
+            kb_root,
+            repo_root=repo_root,
+            articles=article_count,
+            last_compiled=_iso_timestamp(),
         )
+
+    if failed_logs:
+        print(
+            f"\nCompilation failed for {len(failed_logs)} log(s). "
+            f"Total cost: ${total_cost:.4f}",
+            file=sys.stderr,
+        )
+    else:
+        print(f"\nCompilation complete. Total cost: ${total_cost:.4f}")
+        if capped:
+            print(
+                f"Compiled {len(to_compile)} of {total_pending} pending logs. "
+                "Re-run to continue (or raise --max-logs)."
+            )
     return 1 if failed_logs else 0
 
 

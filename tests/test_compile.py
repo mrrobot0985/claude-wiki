@@ -727,3 +727,97 @@ class TestCompilePerformance:
         assert exit_code == 0
         read_index_spy.assert_called_once()
         list_articles_spy.assert_called_once()
+
+
+class TestCompileStateAndFailureReporting:
+    """State I/O robustness and honest failure reporting."""
+
+    def test_corrupt_state_recovers_as_fresh(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """A corrupt state.json is treated as fresh instead of crashing."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("a")
+
+        state_dir = repo / ".claude" / "state"
+        state_dir.mkdir(parents=True)
+        (state_dir / "state.json").write_text("{not valid json")
+
+        monkeypatch.chdir(repo)
+        mocker.patch("claude_wiki.commands.compile._compile_one", return_value=0.0)
+
+        exit_code = main(["compile", "--all"])
+        assert exit_code == 0
+        state = json.loads((state_dir / "state.json").read_text())
+        assert "2026-06-18.md" in state["ingested"]
+
+    def test_failure_does_not_stamp_registry_or_claim_complete(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any, capsys: Any
+    ) -> None:
+        """A failing compile must not update last_compiled or print 'complete'."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("a")
+
+        monkeypatch.chdir(repo)
+        mocker.patch(
+            "claude_wiki.commands.compile._compile_one",
+            side_effect=RuntimeError("boom"),
+        )
+        register_mock = mocker.patch(
+            "claude_wiki.commands.compile.GlobalIndexManager.register"
+        )
+
+        exit_code = main(["compile", "--all"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 1
+        register_mock.assert_not_called()
+        assert "Compilation complete" not in captured.out
+        assert "Compilation failed" in captured.err
+
+    def test_success_stamps_registry(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """A successful compile updates the global registry."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("a")
+
+        monkeypatch.chdir(repo)
+        mocker.patch("claude_wiki.commands.compile._compile_one", return_value=0.0)
+        mocker.patch(
+            "claude_wiki.commands.compile.GlobalIndexManager.count_articles",
+            return_value=0,
+        )
+        register_mock = mocker.patch(
+            "claude_wiki.commands.compile.GlobalIndexManager.register"
+        )
+
+        exit_code = main(["compile", "--all"])
+        assert exit_code == 0
+        register_mock.assert_called_once()
+
+    def test_state_written_atomically_without_temp_leftover(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """A successful compile leaves valid state.json and no .tmp sibling."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("a")
+
+        monkeypatch.chdir(repo)
+        mocker.patch("claude_wiki.commands.compile._compile_one", return_value=0.0)
+
+        main(["compile", "--all"])
+
+        state_dir = repo / ".claude" / "state"
+        state_file = state_dir / "state.json"
+        assert state_file.exists()
+        json.loads(state_file.read_text())  # valid JSON
+        assert not (state_dir / "state.json.tmp").exists()

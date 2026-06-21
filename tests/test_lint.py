@@ -1428,3 +1428,31 @@ class TestLintFix:
         fixable = [i for i in payload["issues"] if i.get("auto_fixable")]
         assert len(fixable) >= 1
         assert any(i["check"] == "daily_wikilink" for i in fixable)
+
+
+class TestLintStateRobustness:
+    """state.json I/O is atomic and tolerant of corruption."""
+
+    def test_load_state_recovers_from_corrupt_file(self, tmp_path: Path) -> None:
+        """A corrupt state.json yields a fresh skeleton instead of raising."""
+        from claude_wiki.commands.lint import _load_state
+
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+        (state_dir / "state.json").write_text("{broken")
+
+        assert _load_state(state_dir) == {"ingested": {}}
+
+    def test_save_state_writes_valid_json_with_no_temp_leftover(
+        self, tmp_path: Path
+    ) -> None:
+        """A save leaves valid JSON and no lingering .tmp sibling."""
+        from claude_wiki.commands.lint import _load_state, _save_state
+
+        state_dir = tmp_path / "state"
+        _save_state(state_dir, {"ingested": {"x": {"hash": "h"}}})
+
+        state_file = state_dir / "state.json"
+        assert json.loads(state_file.read_text())["ingested"]["x"]["hash"] == "h"
+        assert not (state_dir / "state.json.tmp").exists()
+        assert _load_state(state_dir)["ingested"]["x"]["hash"] == "h"
