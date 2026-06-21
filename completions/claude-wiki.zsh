@@ -113,6 +113,7 @@ _claude_wiki() {
         (status)
             _arguments -C \
                 '--help[]' \
+                '--json[]' \
                 '--path[]' \
                 '*:: :_files'
             ;;

@@ -193,12 +193,13 @@ Use after editing `kb_dir` or `daily_dir` in `.claude-wiki.lock`. Always run `--
 Diagnose repository health.
 
 ```text
-usage: claude-wiki status [-h] [--path PATH]
+usage: claude-wiki status [-h] [--path PATH] [--json]
 ```
 
 | Option        | Description                                             |
 | ------------- | ------------------------------------------------------- |
 | `--path PATH` | Repo root (default: auto-detect from current directory) |
+| `--json`      | Emit machine-readable JSON instead of human text        |
 
 ### `claude-wiki tags`
 

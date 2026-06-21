@@ -64,6 +64,7 @@ complete -c claude-wiki -n '__fish_seen_subcommand_from rename-catalog' -l help
 complete -c claude-wiki -n '__fish_seen_subcommand_from rename-catalog' -l path
 # status flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from status' -l help
+complete -c claude-wiki -n '__fish_seen_subcommand_from status' -l json
 complete -c claude-wiki -n '__fish_seen_subcommand_from status' -l path
 # tags flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from tags' -l help
