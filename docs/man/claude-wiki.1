@@ -34,7 +34,8 @@ Check and migrate data when configured paths change. Options:
 .B compile
 Compile daily logs into the knowledge base. Options:
 \fB\-\-all\fP, \fB\-\-file FILE\fP, \fB\-\-dry-run\fP,
-\fB\-\-continue-on-error\fP, \fB\-\-path PATH\fP.
+\fB\-\-continue-on-error\fP, \fB\-\-max-logs MAX_LOGS\fP (alias \fB\-\-limit\fP),
+\fB\-\-path PATH\fP.
 .TP
 .B query
 Ask a question and answer it from the knowledge base. Options:
@@ -60,7 +61,11 @@ Rename index.md to the repo-named catalog and rewrite wikilinks. Options:
 \fB\-\-dry-run\fP, \fB\-\-path PATH\fP.
 .TP
 .B status
-Diagnose repository health. Options: \fB\-\-path PATH\fP.
+Diagnose repository health. Options: \fB\-\-path PATH\fP, \fB\-\-json\fP.
+.TP
+.B graph
+Report the knowledge base link topology (orphans, hubs, components).
+Options: \fB\-\-path PATH\fP, \fB\-\-json\fP, \fB\-\-top N\fP.
 .TP
 .B tags
 List tags indexed from the knowledge base. Options:

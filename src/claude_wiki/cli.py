@@ -50,6 +50,7 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, _Handler]]:
 
     parser = argparse.ArgumentParser(prog="claude-wiki")
     parser.add_argument(
+        "-v",
         "--version",
         action="version",
         version=f"claude-wiki {__version__}",
