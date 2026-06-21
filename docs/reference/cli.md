@@ -6,7 +6,7 @@ User-facing commands.
 
 ```text
 usage: claude-wiki [-h] [--version]
-                   {init,migrate,compile,lint,query,register,registry,rename-catalog,status,tags} ...
+                   {init,migrate,compile,graph,lint,query,register,registry,rename-catalog,status,tags} ...
 ```
 
 ### Global options
@@ -218,6 +218,28 @@ usage: claude-wiki tags [-h] [--path PATH] [--json]
 Human output is aligned columns (`tag`, `count`, `example path`). With `--json`,
 emits a list of objects `{"tag", "count", "examples": [...]}`. An empty
 knowledge base prints a clear message and exits non-zero.
+
+### `claude-wiki graph`
+
+Report the wiki's link topology: article counts, link count, orphan articles
+(no inbound links), hub articles (most inbound links), and connected components.
+
+```text
+usage: claude-wiki graph [-h] [--path PATH] [--json] [--top TOP]
+```
+
+| Option        | Description                                             |
+| ------------- | ------------------------------------------------------- |
+| `--path PATH` | Repo root (default: auto-detect from current directory) |
+| `--json`      | Emit machine-readable JSON instead of human text        |
+| `--top N`     | Number of hubs to list (default: `5`; positive integer) |
+
+`links` counts outbound `[[wikilinks]]` whose target resolves to an existing
+article. `orphans` are articles with zero inbound links (consistent with lint's
+`orphan_page`). `components` treats links as undirected and reports the number
+of connected groups and the largest group's size. With `--json`, emits
+`{repo, articles, by_subdir, links, orphans, hubs, components}`. Read-only;
+exits `0` on success, `1` if not in a repo or no KB directory.
 
 ### `claude-wiki register`
 

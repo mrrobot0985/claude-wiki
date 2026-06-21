@@ -4,7 +4,7 @@
 complete -c claude-wiki -l version -d 'Show version and exit'
 
 # Top-level commands
-complete -c claude-wiki -n '__fish_use_subcommand' -a "compile init lint migrate query register registry rename-catalog status tags"
+complete -c claude-wiki -n '__fish_use_subcommand' -a "compile graph init lint migrate query register registry rename-catalog status tags"
 
 # compile flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l all
@@ -15,6 +15,11 @@ complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l help
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l limit
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l max-logs
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l path
+# graph flags
+complete -c claude-wiki -n '__fish_seen_subcommand_from graph' -l help
+complete -c claude-wiki -n '__fish_seen_subcommand_from graph' -l json
+complete -c claude-wiki -n '__fish_seen_subcommand_from graph' -l path
+complete -c claude-wiki -n '__fish_seen_subcommand_from graph' -l top
 # init flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from init' -l daily-dir
 complete -c claude-wiki -n '__fish_seen_subcommand_from init' -l force

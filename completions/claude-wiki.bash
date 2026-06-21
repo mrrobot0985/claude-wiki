@@ -4,7 +4,7 @@ _claude_wiki_completion() {
     local cur prev opts cmds
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    cmds=(compile init lint migrate query register registry rename-catalog status tags)
+    cmds=(compile graph init lint migrate query register registry rename-catalog status tags)
 
     if [ $COMP_CWORD -eq 1 ]; then
         COMPREPLY=( $(compgen -W "${cmds[*]}" -- "$cur") )
@@ -15,6 +15,11 @@ _claude_wiki_completion() {
     if [ "$cmd" = "compile" ]; then
         local compile_opts=(--all --continue-on-error --dry-run --file --help --limit --max-logs --path)
         COMPREPLY=( $(compgen -W "${compile_opts[*]}" -- "$cur") )
+        return 0
+    fi
+    if [ "$cmd" = "graph" ]; then
+        local graph_opts=(--help --json --path --top)
+        COMPREPLY=( $(compgen -W "${graph_opts[*]}" -- "$cur") )
         return 0
     fi
     if [ "$cmd" = "init" ]; then

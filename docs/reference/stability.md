@@ -19,6 +19,7 @@ Top-level subcommands:
 - `init`
 - `migrate`
 - `compile`
+- `graph`
 - `lint`
 - `query`
 - `register`
@@ -36,6 +37,7 @@ Per-subcommand flags:
 - `init`: `--path`, `--force`, `--global`, `--no-hooks`, `--kb-dir`, `--daily-dir`
 - `migrate`: `--path`, `--dry-run`, `--kb-dir`, `--daily-dir`, `--reports-dir` (deprecated and ignored)
 - `compile`: `--all`, `--file`, `--dry-run`, `--continue-on-error`, `--max-logs`, `--path`
+- `graph`: `--path`, `--json`, `--top`
 - `lint`: `--structural-only`, `--fail-on-warning`, `--path`, `--json`, `--threshold`, `--fix`, `--dry-run`
 - `query`: `--file-back`, `--path`, `--json`, `--category`, `--tag`, `--since`, `--max-chars`
 - `register`: `--path`
