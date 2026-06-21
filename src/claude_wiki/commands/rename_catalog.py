@@ -58,7 +58,9 @@ def _handle_rename_catalog(args: argparse.Namespace) -> int:
     actions = _rename_catalog(kb_root, repo_name, dry_run=args.dry_run)
     for action in actions:
         print(action)
-    return 0
+    # A refused rename (e.g. {repo_name}.md already exists) appends an ERROR:
+    # action; surface that as a non-zero exit so scripts and CI can detect it.
+    return 1 if any(action.startswith("ERROR:") for action in actions) else 0
 
 
 def _rename_catalog(
