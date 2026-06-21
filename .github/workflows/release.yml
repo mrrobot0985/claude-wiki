@@ -63,8 +63,72 @@ jobs:
           name: dist
           path: dist/
 
-  publish:
+  smoke:
     needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Download artifacts
+        uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # v4.2.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install wheel in a clean venv
+        run: |
+          uv venv /tmp/smoke-wheel
+          uv pip install --python /tmp/smoke-wheel/bin/python dist/claude_wiki-*.whl
+
+      - name: Exercise console entry points
+        run: |
+          /tmp/smoke-wheel/bin/claude-wiki --version
+          /tmp/smoke-wheel/bin/claude-wiki --help
+          # Hook entry point is installed and parses args (unknown event exits 1).
+          set +e
+          /tmp/smoke-wheel/bin/claude-wiki-hook BogusEvent > /tmp/hook.out 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          grep -q "Unknown hook event" /tmp/hook.out
+
+      - name: Bootstrap a repo with the wheel-installed CLI
+        env:
+          XDG_DATA_HOME: /tmp/xdg-data
+        run: |
+          git config --global user.email "smoke@example.com"
+          git config --global user.name "smoke"
+          REPO=$(mktemp -d)
+          git -C "$REPO" init -q
+          git -C "$REPO" config user.email "smoke@example.com"
+          git -C "$REPO" config user.name "smoke"
+          echo "hello" > "$REPO/README.md"
+          git -C "$REPO" add .
+          git -C "$REPO" commit -q -m "chore: initial commit"
+          /tmp/smoke-wheel/bin/claude-wiki init --path "$REPO"
+          test -f "$REPO/.claude-wiki.lock"
+          test -f "$REPO/.claude/settings.local.json"
+
+      - name: Install sdist in a clean venv
+        run: |
+          uv venv /tmp/smoke-sdist
+          uv pip install --python /tmp/smoke-sdist/bin/python dist/claude_wiki-*.tar.gz
+
+      - name: Smoke the sdist install
+        run: |
+          /tmp/smoke-sdist/bin/claude-wiki --version
+          /tmp/smoke-sdist/bin/claude-wiki --help
+
+  publish:
+    needs: smoke
     runs-on: ubuntu-latest
     environment:
       name: pypi
