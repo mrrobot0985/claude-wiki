@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 
-def _split_frontmatter(content: str) -> tuple[str | None, str]:
+def split_frontmatter(content: str) -> tuple[str | None, str]:
     """Split raw markdown into ``(frontmatter, body)``.
 
     Returns ``(None, content)`` when no YAML frontmatter delimiters are present.
@@ -26,7 +26,7 @@ def extract_tags(content: str) -> list[str]:
     and simple block lists (``tags:\n  - a\n  - b``). Missing or empty tags
     return an empty list. Duplicates within a single article are collapsed.
     """
-    frontmatter, _ = _split_frontmatter(content)
+    frontmatter, _ = split_frontmatter(content)
     if frontmatter is None:
         return []
 

@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from claude_wiki.catalog_utils import extract_tags
+from claude_wiki.catalog_utils import extract_tags, split_frontmatter
 
 
 KB_SUBDIRS: tuple[str, ...] = ("concepts", "connections", "qa")
@@ -88,19 +88,6 @@ def wikilink_target(link: str) -> str:
     target = link.split("|", 1)[0]
     target = target.split("#", 1)[0]
     return target.strip()
-
-
-def split_frontmatter(content: str) -> tuple[str | None, str]:
-    """Split raw markdown into (frontmatter, body).
-
-    Returns ``(None, content)`` when no YAML frontmatter delimiters are present.
-    """
-    if not content.startswith("---"):
-        return None, content
-    end = content.find("---", 3)
-    if end == -1:
-        return None, content
-    return content[3:end].strip(), content[end + 3 :].lstrip()
 
 
 def parse_frontmatter(content: str) -> dict[str, str] | None:

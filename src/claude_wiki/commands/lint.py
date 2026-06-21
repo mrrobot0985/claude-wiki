@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from claude_wiki.catalog_utils import resolve_catalog
+from claude_wiki.catalog_utils import resolve_catalog, split_frontmatter
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
 from claude_wiki.graph_utils import (
@@ -25,7 +25,6 @@ from claude_wiki.graph_utils import (
     build_link_graph,
     extract_wikilinks,
     list_articles,
-    split_frontmatter,
     wikilink_target,
 )
 
