@@ -19,6 +19,7 @@ ______________________________________________________________________
 - [Suppress Lint False Positives](how-to/suppress-lint-false-positives.md) — `.claude-wiki-lint-ignore` rules and fnmatch globs
 - [Use JSON Output in CI and Scripts](how-to/use-json-output.md) — `query --json` and `lint --json` schemas plus exit codes
 - [Scope Queries](how-to/scope-queries.md) — category, date, tag, and context filters
+- [Upgrade to v1.0](how-to/upgrade-to-v1.md) — 0.x to stable release checklist
 
 ## Understanding
 
@@ -48,6 +49,7 @@ ______________________________________________________________________
 
 ## Technical Reference
 
+- [Stability Policy](reference/stability.md) — SemVer guarantees and experimental surfaces
 - [CLI Commands](reference/cli.md) — `claude-wiki` and `claude-wiki-hook`
 - [Configuration File](reference/config-file.md) — `.claude-wiki.lock` schema
 - [Data Models](reference/data-models.md) — `ProjectConfig` and results
