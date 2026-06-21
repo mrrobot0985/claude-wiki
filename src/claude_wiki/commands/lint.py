@@ -7,12 +7,13 @@ import asyncio
 import fnmatch
 import hashlib
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from claude_wiki.catalog_utils import resolve_catalog
@@ -707,18 +708,29 @@ def _read_all_wiki_content(kb_root: Path, repo_name: str | None = None) -> str:
 
 
 def _load_state(state_dir: Path) -> dict[str, Any]:
-    """Load the persisted compilation state."""
+    """Load the persisted compilation state.
+
+    Tolerates a missing or corrupt state file by falling back to a fresh
+    skeleton instead of raising.
+    """
     state_file = state_dir / "state.json"
     if state_file.exists():
-        return cast(dict[str, Any], json.loads(state_file.read_text(encoding="utf-8")))
+        try:
+            data = json.loads(state_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {"ingested": {}}
+        if isinstance(data, dict):
+            return data
     return {"ingested": {}}
 
 
 def _save_state(state_dir: Path, state: dict[str, Any]) -> None:
-    """Persist the compilation state."""
+    """Persist the compilation state atomically via a sibling temp file."""
     state_dir.mkdir(parents=True, exist_ok=True)
     state_file = state_dir / "state.json"
-    state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    temp = state_file.with_suffix(".json.tmp")
+    temp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    os.replace(temp, state_file)
 
 
 def _update_state(state_dir: Path) -> None:
