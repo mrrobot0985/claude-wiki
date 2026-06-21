@@ -19,6 +19,7 @@ ______________________________________________________________________
 - [Suppress Lint False Positives](how-to/suppress-lint-false-positives.md) — `.claude-wiki-lint-ignore` rules and fnmatch globs
 - [Use JSON Output in CI and Scripts](how-to/use-json-output.md) — `query --json` and `lint --json` schemas plus exit codes
 - [Scope Queries](how-to/scope-queries.md) — category, date, tag, and context filters
+- [Inspect KB Topology with `graph`](how-to/use-graph.md) — orphans, hubs, and fragmentation at a glance
 - [Upgrade to v1.0](how-to/upgrade-to-v1.md) — 0.x to stable release checklist
 
 ## Understanding
