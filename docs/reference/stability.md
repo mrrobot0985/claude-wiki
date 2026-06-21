@@ -41,7 +41,7 @@ Per-subcommand flags:
 - `register`: `--path`
 - `registry`: `list`, `show`, `remove`, `clean`; `remove` accepts `--yes`
 - `rename-catalog`: `--dry-run`, `--path`
-- `status`: `--path`
+- `status`: `--path`, `--json`
 - `tags`: `--path`, `--json`
 
 ### Hook dispatch contract

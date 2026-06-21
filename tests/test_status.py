@@ -272,3 +272,136 @@ class TestStatusCommand:
         assert exit_code == 1
         assert "both" in captured.out.lower()
         assert "repo-local" in captured.out.lower() or "global" in captured.out.lower()
+
+    def test_status_json_healthy_repo(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        repo = self._repo(tmp_path)
+        self._lock(repo)
+        daily = repo / ".claude" / "daily"
+        daily.mkdir(parents=True)
+        (daily / "2026-06-20.md").write_text("# log")
+        kb = repo / ".claude" / "knowledge"
+        kb.mkdir(parents=True)
+        (kb / "my-project.md").write_text("# index")
+        (kb / "concepts").mkdir(parents=True, exist_ok=True)
+        (kb / "concepts" / "foo.md").write_text("# foo")
+        state = repo / ".claude" / "state"
+        state.mkdir(parents=True)
+        (state / "state.json").write_text(
+            json.dumps({"ingested": {"2026-06-20.md": {}}})
+        )
+        self._install_dummy_hooks(repo)
+
+        monkeypatch.chdir(repo)
+        exit_code = main(["status", "--json"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        payload = json.loads(captured.out)
+        assert payload["repo"] == "my-project"
+        assert payload["total_errors"] == 0
+        assert isinstance(payload["checks"], list)
+        assert len(payload["checks"]) > 0
+        for check in payload["checks"]:
+            assert check["status"] in {"ok", "warning", "error"}
+            assert isinstance(check["message"], str)
+            assert "✓" not in check["message"]
+            assert "⚠" not in check["message"]
+            assert "✗" not in check["message"]
+            assert isinstance(check["errors"], int)
+
+    def test_status_json_missing_lock(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        repo = self._repo(tmp_path)
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["status", "--json"])
+        captured = capsys.readouterr()
+
+        payload = json.loads(captured.out)
+        assert payload["repo"] == "my-project"
+        assert payload["total_errors"] > 0
+
+        lock_check = next(c for c in payload["checks"] if c["name"] == "Lock file")
+        assert lock_check["status"] == "error"
+        assert lock_check["errors"] == 1
+
+        skipped = [c for c in payload["checks"] if "skipped" in c["message"]]
+        assert len(skipped) == 5
+        assert all(c["status"] == "warning" for c in skipped)
+        assert all(c["errors"] == 0 for c in skipped)
+
+        assert exit_code == 1
+
+    def test_status_json_corrupt_lock(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        repo = self._repo(tmp_path)
+        (repo / ".claude-wiki.lock").write_text("not json")
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["status", "--json"])
+        captured = capsys.readouterr()
+
+        payload = json.loads(captured.out)
+        assert payload["total_errors"] > 0
+
+        lock_check = next(c for c in payload["checks"] if c["name"] == "Lock file")
+        assert lock_check["status"] == "error"
+        assert "corrupt" in lock_check["message"].lower()
+
+        skipped = [c for c in payload["checks"] if "skipped" in c["message"]]
+        assert len(skipped) == 5
+        assert all(c["status"] == "warning" for c in skipped)
+
+        assert exit_code == 1
+
+    def test_status_json_outside_repo(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        exit_code = main(["status", "--json"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 1
+        payload = json.loads(captured.out)
+        assert "error" in payload
+        assert "not in a git repository" in payload["error"].lower()
+
+    def test_status_human_output_unchanged(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        repo = self._repo(tmp_path)
+        self._lock(repo)
+        (repo / ".claude" / "daily").mkdir(parents=True)
+        (repo / ".claude" / "knowledge").mkdir(parents=True)
+        (repo / ".claude" / "knowledge" / "my-project.md").write_text("# index")
+        self._install_dummy_hooks(repo)
+
+        monkeypatch.chdir(repo)
+        exit_code = main(["status"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "{" not in captured.out
+        assert "claude-wiki status for my-project" in captured.out
+        assert "Lock file" in captured.out
+        assert "All checks passed." in captured.out

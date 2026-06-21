@@ -74,7 +74,7 @@ _claude_wiki_completion() {
         return 0
     fi
     if [ "$cmd" = "status" ]; then
-        local status_opts=(--help --path)
+        local status_opts=(--help --json --path)
         COMPREPLY=( $(compgen -W "${status_opts[*]}" -- "$cur") )
         return 0
     fi

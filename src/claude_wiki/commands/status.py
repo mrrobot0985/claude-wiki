@@ -7,6 +7,7 @@ import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from claude_wiki.catalog_utils import resolve_catalog
 from claude_wiki.config import ConfigManager
@@ -221,6 +222,44 @@ def _check_registry(config: ProjectConfig) -> tuple[str, str, int]:
     )
 
 
+def _row_status(message: str, errors: int) -> str:
+    """Map a human row to a machine status label."""
+    if errors > 0:
+        return "error"
+    if message.startswith(_StatusIcon["warn"]):
+        return "warning"
+    return "ok"
+
+
+def _strip_icon(message: str) -> str:
+    """Remove the leading status icon and one trailing space, if present."""
+    for icon in _StatusIcon.values():
+        if message.startswith(icon):
+            return message[len(icon) :].lstrip(" ")
+    return message
+
+
+def _print_status_json(repo_name: str, rows: list[tuple[str, str, int]]) -> None:
+    """Emit the diagnostic rows as machine-readable JSON."""
+    total_errors = sum(err for _label, _msg, err in rows)
+    checks: list[dict[str, Any]] = []
+    for label, msg, err in rows:
+        checks.append(
+            {
+                "name": label,
+                "status": _row_status(msg, err),
+                "message": _strip_icon(msg),
+                "errors": err,
+            }
+        )
+    payload = {
+        "repo": repo_name,
+        "total_errors": total_errors,
+        "checks": checks,
+    }
+    print(json.dumps(payload, indent=2))
+
+
 def _handle_status(args: argparse.Namespace) -> int:
     """Print diagnostic report for the current repo."""
     detector = ConfigManager()
@@ -228,11 +267,11 @@ def _handle_status(args: argparse.Namespace) -> int:
     try:
         repo_root = detector.find_repo_root(start)
     except RepoNotFoundError:
-        print("Error: Not in a git repository.", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"error": "Not in a git repository"}))
+        else:
+            print("Error: Not in a git repository.", file=sys.stderr)
         return 1
-
-    # Header
-    print(f"claude-wiki status for {repo_root.name}\n")
 
     total_errors = 0
     rows: list[tuple[str, str, int]] = []
@@ -287,6 +326,13 @@ def _handle_status(args: argparse.Namespace) -> int:
             ("Registry", f"{_StatusIcon['warn']} skipped — config unavailable", 0)
         )
 
+    if args.json:
+        _print_status_json(repo_root.name, rows)
+        return 1 if total_errors else 0
+
+    # Human output
+    print(f"claude-wiki status for {repo_root.name}\n")
+
     # Pretty-print aligned rows
     labels = [r[0] for r in rows]
     max_len = max(len(label) for label in labels) if labels else 0
@@ -310,5 +356,10 @@ def register(
         "--path",
         type=Path,
         help="Repo root (default: auto-detect from current directory)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of human text",
     )
     handlers["status"] = _handle_status
