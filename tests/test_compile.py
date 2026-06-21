@@ -8,6 +8,8 @@ import types
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from claude_wiki.cli import main
 from claude_wiki.commands import compile as _compile_module  # noqa: F401
 from claude_wiki.commands.compile import (
@@ -342,6 +344,127 @@ class TestCompileCommand:
 
         assert exit_code == 0
         assert compile_mock.call_count == 2
+
+
+class TestCompileMaxLogs:
+    """Tests for the ``--max-logs`` / ``--limit`` cap."""
+
+    def _make_five_pending_logs(self, tmp_path: Path) -> tuple[Path, Path]:
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        for day in range(1, 6):
+            (daily_dir / f"2026-06-{day:02d}.md").write_text(f"log {day}")
+        return repo, daily_dir
+
+    def test_max_logs_respected_on_changed_only(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any, capsys: Any
+    ) -> None:
+        """The default changed-only path respects the cap and picks oldest first."""
+        repo, _daily_dir = self._make_five_pending_logs(tmp_path)
+        monkeypatch.chdir(repo)
+        compile_mock = mocker.patch(
+            "claude_wiki.commands.compile._compile_one", return_value=0.0
+        )
+
+        exit_code = main(["compile", "--max-logs", "2"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert compile_mock.call_count == 2
+        compiled = [call.args[0].name for call in compile_mock.call_args_list]
+        assert compiled == ["2026-06-01.md", "2026-06-02.md"]
+        assert "Files to compile (2 of 5 - capped by --max-logs):" in captured.out
+        assert (
+            "Compiled 2 of 5 pending logs. Re-run to continue (or raise --max-logs)."
+            in captured.out
+        )
+
+    def test_max_logs_respected_on_all(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any
+    ) -> None:
+        """``--all`` respects the cap and processes logs oldest-first."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        for day in range(1, 4):
+            (daily_dir / f"2026-06-{day:02d}.md").write_text(f"log {day}")
+
+        state_path = repo / ".claude" / "state" / "state.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "ingested": {
+                        "2026-06-01.md": {"hash": "stale"},
+                        "2026-06-02.md": {"hash": "stale"},
+                        "2026-06-03.md": {"hash": "stale"},
+                    }
+                }
+            )
+        )
+
+        monkeypatch.chdir(repo)
+        compile_mock = mocker.patch(
+            "claude_wiki.commands.compile._compile_one", return_value=0.0
+        )
+
+        exit_code = main(["compile", "--all", "--max-logs", "2"])
+
+        assert exit_code == 0
+        assert compile_mock.call_count == 2
+        compiled = [call.args[0].name for call in compile_mock.call_args_list]
+        assert compiled == ["2026-06-01.md", "2026-06-02.md"]
+
+    def test_max_logs_rejects_zero_and_negative(self, capsys: Any) -> None:
+        """``--max-logs`` rejects 0 and negative values with a clear error."""
+        for value in ("0", "-1"):
+            with pytest.raises(SystemExit) as exc_info:
+                main(["compile", "--max-logs", value])
+            captured = capsys.readouterr()
+
+            assert exc_info.value.code == 2
+            assert f"--max-logs must be a positive integer, got {value}" in captured.err
+
+    def test_max_logs_dry_run_honors_cap(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any, capsys: Any
+    ) -> None:
+        """``--dry-run`` lists only the capped subset and reports the total pending."""
+        repo, _daily_dir = self._make_five_pending_logs(tmp_path)
+        monkeypatch.chdir(repo)
+        compile_mock = mocker.patch("claude_wiki.commands.compile._compile_one")
+
+        exit_code = main(["compile", "--dry-run", "--max-logs", "2"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        compile_mock.assert_not_called()
+        assert (
+            "[DRY RUN] Would compile 2 of 5 pending logs (capped by --max-logs)."
+            in captured.out
+        )
+        assert "2026-06-01.md" in captured.out
+        assert "2026-06-02.md" in captured.out
+        assert "2026-06-03.md" not in captured.out
+        assert not (repo / ".claude" / "state" / "state.json").exists()
+
+    def test_default_uncapped_regression(
+        self, monkeypatch: Any, tmp_path: Path, mocker: Any, capsys: Any
+    ) -> None:
+        """Without ``--max-logs`` all pending logs compile and no summary is printed."""
+        repo, _daily_dir = self._make_five_pending_logs(tmp_path)
+        monkeypatch.chdir(repo)
+        compile_mock = mocker.patch(
+            "claude_wiki.commands.compile._compile_one", return_value=0.0
+        )
+
+        exit_code = main(["compile"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert compile_mock.call_count == 5
+        assert "capped by --max-logs" not in captured.out
+        assert "Compiled 5 of 5 pending logs" not in captured.out
 
 
 class TestCompileGaps:

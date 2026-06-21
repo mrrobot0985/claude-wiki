@@ -43,20 +43,24 @@ Compile daily logs into the knowledge base.
 
 ```text
 usage: claude-wiki compile [-h] [--all] [--file FILE] [--dry-run]
-                           [--continue-on-error] [--path PATH]
+                           [--continue-on-error] [--max-logs MAX_LOGS] [--path PATH]
 ```
 
-| Option                | Description                                                          |
-| --------------------- | -------------------------------------------------------------------- |
-| `--all`               | Force recompile all daily logs                                       |
-| `--file FILE`         | Compile a specific daily log file                                    |
-| `--dry-run`           | Show which logs would compile without writing                        |
-| `--continue-on-error` | Keep compiling remaining logs after a failure (still exits non-zero) |
-| `--path PATH`         | Repo root (default: auto-detect from current directory)              |
+| Option                | Description                                                                   |
+| --------------------- | ----------------------------------------------------------------------------- |
+| `--all`               | Force recompile all daily logs                                                |
+| `--file FILE`         | Compile a specific daily log file                                             |
+| `--dry-run`           | Show which logs would compile without writing                                 |
+| `--continue-on-error` | Keep compiling remaining logs after a failure (still exits non-zero)          |
+| `--max-logs N`        | Cap logs compiled this run, oldest first (alias `--limit`); default unlimited |
+| `--path PATH`         | Repo root (default: auto-detect from current directory)                       |
 
 Exit codes: `0` when all logs compile (or nothing to do); `1` if any log
 fails. By default the loop stops at the first failure; `--continue-on-error`
-attempts every log and exits `1` only if any failed.
+attempts every log and exits `1` only if any failed. `--max-logs` caps the
+number of logs compiled in one run (applies to both the default changed-only
+selection and `--all`; ignored with `--file`), selecting the oldest pending
+logs first and printing how many remain when the cap is hit.
 
 ### `claude-wiki query`
 

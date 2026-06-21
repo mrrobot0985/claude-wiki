@@ -342,26 +342,34 @@ def _find_files_to_compile(
     daily_dir: Path,
     repo_root: Path,
     state: dict[str, Any],
-) -> list[Path]:
-    """Determine which daily logs need compilation."""
+) -> tuple[list[Path], int]:
+    """Determine which daily logs need compilation.
+
+    Returns the (possibly capped) list of logs to compile and the total number
+    of pending logs before any cap is applied.
+    """
     if args.file:
         target = _resolve_target_file(args.file, daily_dir, repo_root)
         if target is None:
             print(f"Error: {args.file} not found", file=sys.stderr)
-            return []
-        return [target]
+            return [], 0
+        return [target], 1
 
     all_logs = _list_daily_files(daily_dir)
     if args.all:
-        return all_logs
+        to_compile = all_logs
+    else:
+        ingested: dict[str, dict[str, Any]] = state.get("ingested", {})
+        to_compile = [
+            log_path
+            for log_path in all_logs
+            if not ingested.get(log_path.name, {}).get("hash") == _file_hash(log_path)
+        ]
 
-    ingested: dict[str, dict[str, Any]] = state.get("ingested", {})
-    to_compile: list[Path] = []
-    for log_path in all_logs:
-        prev = ingested.get(log_path.name, {})
-        if not prev or prev.get("hash") != _file_hash(log_path):
-            to_compile.append(log_path)
-    return to_compile
+    total_pending = len(to_compile)
+    if args.max_logs is not None and total_pending > args.max_logs:
+        to_compile = to_compile[: args.max_logs]
+    return to_compile, total_pending
 
 
 def _handle_compile(args: argparse.Namespace) -> int:
@@ -386,20 +394,38 @@ def _handle_compile(args: argparse.Namespace) -> int:
     state_path = machine_state_dir / "state.json"
     state = _load_state(state_path)
 
-    to_compile = _find_files_to_compile(args, daily_dir, repo_root, state)
+    to_compile, total_pending = _find_files_to_compile(
+        args, daily_dir, repo_root, state
+    )
     if not to_compile:
         if args.file:
             return 1
         print("Nothing to compile - all daily logs are up to date.")
         return 0
 
-    prefix = "[DRY RUN] " if args.dry_run else ""
-    print(f"{prefix}Files to compile ({len(to_compile)}):")
-    for log_path in to_compile:
-        print(f"  - {log_path.name}")
+    capped = (
+        args.max_logs is not None and not args.file and total_pending > args.max_logs
+    )
 
     if args.dry_run:
+        if capped:
+            print(
+                f"[DRY RUN] Would compile {len(to_compile)} of {total_pending} pending logs "
+                "(capped by --max-logs)."
+            )
+        print(f"[DRY RUN] Files to compile ({len(to_compile)}):")
+        for log_path in to_compile:
+            print(f"  - {log_path.name}")
         return 0
+
+    if capped:
+        print(
+            f"Files to compile ({len(to_compile)} of {total_pending} - capped by --max-logs):"
+        )
+    else:
+        print(f"Files to compile ({len(to_compile)}):")
+    for log_path in to_compile:
+        print(f"  - {log_path.name}")
 
     kb_root.mkdir(parents=True, exist_ok=True)
     for subdir_name in _KB_SUBDIRS:
@@ -444,7 +470,27 @@ def _handle_compile(args: argparse.Namespace) -> int:
     )
 
     print(f"\nCompilation complete. Total cost: ${total_cost:.4f}")
+    if capped and not failed_logs:
+        print(
+            f"Compiled {len(to_compile)} of {total_pending} pending logs. "
+            "Re-run to continue (or raise --max-logs)."
+        )
     return 1 if failed_logs else 0
+
+
+def _parse_max_logs(value: str) -> int:
+    """Parse a positive integer for ``--max-logs``."""
+    try:
+        n = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"--max-logs must be a positive integer, got '{value}'"
+        ) from exc
+    if n <= 0:
+        raise argparse.ArgumentTypeError(
+            f"--max-logs must be a positive integer, got {n}"
+        )
+    return n
 
 
 def register(
@@ -475,6 +521,14 @@ def register(
         "--continue-on-error",
         action="store_true",
         help="Keep compiling remaining logs after a failure; still exit non-zero if any failed",
+    )
+    parser.add_argument(
+        "--max-logs",
+        "--limit",
+        type=_parse_max_logs,
+        dest="max_logs",
+        default=None,
+        help="Cap the number of daily logs compiled in this run (oldest first)",
     )
     parser.add_argument(
         "--path",
