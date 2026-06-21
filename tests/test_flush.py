@@ -314,6 +314,34 @@ class TestFlushMainErrors:
         assert "FLUSH_ERROR: RuntimeError: boom" in text
 
 
+class TestSaveFlushState:
+    """Tests for the atomic flush-state writer."""
+
+    def test_round_trip(self, tmp_path: Path) -> None:
+        """The saved JSON can be reloaded unchanged."""
+        state_file = tmp_path / "last-flush.json"
+        state = {"session_id": "s-1", "timestamp": 123.0}
+        flush.save_flush_state(state_file, state)
+        assert flush.load_flush_state(state_file) == state
+
+    def test_atomic_failure_leaves_original_intact(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If os.replace fails the original state file is untouched."""
+        state_file = tmp_path / "last-flush.json"
+        state_file.write_text('{"session_id": "original"}', encoding="utf-8")
+
+        def raise_after_write(*_args: Any, **_kwargs: Any) -> None:
+            raise OSError("replace failed")
+
+        monkeypatch.setattr(flush.os, "replace", raise_after_write)
+
+        with pytest.raises(OSError, match="replace failed"):
+            flush.save_flush_state(state_file, {"session_id": "new"})
+
+        assert state_file.read_text(encoding="utf-8") == '{"session_id": "original"}'
+
+
 class TestAppendToDailyLog:
     """Tests for the daily log append helper."""
 
@@ -331,6 +359,21 @@ class TestAppendToDailyLog:
         assert "## Sessions" in text
         assert "entry" in text
 
+    def test_appends_to_existing_log(self, tmp_path: Path) -> None:
+        """New entries are merged after the existing content."""
+        repo = tmp_path / "repo"
+        config = ProjectConfig(repo_name="repo", daily_dir="daily")
+        log_path = repo / "daily" / f"{date.today().strftime('%Y-%m-%d')}.md"
+        log_path.parent.mkdir(parents=True)
+        log_path.write_text("# existing\n\n## Sessions\n\n", encoding="utf-8")
+
+        flush.append_to_daily_log("entry", repo, config)
+
+        text = log_path.read_text(encoding="utf-8")
+        assert "# existing" in text
+        assert "### Session" in text
+        assert "entry" in text
+
     def test_appends_under_custom_section(self, tmp_path: Path) -> None:
         """The section name is reflected in the heading."""
         repo = tmp_path / "repo"
@@ -341,6 +384,45 @@ class TestAppendToDailyLog:
         text = log_path.read_text(encoding="utf-8")
         assert "### Memory Flush" in text
 
+    def test_atomic_failure_when_missing_does_not_create_target(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If os.replace fails, a missing daily log is not partially created."""
+        repo = tmp_path / "repo"
+        config = ProjectConfig(repo_name="repo", daily_dir="daily")
+        log_path = repo / "daily" / f"{date.today().strftime('%Y-%m-%d')}.md"
+
+        def raise_after_write(*_args: Any, **_kwargs: Any) -> None:
+            raise OSError("replace failed")
+
+        monkeypatch.setattr(flush.os, "replace", raise_after_write)
+
+        with pytest.raises(OSError, match="replace failed"):
+            flush.append_to_daily_log("entry", repo, config)
+
+        assert not log_path.exists()
+
+    def test_atomic_failure_leaves_existing_log_intact(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If os.replace fails, an existing daily log is unchanged."""
+        repo = tmp_path / "repo"
+        config = ProjectConfig(repo_name="repo", daily_dir="daily")
+        log_path = repo / "daily" / f"{date.today().strftime('%Y-%m-%d')}.md"
+        log_path.parent.mkdir(parents=True)
+        original = "# Daily Log\n\n## Sessions\n\nexisting entry\n\n"
+        log_path.write_text(original, encoding="utf-8")
+
+        def raise_after_write(*_args: Any, **_kwargs: Any) -> None:
+            raise OSError("replace failed")
+
+        monkeypatch.setattr(flush.os, "replace", raise_after_write)
+
+        with pytest.raises(OSError, match="replace failed"):
+            flush.append_to_daily_log("new entry", repo, config)
+
+        assert log_path.read_text(encoding="utf-8") == original
+
     def test_append_error_is_propagated(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -348,9 +430,9 @@ class TestAppendToDailyLog:
         repo = tmp_path / "repo"
         config = ProjectConfig(repo_name="repo", daily_dir="daily")
 
-        def raise_on_open(*_args: Any, **_kwargs: Any) -> None:
+        def raise_on_replace(*_args: Any, **_kwargs: Any) -> None:
             raise OSError("write failed")
 
-        monkeypatch.setattr(Path, "open", raise_on_open)
+        monkeypatch.setattr(flush.os, "replace", raise_on_replace)
         with pytest.raises(OSError, match="write failed"):
             flush.append_to_daily_log("entry", repo, config)
