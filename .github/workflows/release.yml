@@ -43,7 +43,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          REF_SHA=$(git rev-parse "$GITHUB_REF_NAME")
+          # Peel to the commit: for an annotated tag, `git rev-parse <tag>` returns
+          # the tag *object* sha, not the commit sha, which the commits API rejects
+          # (HTTP 422). `^{commit}` resolves to the commit for both annotated and
+          # lightweight tags.
+          REF_SHA=$(git rev-parse "$GITHUB_REF_NAME^{commit}")
           TAG_OBJ=$(git rev-parse "$GITHUB_REF_NAME^{tag}" 2>/dev/null || true)
           if [ -n "$TAG_OBJ" ] && [ "$TAG_OBJ" != "$REF_SHA" ]; then
             VERIFIED=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${TAG_OBJ}" --jq '.verification.verified // empty')
