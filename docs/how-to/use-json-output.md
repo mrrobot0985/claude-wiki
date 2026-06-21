@@ -6,11 +6,13 @@ ______________________________________________________________________
 
 ## Commands That Support `--json`
 
-| Command             | `--json` output                        |
-| ------------------- | -------------------------------------- |
-| `claude-wiki query` | Answered question + cited articles     |
-| `claude-wiki lint`  | Structured list of issues              |
-| `claude-wiki tags`  | Tag inventory with counts and examples |
+| Command              | `--json` output                                  |
+| -------------------- | ------------------------------------------------ |
+| `claude-wiki query`  | Answered question + cited articles               |
+| `claude-wiki lint`   | Structured list of issues                        |
+| `claude-wiki status` | Repository health checks with per-check status   |
+| `claude-wiki graph`  | Link topology: orphans, hubs, components, counts |
+| `claude-wiki tags`   | Tag inventory with counts and examples           |
 
 Human-readable output is optimized for reading; JSON output is optimized for
 piping into `jq`, GitHub Actions, or custom scripts.
@@ -86,6 +88,65 @@ Use `--fail-on-warning` when you want a CI gate to fail on any warning:
 claude-wiki lint --json --fail-on-warning
 ```
 
+## Status JSON
+
+```bash
+claude-wiki status --json
+```
+
+```json
+{
+  "repo": "my-repo",
+  "total_errors": 1,
+  "checks": [
+    {"name": "Lock file", "status": "ok", "message": ".claude-wiki.lock present and valid", "errors": 0},
+    {"name": "Hooks", "status": "error", "message": "claude-wiki hooks not found in settings", "errors": 1}
+  ]
+}
+```
+
+Each check has a `status` of `"ok"`, `"warning"`, or `"error"` (`"error"` when `errors > 0`,
+`"warning"` when the check passed with a caveat, else `"ok"`). The leading status icon is
+stripped from `message`.
+
+### Exit-code contract for `status --json`
+
+| Code | Meaning                                          | JSON payload                                         |
+| ---- | ------------------------------------------------ | ---------------------------------------------------- |
+| `0`  | All checks passed (`total_errors == 0`)          | `{repo, total_errors, checks}`                       |
+| `1`  | One or more checks errored, or not in a git repo | `{repo, total_errors, checks}` or `{"error": "..."}` |
+
+## Graph JSON
+
+```bash
+claude-wiki graph --json
+```
+
+```json
+{
+  "repo": "my-repo",
+  "articles": 42,
+  "by_subdir": {"concepts": 30, "connections": 7, "qa": 5},
+  "links": 58,
+  "orphans": ["concepts/unused-concept"],
+  "hubs": [{"article": "concepts/vault-layout", "inbound": 12}],
+  "components": {"count": 3, "largest": 38}
+}
+```
+
+`links` counts outbound `[[wikilinks]]` that resolve to an existing article. `orphans` are
+articles with zero inbound links (consistent with lint's `orphan_page`). `hubs` lists the top
+`N` articles by inbound degree (default `5`, override with `--top N`). `components` treats
+links as undirected and reports the number of connected groups and the largest group's size —
+useful for spotting a fragmented knowledge base.
+
+### Exit-code contract for `graph --json`
+
+| Code | Meaning                                                                        | JSON payload                                                    |
+| ---- | ------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| `0`  | Report produced (graph is read-only; always succeeds once the repo/KB resolve) | `{repo, articles, by_subdir, links, orphans, hubs, components}` |
+| `1`  | Not in a git repository, or no KB directory                                    | `{"error": "..."}`                                              |
+
 ## CI Examples
 
 ### Fail on any lint error in GitHub Actions
@@ -125,3 +186,27 @@ claude-wiki lint --json --structural-only
 
 This skips the LLM-based contradiction check, so the gate runs quickly and
 without API cost.
+
+### Gate CI on repository health
+
+`status --json` exits non-zero when any check errors, so it works directly as
+a CI gate. To also report which checks failed:
+
+```bash
+#!/usr/bin/env bash
+claude-wiki status --json > status.json
+rc=$?
+if [[ "$rc" -ne 0 ]]; then
+  jq -r '.checks[] | select(.status == "error") | "\(.name): \(.message)"' status.json
+  exit "$rc"
+fi
+```
+
+### Track knowledge-base growth and fragmentation
+
+```bash
+claude-wiki graph --json | jq '{articles, links, components: .components.count, orphans: (.orphans | length)}'
+```
+
+A rising `orphans` count or a growing `components` count signals a knowledge
+base that is drifting apart — surface it in a dashboard or PR comment.
