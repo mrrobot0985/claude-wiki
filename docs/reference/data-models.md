@@ -11,6 +11,7 @@ ______________________________________________________________________
 class ProjectConfig:
     repo_name: str
     repo_owner: str = "local"
+    layout_version: str = "2"
     kb_dir: Path = Path("project")
     daily_dir: Path = Path("daily")
     reports_dir: Path = Path("reports")
