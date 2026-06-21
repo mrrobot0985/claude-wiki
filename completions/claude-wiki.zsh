@@ -1,7 +1,7 @@
 #compdef claude-wiki
 
 _claude_wiki_commands() {
-    local commands=(compile init lint migrate query register registry rename-catalog status tags)
+    local commands=(compile graph init lint migrate query register registry rename-catalog status tags)
     _describe -t commands 'claude-wiki command' commands
 }
 
@@ -25,6 +25,14 @@ _claude_wiki() {
                 '--limit[]' \
                 '--max-logs[]' \
                 '--path[]' \
+                '*:: :_files'
+            ;;
+        (graph)
+            _arguments -C \
+                '--help[]' \
+                '--json[]' \
+                '--path[]' \
+                '--top[]' \
                 '*:: :_files'
             ;;
         (init)

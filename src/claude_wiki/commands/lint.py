@@ -15,12 +15,20 @@ from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
-from claude_wiki.catalog_utils import extract_tags, resolve_catalog
+from claude_wiki.catalog_utils import resolve_catalog
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
+from claude_wiki.graph_utils import (
+    KB_SUBDIRS,
+    LinkGraph,
+    build_link_graph,
+    extract_wikilinks,
+    list_articles,
+    split_frontmatter,
+    wikilink_target,
+)
 
 
-KB_SUBDIRS = ("concepts", "connections", "qa")
 SPARSE_WORD_THRESHOLD = 200
 
 # Plain-text article path references in the catalog (e.g. ``concepts/foo``).
@@ -48,17 +56,6 @@ class _IgnoreRule:
     path_pattern: str
     check: str
     reason: str
-
-
-@dataclass(frozen=True)
-class _LinkGraph:
-    """Single-pass index of wiki articles and their outbound wikilinks."""
-
-    articles: dict[str, str]
-    outbound: dict[str, set[str]]
-    inbound: dict[str, int]
-    frontmatter: dict[str, dict[str, str] | None]
-    tags: dict[str, list[str]]
 
 
 def register(subparsers: Any, handlers: dict[str, Any]) -> None:
@@ -199,45 +196,6 @@ def _print_lint_json(
     print(json.dumps({"issues": issue_payload}, indent=2))
 
 
-def _build_link_graph(kb_root: Path) -> _LinkGraph:
-    """Read every wiki article once and index its outbound wikilinks.
-
-    The broken-link, orphan-page, sparse-article, and frontmatter checks reuse
-    this graph so the KB is read O(articles) times instead of O(articles²).
-    """
-    articles: dict[str, str] = {}
-    outbound: dict[str, set[str]] = {}
-    inbound: dict[str, int] = {}
-    frontmatter: dict[str, dict[str, str] | None] = {}
-    tags: dict[str, list[str]] = {}
-
-    for article in _list_articles(kb_root):
-        rel = article.relative_to(kb_root).as_posix()
-        content = article.read_text(encoding="utf-8")
-        articles[rel] = content
-        frontmatter[rel] = _parse_frontmatter(content)
-        tags[rel] = extract_tags(content)
-
-        targets: set[str] = set()
-        for link in _extract_wikilinks(content):
-            target = _wikilink_target(link)
-            targets.add(target)
-            # A page never counts as its own inbound link.
-            if target == rel.replace(".md", ""):
-                continue
-            if (kb_root / f"{target}.md").exists():
-                inbound[target] = inbound.get(target, 0) + 1
-        outbound[rel] = targets
-
-    return _LinkGraph(
-        articles=articles,
-        outbound=outbound,
-        inbound=inbound,
-        frontmatter=frontmatter,
-        tags=tags,
-    )
-
-
 def _run_structural_checks(
     state_dir: Path,
     kb_root: Path,
@@ -248,7 +206,7 @@ def _run_structural_checks(
 ) -> list[_Issue]:
     """Run all non-LLM health checks."""
     state = _load_state(state_dir)
-    graph = _build_link_graph(kb_root)
+    graph = build_link_graph(kb_root)
     issues: list[_Issue] = []
     issues.extend(_check_broken_links(kb_root, graph))
     issues.extend(_check_orphan_pages(graph))
@@ -272,7 +230,7 @@ def _run_fixable_checks(kb_root: Path) -> list[_Issue]:
 def _check_missing_trailing_newlines(kb_root: Path) -> list[_Issue]:
     """Flag article files that do not end with a trailing newline."""
     issues: list[_Issue] = []
-    for article in _list_articles(kb_root):
+    for article in list_articles(kb_root):
         rel = article.relative_to(kb_root).as_posix()
         content = article.read_text(encoding="utf-8")
         if content and not content.endswith("\n"):
@@ -291,11 +249,11 @@ def _check_missing_trailing_newlines(kb_root: Path) -> list[_Issue]:
 def _check_daily_wikilinks(kb_root: Path) -> list[_Issue]:
     """Flag [[daily/...]] wikilinks that should be plain text per ADR-007."""
     issues: list[_Issue] = []
-    for article in _list_articles(kb_root):
+    for article in list_articles(kb_root):
         rel = article.relative_to(kb_root).as_posix()
         content = article.read_text(encoding="utf-8")
-        for link in _extract_wikilinks(content):
-            if _wikilink_target(link).startswith("daily/"):
+        for link in extract_wikilinks(content):
+            if wikilink_target(link).startswith("daily/"):
                 issues.append(
                     _Issue(
                         severity="warning",
@@ -319,8 +277,8 @@ def _fix_daily_links_in_content(content: str) -> str:
 
     def repl(match: re.Match[str]) -> str:
         inner = match.group(1)
-        if _wikilink_target(inner).startswith("daily/"):
-            return _wikilink_target(inner)
+        if wikilink_target(inner).startswith("daily/"):
+            return wikilink_target(inner)
         return match.group(0)
 
     return _DAILY_LINK_RE.sub(repl, content)
@@ -346,12 +304,12 @@ def _apply_fixes(kb_root: Path, fixable_issues: list[_Issue]) -> None:
             path.write_text(new_content, encoding="utf-8")
 
 
-def _check_broken_links(kb_root: Path, graph: _LinkGraph) -> list[_Issue]:
+def _check_broken_links(kb_root: Path, graph: LinkGraph) -> list[_Issue]:
     """Find wikilinks that point to non-existent articles."""
     issues: list[_Issue] = []
     for rel, content in graph.articles.items():
-        for link in _extract_wikilinks(content):
-            target_link = _wikilink_target(link)
+        for link in extract_wikilinks(content):
+            target_link = wikilink_target(link)
             if target_link.startswith("daily/"):
                 continue
             target = kb_root / f"{target_link}.md"
@@ -367,7 +325,7 @@ def _check_broken_links(kb_root: Path, graph: _LinkGraph) -> list[_Issue]:
     return issues
 
 
-def _check_orphan_pages(graph: _LinkGraph) -> list[_Issue]:
+def _check_orphan_pages(graph: LinkGraph) -> list[_Issue]:
     """Find articles with zero inbound links."""
     issues: list[_Issue] = []
     for rel in graph.articles:
@@ -423,7 +381,7 @@ def _check_stale_articles(daily_dir: Path, state: dict[str, Any]) -> list[_Issue
 
 
 def _check_sparse_articles(
-    graph: _LinkGraph, *, threshold: int = SPARSE_WORD_THRESHOLD
+    graph: LinkGraph, *, threshold: int = SPARSE_WORD_THRESHOLD
 ) -> list[_Issue]:
     """Find articles shorter than the recommended word count."""
     issues: list[_Issue] = []
@@ -441,7 +399,7 @@ def _check_sparse_articles(
     return issues
 
 
-def _check_single_use_tags(graph: _LinkGraph) -> list[_Issue]:
+def _check_single_use_tags(graph: LinkGraph) -> list[_Issue]:
     """Flag tags that appear on exactly one article as likely typos or orphans."""
     tag_counts: dict[str, int] = {}
     tag_example: dict[str, str] = {}
@@ -473,8 +431,8 @@ def _extract_catalog_references(catalog_content: str) -> set[str]:
     optional ``.md`` suffix.
     """
     referenced: set[str] = set()
-    for link in _extract_wikilinks(catalog_content):
-        referenced.add(_wikilink_target(link))
+    for link in extract_wikilinks(catalog_content):
+        referenced.add(wikilink_target(link))
     for match in _CATALOG_PLAIN_REF_RE.finditer(catalog_content):
         path = f"{match.group(1)}/{match.group(2).strip('/')}"
         if path.endswith(".md"):
@@ -494,7 +452,7 @@ def _check_catalog_completeness(
     referenced = _extract_catalog_references(catalog.read_text(encoding="utf-8"))
 
     existing: set[str] = set()
-    for article in _list_articles(kb_root):
+    for article in list_articles(kb_root):
         existing.add(article.relative_to(kb_root).with_suffix("").as_posix())
 
     issues: list[_Issue] = []
@@ -616,16 +574,6 @@ Do NOT output anything else - no preamble, no explanation, just the formatted li
     return issues
 
 
-def _list_articles(kb_root: Path) -> list[Path]:
-    """Return all markdown articles under the KB subdirectories."""
-    articles: list[Path] = []
-    for subdir_name in KB_SUBDIRS:
-        subdir = kb_root / subdir_name
-        if subdir.exists():
-            articles.extend(sorted(subdir.glob("*.md")))
-    return articles
-
-
 def _list_daily_files(daily_dir: Path) -> list[Path]:
     """Return all markdown daily logs."""
     if not daily_dir.exists():
@@ -633,66 +581,14 @@ def _list_daily_files(daily_dir: Path) -> list[Path]:
     return sorted(daily_dir.glob("*.md"))
 
 
-def _extract_wikilinks(content: str) -> list[str]:
-    """Return all [[wikilinks]] found in the content."""
-    return re.findall(r"\[\[([^\]]+)\]\]", content)
-
-
-def _wikilink_target(link: str) -> str:
-    """Normalize a wikilink inner text to its target path.
-
-    Strips Obsidian alias (``[[target|alias]]`` → ``target``) and anchor
-    (``[[target#heading]]`` → ``target``) so link resolution and inbound
-    counting compare the actual target, not the display form.
-    """
-    # Drop alias first (anchor may appear on either side of the pipe).
-    target = link.split("|", 1)[0]
-    target = target.split("#", 1)[0]
-    return target.strip()
-
-
 def _file_hash(path: Path) -> str:
     """Return a short SHA-256 hash of a file."""
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
-def _split_frontmatter(content: str) -> tuple[str | None, str]:
-    """Split raw markdown into (frontmatter, body).
-
-    Returns ``(None, content)`` when no YAML frontmatter delimiters are present.
-    """
-    if not content.startswith("---"):
-        return None, content
-    end = content.find("---", 3)
-    if end == -1:
-        return None, content
-    return content[3:end].strip(), content[end + 3 :].lstrip()
-
-
-def _parse_frontmatter(content: str) -> dict[str, str] | None:
-    """Return a simple key/value map for the YAML frontmatter block, if present.
-
-    Only top-level scalar keys are captured; nested list items are skipped.
-    A key with an empty value is still considered present.
-    """
-    fm, _ = _split_frontmatter(content)
-    if fm is None:
-        return None
-    result: dict[str, str] = {}
-    for line in fm.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        result[key.strip()] = value.strip()
-    return result
-
-
 def _word_count_content(content: str) -> int:
     """Return the word count of a markdown string, excluding YAML frontmatter."""
-    _, body = _split_frontmatter(content)
+    _, body = split_frontmatter(content)
     return len(body.split())
 
 
@@ -719,7 +615,7 @@ _ARTICLE_REQUIRED_FIELDS = (
 )
 
 
-def _check_frontmatter(graph: _LinkGraph) -> list[_Issue]:
+def _check_frontmatter(graph: LinkGraph) -> list[_Issue]:
     """Enforce required YAML frontmatter fields in KB article subdirs."""
     issues: list[_Issue] = []
     for rel, frontmatter in graph.frontmatter.items():
