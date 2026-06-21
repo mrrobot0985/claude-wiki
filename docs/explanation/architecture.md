@@ -3,7 +3,7 @@
 ```
 Conversation -> SessionEnd/PreCompact hooks -> flush.py
     -> daily/YYYY-MM-DD.md -> compile.py -> knowledge/
-        -> SessionStart hook injects index.md -> cycle repeats
+        -> SessionStart hook injects {repo_name}.md -> cycle repeats
 ```
 
 ______________________________________________________________________
@@ -11,9 +11,9 @@ ______________________________________________________________________
 ## Layer 1: Daily Logs (Source)
 
 - Append-only, immutable after creation
-- One file per day: `daily/YYYY-MM-DD.md`
+- One file per day: `daily/YYYY-MM-DD.md` (project mode: `.claude/daily/`; user mode: `~/.local/share/claude-wiki-daily/<owner>/<repo>/`)
 - Captured automatically via hooks + `flush.py`
-- Source of truth, committed to git
+- Source of truth, kept out of version control by design (see ADR-005)
 
 ## Layer 2: Knowledge Base (Compiled)
 
@@ -31,8 +31,8 @@ ______________________________________________________________________
 
 ## Layer 4: Global Registry
 
-- `~/.local/share/claude-wiki/.registry.json` — machine-managed list of all repos
-- `~/.local/share/claude-wiki/core.md` — human-readable global catalog linking every repo's `{repo_name}.md`
+- `~/.local/share/claude-wiki-vault/.registry.json` — machine-managed list of all repos
+- `~/.local/share/claude-wiki-vault/core.md` — human-readable global catalog linking every repo's `{repo_name}.md`
 - Updated automatically by `init`, `compile`, and `migrate`
 - Injected into SessionStart context so the agent knows about other knowledge bases
 
@@ -43,13 +43,13 @@ Priority chain for KB root (highest wins):
 1. `CLAUDE_WIKI_PROJECT_DIR` env var
 1. Absolute `kb_dir` in `.claude-wiki.lock`
 1. `kb_dir = "project"` → `<repo>/.claude/knowledge/` (default)
-1. `kb_dir = "user"` → XDG: `~/.local/share/claude-wiki/<owner>/<repo>/`
+1. `kb_dir = "user"` → XDG: `~/.local/share/claude-wiki-vault/<owner>/<repo>/`
 1. Any other relative path → `<repo>/<path>/`
 
 ## State Tracking
 
 - `.claude-wiki.lock` — per-repo config marker. `migrate` compares the previously saved config against the current config (including any `--kb-dir`, `--daily-dir`, or `--reports-dir` overrides) to detect path changes between runs.
-- `state.json` — lives inside the knowledge base directory (`kb_root / state.json`) and tracks daily-log compilation hashes, timestamps, and cost estimates.
+- `state.json` — tracks daily-log compilation hashes, timestamps, and cost estimates. Lives in the machine-state directory (project mode: `<repo>/.claude/state/`; user mode: `~/.local/state/claude-wiki/repos/<owner>/<repo>/`), never inside the KB root.
 - Do not commit `state.json`; it is machine-managed.
 
 ## Dependency Direction

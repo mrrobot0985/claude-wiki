@@ -12,7 +12,7 @@ Project mode stores the KB at `<repo>/.claude/knowledge/`. This works well for a
 - You clone the repo frequently and do not want to recompile each time.
 - You keep the repo in Dropbox / iCloud and the KB volume causes sync noise.
 
-User mode relocates the KB to `~/.local/share/claude-wiki/<owner>/<repo>/` (XDG-compliant, namespaced by owner). The daily log directory moves with it so everything stays together.
+User mode relocates the KB to `~/.local/share/claude-wiki-vault/<owner>/<repo>/` (XDG-compliant, namespaced by owner). The daily log directory moves with it so everything stays together.
 
 ## Steps
 
@@ -24,13 +24,13 @@ Open `.claude-wiki.lock` and change `kb_dir`:
 {
   "repo_name": "my-project",
   "repo_owner": "mrrobot0985",
+  "layout_version": "2",
   "kb_dir": "user",
-  "daily_dir": "user",
   "timezone": "UTC"
 }
 ```
 
-You only need to change `kb_dir` — `daily_dir` defaults to the same namespace automatically when omitted. If you want to keep daily logs in the repo, set `"daily_dir": ".claude/daily"` explicitly.
+You only need to change `kb_dir` — `daily_dir` defaults to the same namespace automatically when omitted (it resolves to `~/.local/share/claude-wiki-daily/<owner>/<repo>/` in user mode). If you want to keep daily logs in the repo, set `"daily_dir": ".claude/daily"` explicitly.
 
 ### 2. Preview the Move
 
@@ -62,17 +62,17 @@ If a destination already exists, the move is skipped with a warning so nothing i
 claude-wiki status
 ```
 
-All checks should show green. The catalog file is now `~/.local/share/claude-wiki/mrrobot0985/my-project/my-project.md`.
+All checks should show green. The catalog file is now `~/.local/share/claude-wiki-vault/mrrobot0985/my-project/my-project.md`.
 
 ### 5. Update Obsidian
 
 If you were pointing an Obsidian vault at `<repo>/.claude/knowledge/`, repoint it to:
 
 ```
-~/.local/share/claude-wiki/
+~/.local/share/claude-wiki-vault/
 ```
 
-The global registry at `~/.local/share/claude-wiki/core.md` updates automatically and now links to the user-mode KB.
+The global registry at `~/.local/share/claude-wiki-vault/core.md` updates automatically and now links to the user-mode KB.
 
 ## Rollback
 
