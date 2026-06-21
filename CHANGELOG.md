@@ -4,7 +4,44 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `-v` short flag as an alias for `--version` (the man page already documented
+  it; the CLI now matches)
+  ([#162](https://github.com/mrrobot0985/claude-wiki/pull/162))
+
+### Fixed
+
+- `compile` and `lint` now write `state.json` atomically (sibling temp +
+  `os.replace`) and tolerate a corrupt/partial state file instead of crashing
+  the next run. `compile` no longer stamps the global registry `last_compiled`
+  or prints "Compilation complete" when daily logs failed — it exits non-zero
+  with "Compilation failed for N log(s)" instead
+  ([#158](https://github.com/mrrobot0985/claude-wiki/pull/158))
+- `rename-catalog` now exits non-zero when it refuses to overwrite an existing
+  catalog (previously printed an `ERROR:` line but returned 0). `migrate`
+  rewrites `[[index]]` self-links inside the renamed catalog file, not just in
+  `concepts/`/`connections/`/`qa/` articles
+  ([#160](https://github.com/mrrobot0985/claude-wiki/pull/160))
+
+### Changed
+
+- Removed the unused `HookRegistrationError` exception and consolidated the
+  duplicate `split_frontmatter` helper (one copy each in `catalog_utils` and
+  `graph_utils`) into a single public `split_frontmatter` in `catalog_utils`
+  ([#161](https://github.com/mrrobot0985/claude-wiki/pull/161))
+
+### Documentation
+
+- Corrected pre-ADR-005/006 path drift across the docs (vault is
+  `claude-wiki-vault`, daily dir `.claude/daily`, `state.json` in the
+  machine-state dir, SessionStart injects `{repo_name}.md`, daily logs are not
+  committed), added the missing `layout_version` field to the lock-file
+  references, documented `qa/` articles in `AGENTS.md`, and synced the man page
+  with the shipped CLI (`graph`, `compile --max-logs`, `status --json`)
+  ([#159](https://github.com/mrrobot0985/claude-wiki/pull/159),
+  [#162](https://github.com/mrrobot0985/claude-wiki/pull/162),
+  [#163](https://github.com/mrrobot0985/claude-wiki/pull/163))
 
 ## [0.13.1] - 2026-06-21
 
