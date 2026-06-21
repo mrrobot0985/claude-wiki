@@ -23,7 +23,7 @@ uv pip install claude-wiki
 ```bash
 git clone https://github.com/mrrobot0985/claude-wiki
 cd claude-wiki
-uv sync --extra dev --frozen
+uv sync --frozen
 ```
 
 ______________________________________________________________________

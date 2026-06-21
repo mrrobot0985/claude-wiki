@@ -7,7 +7,7 @@ install: ## Install package
 	uv pip install -e .
 
 dev: ## Install package with dev dependencies
-	uv pip install -e ".[dev]"
+	uv sync
 
 install-precommit: ## Install pre-commit git hooks
 	uv run pre-commit install

@@ -75,7 +75,7 @@ jobs:
 
       - name: Sync dependencies
         if: steps.evaluate.outputs.run == 'true'
-        run: uv sync --extra dev --frozen
+        run: uv sync --frozen
 
       - name: Run tests
         if: steps.evaluate.outputs.run == 'true'
@@ -133,7 +133,7 @@ jobs:
 
       - name: Sync dependencies
         if: steps.evaluate.outputs.run == 'true'
-        run: uv sync --extra dev --frozen
+        run: uv sync --frozen
 
       - name: Run pre-commit
         if: steps.evaluate.outputs.run == 'true'

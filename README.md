@@ -66,7 +66,7 @@ uvx claude-wiki init
 From source in a clone of this repo:
 
 ```bash
-uv sync --extra dev --frozen
+uv sync --frozen
 ```
 
 Requires Python 3.12+. No API key — LLM calls use Claude Code's own credentials.
