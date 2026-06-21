@@ -813,6 +813,13 @@ class TestContradictionDetection:
         (concepts / "b.md").write_text(
             _article_with_frontmatter(long_text + "\n[[concepts/a]]", title="B")
         )
+        (kb_root / "repo.md").write_text(
+            "# Index\n\n"
+            "| Article | Summary |\n"
+            "|---------|---------|\n"
+            "| [[concepts/a]] | A |\n"
+            "| [[concepts/b]] | B |\n"
+        )
 
         monkeypatch.chdir(repo)
 
@@ -1116,6 +1123,177 @@ class TestLintTags:
         issue = next(i for i in payload["issues"] if i["check"] == "tag_single_use")
         assert issue["severity"] == "suggestion"
         assert "unique" in issue["message"]
+
+
+class TestLintCatalogCompleteness:
+    """Catalog completeness checks for catalog-first retrieval."""
+
+    def _repo_and_kb(self, tmp_path: Path) -> tuple[Path, Path]:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        kb_root = repo / ".claude" / "knowledge"
+        kb_root.mkdir(parents=True)
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {
+                    "repo_name": "repo",
+                    "repo_owner": "local",
+                    "kb_dir": "project",
+                    "daily_dir": "daily",
+                    "timezone": "UTC",
+                }
+            )
+        )
+        return repo, kb_root
+
+    @pytest.fixture(autouse=True)
+    def fixed_today(self) -> None:
+        with patch("claude_wiki.commands.lint._today_iso", return_value="2026-06-19"):
+            yield
+
+    def _catalog_table(self, rows: str) -> str:
+        """Return a catalog markdown table with the given rows."""
+        return f"# Index\n\n| Article | Summary |\n|---------|---------|\n{rows}"
+
+    def _article(self, kb_root: Path, rel_path: str, body: str = "") -> None:
+        """Write a valid article file under the KB root."""
+        path = kb_root / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            _article_with_frontmatter(body or "word " * 250, title=path.stem),
+            encoding="utf-8",
+        )
+
+    def test_uncatalogued_article_emits_warning(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An existing article not referenced by the catalog is a warning."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        long_text = "word " * 250
+        self._article(kb_root, "concepts/a.md", long_text + "\n[[concepts/b]]")
+        self._article(kb_root, "concepts/b.md", long_text + "\n[[concepts/a]]")
+        (kb_root / "repo.md").write_text(
+            self._catalog_table("| concepts/a | A |\n"), encoding="utf-8"
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "Results: 0 errors, 1 warnings" in captured.out
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
+        assert (
+            "Uncatalogued article: concepts/b.md is not listed in the catalog" in report
+        )
+
+    def test_stale_catalog_entry_emits_error(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A catalog reference to a missing article is an error."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        long_text = "word " * 250
+        self._article(kb_root, "concepts/a.md", long_text + "\n[[concepts/b]]")
+        self._article(kb_root, "concepts/b.md", long_text + "\n[[concepts/a]]")
+        (kb_root / "repo.md").write_text(
+            self._catalog_table(
+                "| [[concepts/a]] | A |\n"
+                "| [[concepts/b]] | B |\n"
+                "| [[concepts/missing]] | Missing |\n"
+            ),
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 2
+        assert "Results: 1 errors, 0 warnings" in captured.out
+        report = (repo / ".claude" / "reports" / "lint-2026-06-19.md").read_text()
+        assert (
+            "Stale catalog entry: catalog references concepts/missing"
+            " but no such article exists"
+        ) in report
+
+    def test_clean_kb_no_catalog_issues(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """When every article is catalogued and every entry exists, no issues."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        long_text = "word " * 250
+        self._article(kb_root, "concepts/a.md", long_text + "\n[[connections/b]]")
+        self._article(kb_root, "connections/b.md", long_text + "\n[[qa/c]]")
+        self._article(kb_root, "qa/c.md", long_text + "\n[[concepts/a]]")
+        (kb_root / "repo.md").write_text(
+            self._catalog_table(
+                "| [[concepts/a]] | A |\n| connections/b | B |\n| [[qa/c]] | C |\n"
+            ),
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "uncatalogued_article" not in captured.out
+        assert "stale_catalog_entry" not in captured.out
+        assert "Results: 0 errors, 0 warnings, 0 suggestions" in captured.out
+
+    def test_no_catalog_skips_check(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A KB without a catalog file skips the check without crashing."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        self._article(kb_root, "concepts/a.md")
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "uncatalogued_article" not in captured.out
+        assert "stale_catalog_entry" not in captured.out
+
+    def test_json_includes_catalog_completeness_issues(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--json exposes both new catalog check ids with correct severities."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        long_text = "word " * 250
+        self._article(kb_root, "concepts/a.md", long_text + "\n[[concepts/b]]")
+        self._article(kb_root, "concepts/b.md", long_text + "\n[[concepts/a]]")
+        (kb_root / "repo.md").write_text(
+            self._catalog_table(
+                "| [[concepts/a]] | A |\n"
+                "| [[concepts/b]] | B |\n"
+                "| [[concepts/missing]] | Missing |\n"
+            ),
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only", "--json"])
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+
+        assert exit_code == 2
+        stale = [i for i in payload["issues"] if i["check"] == "stale_catalog_entry"]
+        assert len(stale) == 1
+        assert stale[0]["severity"] == "error"
+        assert "concepts/missing" in stale[0]["message"]
+        uncatalogued = [
+            i for i in payload["issues"] if i["check"] == "uncatalogued_article"
+        ]
+        assert len(uncatalogued) == 0
 
 
 class TestLintFix:

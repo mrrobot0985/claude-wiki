@@ -129,8 +129,12 @@ usage: claude-wiki lint [-h] [--structural-only] [--fail-on-warning]
 
 Checks include broken wikilinks, orphan pages, sparse articles (above the
 threshold), required frontmatter fields (`frontmatter_missing_title`/`_sources`
-are errors; `_aliases`/`_tags`/`_created`/`_updated` are warnings), and
-single-use tags (`tag_single_use`, a suggestion). `--fix` applies safe
+are errors; `_aliases`/`_tags`/`_created`/`_updated` are warnings), single-use
+tags (`tag_single_use`, a suggestion), and catalog↔article completeness
+(`uncatalogued_article` is a warning; `stale_catalog_entry` is an error). The
+catalog (`{repo_name}.md`) is the primary retrieval surface — the `SessionStart`
+hook injects it and `query` reads it first — so every article must appear in it
+and every catalog entry must resolve to a file. `--fix` applies safe
 deterministic repairs (`missing_trailing_newline`, `daily_wikilink` per
 ADR-007) in place; `--dry-run` previews them. `--json` includes an
 `auto_fixable` field when fixable checks run. Suppress false positives with a

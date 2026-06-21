@@ -23,6 +23,11 @@ from claude_wiki.errors import RepoNotFoundError
 KB_SUBDIRS = ("concepts", "connections", "qa")
 SPARSE_WORD_THRESHOLD = 200
 
+# Plain-text article path references in the catalog (e.g. ``concepts/foo``).
+_CATALOG_PLAIN_REF_RE = re.compile(
+    r"(?<![\w/.-])(concepts|connections|qa)/([\w/.-]+?)(?![\w/.-])"
+)
+
 EXIT_OK = 0
 EXIT_WARNINGS = 1
 EXIT_ERRORS = 2
@@ -119,7 +124,11 @@ def _lint_handler(args: argparse.Namespace) -> int:
     ignore_rules = _load_ignore_rules(repo_root)
 
     issues = _run_structural_checks(
-        machine_state_dir, kb_root, daily_dir, threshold=args.threshold
+        machine_state_dir,
+        kb_root,
+        daily_dir,
+        repo_name=config.repo_name,
+        threshold=args.threshold,
     )
     if args.fix or args.dry_run:
         issues.extend(_run_fixable_checks(kb_root))
@@ -137,7 +146,11 @@ def _lint_handler(args: argparse.Namespace) -> int:
             # Re-evaluate structural checks after applying fixes so the final
             # report reflects the repaired KB.
             issues = _run_structural_checks(
-                machine_state_dir, kb_root, daily_dir, threshold=args.threshold
+                machine_state_dir,
+                kb_root,
+                daily_dir,
+                repo_name=config.repo_name,
+                threshold=args.threshold,
             )
             issues = [issue for issue in issues if not _is_ignored(issue, ignore_rules)]
             fixable_issues = []
@@ -230,6 +243,7 @@ def _run_structural_checks(
     kb_root: Path,
     daily_dir: Path,
     *,
+    repo_name: str | None = None,
     threshold: int = SPARSE_WORD_THRESHOLD,
 ) -> list[_Issue]:
     """Run all non-LLM health checks."""
@@ -243,6 +257,7 @@ def _run_structural_checks(
     issues.extend(_check_sparse_articles(graph, threshold=threshold))
     issues.extend(_check_frontmatter(graph))
     issues.extend(_check_single_use_tags(graph))
+    issues.extend(_check_catalog_completeness(kb_root, repo_name=repo_name))
     return issues
 
 
@@ -447,6 +462,67 @@ def _check_single_use_tags(graph: _LinkGraph) -> list[_Issue]:
                     detail=f"Tag '{tag}' appears on only one article - possible typo or orphan tag",
                 )
             )
+    return issues
+
+
+def _extract_catalog_references(catalog_content: str) -> set[str]:
+    """Return all article paths referenced in the catalog body.
+
+    Accepts both ``[[concepts/foo]]`` wikilinks and plain-text
+    ``concepts/foo`` references, normalising anchors/aliases and stripping an
+    optional ``.md`` suffix.
+    """
+    referenced: set[str] = set()
+    for link in _extract_wikilinks(catalog_content):
+        referenced.add(_wikilink_target(link))
+    for match in _CATALOG_PLAIN_REF_RE.finditer(catalog_content):
+        path = f"{match.group(1)}/{match.group(2).strip('/')}"
+        if path.endswith(".md"):
+            path = path[:-3]
+        referenced.add(path)
+    return referenced
+
+
+def _check_catalog_completeness(
+    kb_root: Path, repo_name: str | None = None
+) -> list[_Issue]:
+    """Verify the catalog references every article and every reference resolves."""
+    catalog = resolve_catalog(kb_root, repo_name)
+    if not catalog.exists():
+        return []
+
+    referenced = _extract_catalog_references(catalog.read_text(encoding="utf-8"))
+
+    existing: set[str] = set()
+    for article in _list_articles(kb_root):
+        existing.add(article.relative_to(kb_root).with_suffix("").as_posix())
+
+    issues: list[_Issue] = []
+    for path in existing:
+        if path not in referenced:
+            issues.append(
+                _Issue(
+                    severity="warning",
+                    check="uncatalogued_article",
+                    file=f"{path}.md",
+                    detail=f"Uncatalogued article: {path}.md is not listed in the catalog",
+                )
+            )
+
+    for path in referenced:
+        if path not in existing:
+            issues.append(
+                _Issue(
+                    severity="error",
+                    check="stale_catalog_entry",
+                    file=catalog.relative_to(kb_root).as_posix(),
+                    detail=(
+                        f"Stale catalog entry: catalog references {path}"
+                        " but no such article exists"
+                    ),
+                )
+            )
+
     return issues
 
 
