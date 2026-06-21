@@ -6,6 +6,24 @@ All notable changes to this project are documented in this file.
 
 Nothing yet.
 
+## [0.13.1] - 2026-06-21
+
+### Changed
+
+- `release.yml` hardening: the `github_release` job is now checkout-free (reads
+  the CHANGELOG from the sdist) and idempotent (`gh release create` →
+  create-or-upload); the `publish` job dropped its unused `actions/checkout`
+  (it only needs the downloaded artifacts + OIDC). This eliminates the
+  transient `actions/checkout` action-resolution failure that interrupted
+  v0.13.0's GitHub Release creation, and makes the artifact-only release jobs
+  safe to rerun. Only `verify-main` and `build` still check out the source
+  ([#153](https://github.com/mrrobot0985/claude-wiki/pull/153),
+  [#154](https://github.com/mrrobot0985/claude-wiki/pull/154))
+- `docs/plan.md` is now the active road-to-v1.0 plan (status, done, remaining),
+  replacing the completed v0.4.0 ADR-006 execution plan (preserved in ADR-006
+  and git history)
+  ([#155](https://github.com/mrrobot0985/claude-wiki/pull/155))
+
 ## [0.13.0] - 2026-06-21
 
 ### Added
