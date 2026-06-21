@@ -6,6 +6,34 @@ All notable changes to this project are documented in this file.
 
 Nothing yet.
 
+## [0.11.0] - 2026-06-21
+
+### Added
+
+- `lint --fix` and `--dry-run` for safe structural auto-fixes (missing trailing
+  newline, `[[daily/...]]` wikilink → plain text per ADR-007), wiring up the
+  previously dead `auto_fixable` field
+  ([#126](https://github.com/mrrobot0985/claude-wiki/issues/126))
+- `compile --continue-on-error` and a fail-fast default: `compile` now exits
+  non-zero when a daily log fails to compile (silent partial compilation no
+  longer masks failures in CI) ([#127](https://github.com/mrrobot0985/claude-wiki/issues/127))
+- How-to guides for tags, shell completions, lint ignore files, `--json` CI
+  usage, and query scope filters
+  ([#129](https://github.com/mrrobot0985/claude-wiki/issues/129))
+- Pre-publish smoke gate in `release.yml` (installs wheel + sdist, exercises
+  entry points, bootstraps `init`), plus sdist-completeness and man-page
+  coverage tests ([#130](https://github.com/mrrobot0985/claude-wiki/issues/130))
+
+### Fixed
+
+- PreCompact hook now shares `flush.extract_conversation_context` instead of a
+  drifting duplicate parser ([#128](https://github.com/mrrobot0985/claude-wiki/issues/128))
+
+### Changed
+
+- CLI reference and man page resynced for `--fix`/`--dry-run`/`--continue-on-error`
+  and the current subcommands
+
 ## [0.10.0] - 2026-06-20
 
 ### Added
