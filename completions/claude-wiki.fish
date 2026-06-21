@@ -12,6 +12,8 @@ complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l continue-on-
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l dry-run
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l file
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l help
+complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l limit
+complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l max-logs
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l path
 # init flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from init' -l daily-dir

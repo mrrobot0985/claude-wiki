@@ -22,6 +22,8 @@ _claude_wiki() {
                 '--dry-run[]' \
                 '--file[]' \
                 '--help[]' \
+                '--limit[]' \
+                '--max-logs[]' \
                 '--path[]' \
                 '*:: :_files'
             ;;
