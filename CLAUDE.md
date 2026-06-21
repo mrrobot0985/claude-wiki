@@ -59,7 +59,7 @@ Handlers do only fast local I/O and offload LLM work to a backgrounded `flush.py
 
 ### Plugin-style auto-discovery (two of them)
 
-- **CLI subcommands**: `cli._register_commands()` walks `commands/` via `pkgutil`; any module exporting `register(subparsers, handlers)` is auto-loaded. `init` and `migrate` are hard-coded in `cli.py`; the rest (`compile`, `query`, `lint`, `rename-catalog`) are discovered. Add a command by dropping a module in `commands/` — no central registry to edit.
+- **CLI subcommands**: `cli._register_commands()` walks `commands/` via `pkgutil`; any module exporting `register(subparsers, handlers)` is auto-loaded. `init` and `migrate` are hard-coded in `cli.py`; the rest (`compile`, `query`, `lint`, `graph`, `status`, `tags`, `register`, `registry`, `rename-catalog`) are discovered. Add a command by dropping a module in `commands/` — no central registry to edit.
 - **Hook handlers**: `hooks._load_handlers()` walks `hook_handlers/`; each module exports `register(handlers: dict[event, handler])`.
 
 ### Configuration & path resolution
@@ -74,7 +74,7 @@ ADR-005 drove this split: machine files must never land in the Obsidian vault (t
 
 ### Migration
 
-`MigrationManager` (`migration.py`) compares current vs previous `ProjectConfig` and moves `kb_dir`/`daily_dir` data when they change (`claude-wiki migrate`, with `--dry-run`). It also renames `index.md`→`{repo_name}.md` and rewrites wikilinks during directory moves (ADR-006).
+`MigrationManager` (`migration.py`) compares current vs previous `ProjectConfig` and moves `kb_dir`/`daily_dir`/machine-state data when they change (`claude-wiki migrate`, with `--dry-run`). It also renames `index.md`→`{repo_name}.md` and rewrites wikilinks (including the catalog's own self-links) during directory moves (ADR-006).
 
 ### Global registry
 

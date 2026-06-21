@@ -50,6 +50,23 @@ to the same missing graph node.
 
 Link two or more concepts and explain the non-obvious relationship.
 
+## Q&A articles (`knowledge/qa/`)
+
+Filed by `claude-wiki query --file-back` to persist a question and its answer as a compounding knowledge article. One file per question, slugged from the question text.
+
+```yaml
+---
+title: "Q: <the question>"
+question: "<the question>"
+consulted:
+  - "concepts/x"
+  - "connections/y"
+filed: YYYY-MM-DD
+---
+```
+
+The body has an `## Answer`, a `## Sources Consulted` list, and a `## Follow-Up Questions` prompt. `lint` applies its frontmatter checks to `qa/` just as it does to `concepts/` and `connections/`.
+
 ## Build log (`knowledge/log.md`)
 
 ```markdown
