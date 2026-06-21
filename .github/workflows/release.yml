@@ -216,7 +216,6 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" \
               --title "$GITHUB_REF_NAME" \
-              --target main \
               --notes-file /tmp/release-notes.md \
               dist/claude_wiki-*.whl dist/claude_wiki-*.tar.gz
           fi
