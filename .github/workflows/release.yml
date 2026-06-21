@@ -181,10 +181,6 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1d1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          fetch-depth: 0
-
       - name: Download dist artifacts
         uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # v4.2.0
         with:
@@ -195,22 +191,34 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
+          # CHANGELOG.md ships inside the sdist; extract it from there so this
+          # job needs no repo checkout (avoids transient action-resolution
+          # failures, e.g. the v0.13.0 run that failed resolving actions/checkout).
+          mkdir -p /tmp/src
+          tar -xzf dist/claude_wiki-*.tar.gz -C /tmp/src --strip-components=1
           awk -v v="$VERSION" '
             $0 ~ "^## \\[" v "\\]" { insec = 1; print; next }
             insec && /^## \[/ { exit }
             insec { print }
-          ' CHANGELOG.md > /tmp/release-notes.md
+          ' /tmp/src/CHANGELOG.md > /tmp/release-notes.md
           test -s /tmp/release-notes.md
           echo "--- release notes ---"
           cat /tmp/release-notes.md
 
-      - name: Create GitHub Release with artifacts
+      - name: Create or update GitHub Release with artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --target main \
-            --notes-file /tmp/release-notes.md \
-            dist/claude_wiki-*.whl dist/claude_wiki-*.tar.gz
+          # Idempotent: if a release already exists (prior run or manual
+          # completion), upload/refresh assets instead of failing. Safe to rerun.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; uploading assets."
+            gh release upload "$GITHUB_REF_NAME" dist/claude_wiki-*.whl dist/claude_wiki-*.tar.gz --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --target main \
+              --notes-file /tmp/release-notes.md \
+              dist/claude_wiki-*.whl dist/claude_wiki-*.tar.gz
+          fi
