@@ -42,15 +42,21 @@ Creates `.claude-wiki.lock` and, unless `--no-hooks` is given, merges hooks into
 Compile daily logs into the knowledge base.
 
 ```text
-usage: claude-wiki compile [-h] [--all] [--file FILE] [--dry-run] [--path PATH]
+usage: claude-wiki compile [-h] [--all] [--file FILE] [--dry-run]
+                           [--continue-on-error] [--path PATH]
 ```
 
-| Option        | Description                                             |
-| ------------- | ------------------------------------------------------- |
-| `--all`       | Force recompile all daily logs                          |
-| `--file FILE` | Compile a specific daily log file                       |
-| `--dry-run`   | Show which logs would compile without writing           |
-| `--path PATH` | Repo root (default: auto-detect from current directory) |
+| Option                | Description                                                          |
+| --------------------- | -------------------------------------------------------------------- |
+| `--all`               | Force recompile all daily logs                                       |
+| `--file FILE`         | Compile a specific daily log file                                    |
+| `--dry-run`           | Show which logs would compile without writing                        |
+| `--continue-on-error` | Keep compiling remaining logs after a failure (still exits non-zero) |
+| `--path PATH`         | Repo root (default: auto-detect from current directory)              |
+
+Exit codes: `0` when all logs compile (or nothing to do); `1` if any log
+fails. By default the loop stops at the first failure; `--continue-on-error`
+attempts every log and exits `1` only if any failed.
 
 ### `claude-wiki query`
 
@@ -107,7 +113,8 @@ Run health checks on the knowledge base.
 
 ```text
 usage: claude-wiki lint [-h] [--structural-only] [--fail-on-warning]
-                        [--path PATH] [--json] [--threshold THRESHOLD]
+                        [--path PATH] [--json] [--threshold THRESHOLD] [--fix]
+                        [--dry-run]
 ```
 
 | Option              | Description                                             |
@@ -117,11 +124,16 @@ usage: claude-wiki lint [-h] [--structural-only] [--fail-on-warning]
 | `--path PATH`       | Repo root (default: auto-detect from current directory) |
 | `--json`            | Emit machine-readable JSON instead of human text        |
 | `--threshold N`     | Sparse-article word threshold (default: `200`)          |
+| `--fix`             | Apply safe auto-fixes in place and re-report            |
+| `--dry-run`         | Preview fixes and issues without writing files          |
 
 Checks include broken wikilinks, orphan pages, sparse articles (above the
 threshold), required frontmatter fields (`frontmatter_missing_title`/`_sources`
 are errors; `_aliases`/`_tags`/`_created`/`_updated` are warnings), and
-single-use tags (`tag_single_use`, a suggestion). Suppress false positives with a
+single-use tags (`tag_single_use`, a suggestion). `--fix` applies safe
+deterministic repairs (`missing_trailing_newline`, `daily_wikilink` per
+ADR-007) in place; `--dry-run` previews them. `--json` includes an
+`auto_fixable` field when fixable checks run. Suppress false positives with a
 `.claude-wiki-lint-ignore` file at the repo root, one rule per line as
 `path::check::reason` (paths support `fnmatch` globs); matched issues are dropped
 from the report and the exit-code counts.
