@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -186,10 +187,28 @@ def load_flush_state(state_file: Path) -> dict[str, Any]:
     return {}
 
 
+def _write_file_atomic(target: Path, content: str) -> None:
+    """Write *content* to *target* atomically via a same-directory temp file."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        delete=False,
+        dir=target.parent,
+        suffix=".tmp",
+    )
+    try:
+        tmp.write(content)
+        tmp.close()
+        os.replace(tmp.name, target)
+    except Exception:
+        Path(tmp.name).unlink(missing_ok=True)
+        raise
+
+
 def save_flush_state(state_file: Path, state: dict[str, Any]) -> None:
     """Persist the deduplication/state file."""
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(json.dumps(state), encoding="utf-8")
+    _write_file_atomic(state_file, json.dumps(state))
 
 
 def append_to_daily_log(
@@ -203,18 +222,19 @@ def append_to_daily_log(
     today = datetime.now(timezone.utc).astimezone()
     log_path = repo_root / config.daily_dir / f"{today.strftime('%Y-%m-%d')}.md"
 
-    if not log_path.exists():
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_path.write_text(
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if log_path.exists():
+        existing = log_path.read_text(encoding="utf-8")
+    else:
+        existing = (
             f"# Daily Log: {today.strftime('%Y-%m-%d')}\n\n"
-            "## Sessions\n\n## Memory Maintenance\n\n",
-            encoding="utf-8",
+            "## Sessions\n\n## Memory Maintenance\n\n"
         )
 
     time_str = today.strftime("%H:%M")
     entry = f"### {section} ({time_str})\n\n{content}\n\n"
-    with log_path.open("a", encoding="utf-8") as f:
-        f.write(entry)
+    _write_file_atomic(log_path, existing + entry)
     return log_path
 
 
