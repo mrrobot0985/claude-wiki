@@ -11,7 +11,3 @@ class RepoNotFoundError(ClaudeKBError):
 
 class ConfigError(ClaudeKBError):
     """Raised when configuration is missing, malformed, or unreadable."""
-
-
-class HookRegistrationError(ClaudeKBError):
-    """Raised when global hook installation fails."""
