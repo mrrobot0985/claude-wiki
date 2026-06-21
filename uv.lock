@@ -185,7 +185,7 @@ dependencies = [
     { name = "tzdata" },
 ]
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "mdformat" },
     { name = "mdformat-frontmatter" },
@@ -194,35 +194,32 @@ dev = [
     { name = "pre-commit" },
     { name = "pypiserver" },
     { name = "pytest" },
+    { name = "pytest-cov" },
     { name = "pytest-mock" },
     { name = "ruff" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest-cov" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "claude-agent-sdk", specifier = ">=0.1.29" },
-    { name = "mdformat", marker = "extra == 'dev'", specifier = ">=0.7" },
-    { name = "mdformat-frontmatter", marker = "extra == 'dev'", specifier = ">=0.4" },
-    { name = "mdformat-gfm", marker = "extra == 'dev'", specifier = ">=0.3" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "platformdirs", specifier = ">=4.0" },
-    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.5" },
-    { name = "pypiserver", marker = "extra == 'dev'", specifier = ">=2.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-mock", marker = "extra == 'dev'", specifier = ">=3.12" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "tzdata", specifier = ">=2024.1" },
 ]
-provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest-cov", specifier = ">=7.1.0" }]
+dev = [
+    { name = "mdformat", specifier = ">=0.7" },
+    { name = "mdformat-frontmatter", specifier = ">=0.4" },
+    { name = "mdformat-gfm", specifier = ">=0.3" },
+    { name = "mypy", specifier = ">=1.10" },
+    { name = "pre-commit", specifier = ">=3.5" },
+    { name = "pypiserver", specifier = ">=2.0" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "pytest-mock", specifier = ">=3.12" },
+    { name = "ruff", specifier = ">=0.5" },
+]
 
 [[package]]
 name = "click"

@@ -62,7 +62,7 @@ Sources:
 
 ## Dependency Management
 
-CI uses `uv sync --extra dev --frozen` instead of `uv pip install`. This guarantees the lockfile (`uv.lock`) is respected, giving bit-for-bit reproducible builds on every run.
+CI uses `uv sync --frozen` instead of `uv pip install`. The `dev` dependency-group (pytest, ruff, mypy, mdformat, pre-commit, …) is included by default, so a single `uv sync` installs everything the test/lint/type-check/format jobs need. `--frozen` guarantees the lockfile (`uv.lock`) is respected, giving bit-for-bit reproducible builds on every run.
 
 ## Maintenance
 
