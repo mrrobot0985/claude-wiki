@@ -1,4 +1,4 @@
-.TH CLAUDE-WIKI 1 "2026-06-20" "claude-wiki 0.9.0" "User Commands"
+.TH CLAUDE-WIKI 1 "2026-06-20" "claude-wiki 0.10.0" "User Commands"
 .SH NAME
 claude-wiki \- installable hooks and CLI for a personal knowledge base
 .SH SYNOPSIS
@@ -11,7 +11,7 @@ claude-wiki \- installable hooks and CLI for a personal knowledge base
 captures Claude Code conversation context through hooks, then compiles daily
 logs into a wiki of atomic articles stored in a knowledge base. It provides
 commands to initialise repositories, compile logs, query the knowledge base,
-lint articles, and manage the global registry.
+lint articles, list tags, and manage the global registry.
 .SH OPTIONS
 .TP
 .BR \-h , " \-\-help"
@@ -22,31 +22,49 @@ Show the version and exit.
 .SH COMMANDS
 .TP
 .B init
-Initialise a knowledge base for the current repo.
+Initialise a knowledge base for the current repo. Options:
+\fB\-\-path PATH\fP, \fB\-\-force\fP, \fB\-\-global\fP, \fB\-\-no-hooks\fP,
+\fB\-\-kb-dir KB_DIR\fP, \fB\-\-daily-dir DAILY_DIR\fP.
 .TP
 .B migrate
-Check and migrate data when configured paths change.
+Check and migrate data when configured paths change. Options:
+\fB\-\-path PATH\fP, \fB\-\-dry-run\fP, \fB\-\-kb-dir KB_DIR\fP,
+\fB\-\-daily-dir DAILY_DIR\fP, \fB\-\-reports-dir REPORTS_DIR\fP.
 .TP
 .B compile
-Compile daily logs into the knowledge base.
+Compile daily logs into the knowledge base. Options:
+\fB\-\-all\fP, \fB\-\-file FILE\fP, \fB\-\-dry-run\fP,
+\fB\-\-continue-on-error\fP, \fB\-\-path PATH\fP.
 .TP
 .B query
-Ask a question and answer it from the knowledge base.
+Ask a question and answer it from the knowledge base. Options:
+\fB\-\-file-back\fP, \fB\-\-path PATH\fP, \fB\-\-json\fP,
+\fB\-\-category {concepts,connections,qa}\fP, \fB\-\-tag TAG\fP,
+\fB\-\-since SINCE\fP, \fB\-\-max-chars MAX_CHARS\fP.
 .TP
 .B lint
-Run health checks on the knowledge base.
+Run health checks on the knowledge base. Options:
+\fB\-\-structural-only\fP, \fB\-\-fail-on-warning\fP, \fB\-\-path PATH\fP,
+\fB\-\-json\fP, \fB\-\-threshold THRESHOLD\fP, \fB\-\-fix\fP,
+\fB\-\-dry-run\fP.
 .TP
 .B register
-Register an existing .claude-wiki.lock with the global index.
+Register an existing .claude-wiki.lock with the global index. Options:
+\fB\-\-path PATH\fP.
 .TP
 .B registry
 Manage the global knowledge-base registry. Subcommands: list, show, remove, clean.
 .TP
 .B rename-catalog
-Rename index.md to the repo-named catalog and rewrite wikilinks.
+Rename index.md to the repo-named catalog and rewrite wikilinks. Options:
+\fB\-\-dry-run\fP, \fB\-\-path PATH\fP.
 .TP
 .B status
-Diagnose repository health.
+Diagnose repository health. Options: \fB\-\-path PATH\fP.
+.TP
+.B tags
+List tags indexed from the knowledge base. Options:
+\fB\-\-path PATH\fP, \fB\-\-json\fP.
 .SH ENVIRONMENT
 .TP
 .B CLAUDE_WIKI_PROJECT_DIR
