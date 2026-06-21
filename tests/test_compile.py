@@ -15,7 +15,6 @@ from claude_wiki.commands import compile as _compile_module  # noqa: F401
 from claude_wiki.commands.compile import (
     _DEFAULT_SCHEMA,
     _compile_one,
-    _extract_sources,
     _list_existing_articles,
     _read_index,
     _read_schema,
@@ -469,32 +468,6 @@ class TestCompileMaxLogs:
 
 class TestCompileGaps:
     """Cover edge cases and small helpers not exercised by the main flows."""
-
-    def test_extract_sources_no_frontmatter(self) -> None:
-        """Content without YAML frontmatter returns an empty source list."""
-        assert _extract_sources("plain markdown with no frontmatter") == []
-
-    def test_extract_sources_missing_closing(self) -> None:
-        """A frontmatter opener without a closer returns an empty source list."""
-        assert _extract_sources("---\ntitle: no closing") == []
-
-    def test_extract_sources_inline_list(self) -> None:
-        """Inline YAML list syntax is parsed into individual source entries."""
-        content = '---\nsources: ["daily/2026-06-19.md", "daily/2026-06-18.md"]\n---\n'
-        assert _extract_sources(content) == [
-            "daily/2026-06-19.md",
-            "daily/2026-06-18.md",
-        ]
-
-    def test_extract_sources_inline_single(self) -> None:
-        """A single inline source value is captured."""
-        content = '---\nsources: "daily/2026-06-19.md"\n---\n'
-        assert _extract_sources(content) == ["daily/2026-06-19.md"]
-
-    def test_extract_sources_stops_at_colon(self) -> None:
-        """Source parsing stops when a new key is encountered."""
-        content = '---\nsources:\n  - "daily/2026-06-19.md"\ntitle: next key\n---\n'
-        assert _extract_sources(content) == ["daily/2026-06-19.md"]
 
     def test_list_existing_articles(self, tmp_path: Path) -> None:
         """All articles under concepts/, connections/, and qa/ are loaded."""
