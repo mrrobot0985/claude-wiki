@@ -40,7 +40,7 @@ ______________________________________________________________________
 
 ## Project Planning
 
-- [Implementation Plan](plan.md) — completed ADR-006 execution plan and risk register
+- [Implementation Plan](plan.md) — road to v1.0: status, what's done, what remains
 
 ## Community
 
