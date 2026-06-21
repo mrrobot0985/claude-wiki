@@ -220,6 +220,12 @@ class MigrationManager(Migrator):
         if not legacy.exists() or primary.exists():
             return
         legacy.rename(primary)
+        # The catalog itself may contain self-links such as [[index]] or
+        # [[index#toc]]; rewrite them in the renamed file so they don't dangle.
+        catalog_content = primary.read_text(encoding="utf-8")
+        rewritten_catalog = rewrite_index_wikilinks(catalog_content, repo_name)
+        if rewritten_catalog != catalog_content:
+            primary.write_text(rewritten_catalog, encoding="utf-8")
         for subdir_name in ("concepts", "connections", "qa"):
             subdir = kb_root / subdir_name
             if not subdir.exists():

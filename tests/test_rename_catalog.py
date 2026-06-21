@@ -78,6 +78,22 @@ class TestRenameCatalog:
 
             assert "ERROR: my-project.md already exists" in actions[0]
 
+    def test_handle_returns_nonzero_on_conflict(self) -> None:
+        """The CLI handler exits non-zero when a rename is refused."""
+        from claude_wiki.cli import main
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "my-project"
+            kb.mkdir()
+            (kb / "index.md").write_text("# Index")
+            (kb / "my-project.md").write_text("# Other")
+
+            exit_code = main(["rename-catalog", "--path", str(kb)])
+
+            assert exit_code == 1
+            assert (kb / "index.md").exists()  # nothing overwritten
+            assert (kb / "my-project.md").read_text() == "# Other"
+
     def test_rewrites_heading_wikilinks(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             kb = Path(tmpdir) / "kb"

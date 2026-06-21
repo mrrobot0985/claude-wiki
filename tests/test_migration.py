@@ -77,6 +77,32 @@ class TestMigrationManager:
             assert (new_kb / "test.md").exists()
             assert not old_kb.exists()
 
+    def test_migration_rewrites_catalog_self_links(self):
+        """A catalog with [[index]] self-links has them rewritten on rename."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            old_kb = repo / "knowledge"
+            old_kb.mkdir()
+            (old_kb / "index.md").write_text(
+                "# Index\n\nSee [[index#toc]] and [[index|top]]."
+            )
+            new_kb = repo / "wiki"
+
+            current = ProjectConfig(
+                repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+            )
+            previous = ProjectConfig(
+                repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+            )
+
+            mgr = MigrationManager()
+            mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+            content = (new_kb / "test.md").read_text()
+            assert "[[test#toc]]" in content
+            assert "[[test|top]]" in content
+            assert "[[index" not in content
+
     def test_migration_daily_dir_change_relative(self):
         """Migrate when daily_dir changes (relative path)."""
         with tempfile.TemporaryDirectory() as tmpdir:
