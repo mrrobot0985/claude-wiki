@@ -91,6 +91,14 @@ Per-repo catalog is `{repo_name}.md`, **not** `index.md`. `catalog_utils.resolve
 - Conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `ci:`, `perf:`); feature branches `feat/`, `fix/`, etc. Never push directly to `main`.
 - LLM calls go through `claude-agent-sdk` using Claude Code's own credentials — no API key in code or env.
 
+### Commit signing & PR merges (STRICT)
+
+- **Every commit and tag MUST be GPG-signed.** `commit.gpgsign=true` and `tag.gpgsign=true` are configured globally. **Never** pass `-c commit.gpgsign=false` (or otherwise disable signing) — unsigned commits are unverified on GitHub and violate the repo's signed-commits branch protection.
+- **Merge PRs with `gh pr merge --squash --delete-branch --admin --subject "<conventional title>" --body-file <clean body>`.** This repo's branch protection enforces `required_linear_history` (blocks `--merge`) AND `required_signatures` (blocks `--rebase`, because GitHub cannot re-sign rebased commits), so **`--squash` is the only allowed merge method**. GitHub signs the squash commit, so it is `verified` on `main`.
+- **PR-branch commit author email must be the ID-prefixed `164061086+mrrobot0985@users.noreply.github.com`** so GitHub's squash merge does NOT inject a `Co-authored-by` trailer (the non-prefixed form triggers one). Sign the PR commit normally (never disable `gpgsign`) — it will be `bad_email`/unverified because the ID-prefixed email does not match the signing key uid, **but it is squashed away and the branch deleted on merge, so it never reaches `main` and does not persist.** The final state (`main` + tags) is fully verified; this transient PR-commit `bad_email` is the unavoidable cost of combining `required_linear_history` + `required_signatures` + no-attribution.
+- **Tags:** `git tag -s vX.Y.Z <sha> -m "vX.Y.Z"` with the **default non-prefixed** identity (`user.email=mrrobot0985@users.noreply.github.com`, which matches the signing key uid) → verified on GitHub. Tags are signed by your key, so they need the non-prefixed email; PR commits are GitHub-signed-via-squash, so they use the ID-prefixed email to avoid the trailer.
+- `release.yml` enforces this: its `verify-main` job rejects any tag whose signature GitHub does not verify, aborting the release before build/publish.
+
 ## Docs & decisions
 
 - `docs/` is a Diátaxis-style site (tutorials / how-to / reference / explanation) with `docs/index.md` as the hub.
@@ -100,4 +108,4 @@ Per-repo catalog is `{repo_name}.md`, **not** `index.md`. `catalog_utils.resolve
 
 ## Release
 
-Tag-driven. Do **not** bump version in a PR. After a PR merges to `main`: edit `pyproject.toml` version, commit `chore: bump version to 0.x.y`, tag `v0.x.y`, push tag — `.github/workflows/release.yml` verifies the tag is on `main`, then builds and publishes to PyPI via trusted publishing. A local PyPI registry is available via `make pypi-start`/`pypi-stop`/`pypi-status`/`pypi-logs` for testing publishing.
+Tag-driven. Do **not** bump version in a PR. After a PR merges to `main`: edit `pyproject.toml` version, commit `chore: bump version to 0.x.y`, tag `v0.x.y`, push tag — `.github/workflows/release.yml` verifies the tag is on `main` **and that it is signed/verified**, builds, smoke-tests, publishes to PyPI via trusted publishing, and then creates a GitHub Release (with the wheel + sdist attached and the CHANGELOG section as notes) once PyPI publish succeeds. A local PyPI registry is available via `make pypi-start`/`pypi-stop`/`pypi-status`/`pypi-logs` for testing publishing.
