@@ -74,13 +74,14 @@ ______________________________________________________________________
 ## Step 4: Capture Conversations
 
 Once hooks are registered, Claude Code automatically flushes conversation
-context to `daily/YYYY-MM-DD.md` at session end.
+context to `.claude/daily/YYYY-MM-DD.md` at session end (project mode; user mode
+uses `~/.local/share/claude-wiki-daily/<owner>/<repo>/`).
 
 If you want to try compiling without waiting for a real session, copy the
 synthetic daily log from the examples directory:
 
 ```bash
-cp examples/minimal-walkthrough/daily/2026-06-20.md daily/2026-06-20.md
+cp examples/minimal-walkthrough/daily/2026-06-20.md .claude/daily/2026-06-20.md
 ```
 
 ______________________________________________________________________
@@ -96,7 +97,7 @@ claude-wiki compile
 Sample output:
 
 ```text
-Compiling daily/2026-06-20.md...
+Compiling .claude/daily/2026-06-20.md...
 Created concepts/uv-python-toolchain.md
 Created concepts/project-mode-venv.md
 Created connections/uv-and-ci-pipelines.md

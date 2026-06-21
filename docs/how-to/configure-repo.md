@@ -12,8 +12,9 @@ ______________________________________________________________________
 {
   "repo_name": "my-project",
   "repo_owner": "local",
+  "layout_version": "2",
   "kb_dir": "project",
-  "daily_dir": "daily",
+  "daily_dir": ".claude/daily",
   "reports_dir": "reports",
   "timezone": "UTC",
   "compile_after_hour": 18
@@ -24,11 +25,11 @@ ______________________________________________________________________
 
 `kb_dir` supports three modes:
 
-| Mode                | Value                      | Resolved path                                |
-| ------------------- | -------------------------- | -------------------------------------------- |
-| `project` (default) | `"project"`                | `<repo>/.claude/knowledge/`                  |
-| `user`              | `"user"`                   | `~/.local/share/claude-wiki/<owner>/<repo>/` |
-| Custom              | `"my-kb"` or `"/abs/path"` | `<repo>/my-kb/` or exact path                |
+| Mode                | Value                      | Resolved path                                      |
+| ------------------- | -------------------------- | -------------------------------------------------- |
+| `project` (default) | `"project"`                | `<repo>/.claude/knowledge/`                        |
+| `user`              | `"user"`                   | `~/.local/share/claude-wiki-vault/<owner>/<repo>/` |
+| Custom              | `"my-kb"` or `"/abs/path"` | `<repo>/my-kb/` or exact path                      |
 
 Set an environment variable to override everything:
 
@@ -50,7 +51,7 @@ The `migrate` command detects changes between the previous and current `.claude-
 
 ## Global Registry
 
-Every initialised repo is recorded in `~/.local/share/claude-wiki/core.md` — a machine-managed registry linking all your knowledge bases. It updates automatically on `init`, `compile`, and `migrate`.
+Every initialised repo is recorded in `~/.local/share/claude-wiki-vault/core.md` — a machine-managed registry linking all your knowledge bases. It updates automatically on `init`, `compile`, and `migrate`.
 
 ## Hook Installation Scope
 

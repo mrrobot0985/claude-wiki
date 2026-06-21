@@ -128,7 +128,7 @@ claude-wiki keeps three buckets separate per ADR-005:
 
 Machine-state and cache directories follow the same mode:
 
-- Project mode: `.claude/state/` and `.claude/reports/`
+- Project mode: machine state in `.claude/state/`, cache in `.claude/` (lint reports land in `.claude/reports/`, session-flush temps land directly in `.claude/`)
 - User mode: `~/.local/state/claude-wiki/repos/<owner>/<repo>/` and `~/.cache/claude-wiki/repos/<owner>/<repo>/`
 
 ## Experimental surfaces
