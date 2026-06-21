@@ -141,41 +141,6 @@ def _iso_timestamp() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
-def _extract_sources(content: str) -> list[str]:
-    """Extract the ``sources`` list from YAML frontmatter without a parser."""
-    lines = content.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return []
-    try:
-        closing = lines.index("---", 1)
-    except ValueError:
-        return []
-
-    sources: list[str] = []
-    in_sources = False
-    for line in lines[1:closing]:
-        stripped = line.strip()
-        if stripped.startswith("sources:"):
-            in_sources = True
-            value = stripped.split(":", 1)[1].strip()
-            if value.startswith("[") and value.endswith("]"):
-                for item in value[1:-1].split(","):
-                    cleaned = item.strip().strip('"').strip("'")
-                    if cleaned:
-                        sources.append(cleaned)
-                in_sources = False
-            elif value:
-                sources.append(value.strip('"').strip("'"))
-                in_sources = False
-            continue
-        if in_sources:
-            if stripped.startswith("- "):
-                sources.append(stripped[2:].strip().strip('"').strip("'"))
-            elif stripped and not stripped.startswith("#") and ":" in stripped:
-                in_sources = False
-    return sources
-
-
 def _list_daily_files(daily_dir: Path) -> list[Path]:
     """Return sorted daily log files."""
     if not daily_dir.exists():
