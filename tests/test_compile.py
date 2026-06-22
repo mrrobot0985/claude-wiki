@@ -4,6 +4,8 @@ All LLM calls are mocked so these tests run offline and deterministically.
 """
 
 import json
+import os
+import time
 import types
 from pathlib import Path
 from typing import Any
@@ -14,8 +16,10 @@ from claude_wiki.catalog_utils import resolve_catalog
 from claude_wiki.cli import main
 from claude_wiki.commands import compile as _compile_module  # noqa: F401
 from claude_wiki.commands.compile import (
+    _CHEAP_MODEL,
     _DEFAULT_SCHEMA,
     _append_compile_log,
+    _apply_context_budget,
     _compile_one,
     _format_catalog_row,
     _list_existing_articles,
@@ -25,7 +29,7 @@ from claude_wiki.commands.compile import (
     _update_catalog,
     _write_articles,
 )
-from claude_wiki.errors import WriterError
+from claude_wiki.errors import CompileError, WriterError
 from claude_wiki.models import ProjectConfig
 
 
@@ -49,6 +53,65 @@ def _make_repo(tmpdir: str) -> tuple[Path, Path]:
         )
     )
     return repo, kb_root
+
+
+def _make_fake_sdk(
+    answer: str,
+    capture: dict[str, Any] | None = None,
+    cost: float = 0.0,
+) -> tuple[types.SimpleNamespace, Any]:
+    """Return a fake claude_agent_sdk namespace and an import shim."""
+
+    class TextBlock:
+        text = answer
+
+    class AssistantMessage:
+        content = [TextBlock()]
+
+    class ResultMessage:
+        total_cost_usd = cost
+
+    class ClaudeAgentOptions:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+    async def query(*, prompt: str, options: object) -> Any:
+        if capture is not None:
+            capture["prompt"] = prompt
+            capture["options"] = options
+        yield AssistantMessage()
+        yield ResultMessage()
+
+    fake_sdk = types.SimpleNamespace(
+        AssistantMessage=AssistantMessage,
+        ClaudeAgentOptions=ClaudeAgentOptions,
+        ResultMessage=ResultMessage,
+        TextBlock=TextBlock,
+        query=query,
+    )
+
+    def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "claude_agent_sdk":
+            return fake_sdk
+        raise ImportError(name)
+
+    return fake_sdk, fake_import
+
+
+@pytest.fixture
+def kb_repo(tmp_path: Path) -> tuple[Path, Path, Path, ProjectConfig]:
+    """Return (repo_root, daily_log_path, kb_root, config)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    daily = repo / "daily"
+    daily.mkdir()
+    log = daily / "2026-06-19.md"
+    log.write_text("discussed asyncio patterns and concurrency")
+    kb = tmp_path / "kb"
+    (kb / "concepts").mkdir(parents=True)
+    config = ProjectConfig(repo_name="sdk-test")
+    return repo, log, kb, config
 
 
 class TestCompileCommand:
@@ -185,7 +248,7 @@ class TestCompileCommand:
         (daily_dir / "2026-06-19.md").write_text("discussed asyncio patterns")
 
         def fake_compile(
-            log_path: Path, repo_root: Path, root: Path, config: Any
+            log_path: Path, repo_root: Path, root: Path, config: Any, **kwargs: Any
         ) -> float:
             concept_dir = root / "concepts"
             concept_dir.mkdir(parents=True, exist_ok=True)
@@ -1417,3 +1480,435 @@ class TestCompileSecurity:
         options = captured["options"]
         assert options.kwargs["permission_mode"] == "dontAsk"
         assert options.kwargs["permission_mode"] != "acceptEdits"
+
+
+class TestCompileContextBudget:
+    """ADR-011: existing-article context budget with hub-weighted eviction."""
+
+    def test_context_budget_computes_inbound_from_memory(
+        self, tmp_path: Path, monkeypatch: Any, mocker: Any
+    ) -> None:
+        """Inbound counts come from the articles dict, not a fresh disk read."""
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+        a = kb / "concepts" / "a.md"
+        a.write_text("[[concepts/b]]")
+        b = kb / "concepts" / "b.md"
+        b.write_text("content")
+        # Make a the newest; only hub classification would select b first.
+        now = time.time()
+        os.utime(a, (now, now))
+        os.utime(b, (now - 1, now - 1))
+
+        articles = _list_existing_articles(kb)
+        build_graph_spy = mocker.patch(
+            "claude_wiki.graph_utils.build_link_graph",
+            side_effect=RuntimeError("disk read"),
+        )
+        monkeypatch.setattr(_compile_module, "_CONTEXT_BUDGET_CHARS", 12)
+
+        selected = _apply_context_budget(kb, articles)
+
+        build_graph_spy.assert_not_called()
+        assert "concepts/b.md" in selected
+        assert "concepts/a.md" not in selected
+
+    def test_context_budget_keeps_all_when_under_budget(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Articles under the budget are all included."""
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+        (kb / "concepts" / "a.md").write_text("x" * 500)
+        (kb / "concepts" / "b.md").write_text("y" * 500)
+
+        articles = _list_existing_articles(kb)
+        monkeypatch.setattr(_compile_module, "_CONTEXT_BUDGET_CHARS", 2000)
+        selected = _apply_context_budget(kb, articles)
+
+        assert sorted(selected.keys()) == sorted(articles.keys())
+
+    def test_context_budget_evicts_oldest_non_hubs_first(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Hubs are kept; oldest non-hubs are evicted first when over budget."""
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+
+        old_nonhub = kb / "concepts" / "old-nonhub.md"
+        old_nonhub.write_text("old " * 500)  # 2000 chars
+        old_mtime = time.time() - 86400
+        os.utime(old_nonhub, (old_mtime, old_mtime))
+
+        hub = kb / "concepts" / "hub.md"
+        hub.write_text("hub " * 500)  # 2000 chars
+
+        # linker makes hub a hub (one inbound link).
+        linker = kb / "concepts" / "linker.md"
+        linker.write_text("See [[concepts/hub]].")
+
+        articles = _list_existing_articles(kb)
+        monkeypatch.setattr(_compile_module, "_CONTEXT_BUDGET_CHARS", 2500)
+        selected = _apply_context_budget(kb, articles)
+
+        assert "concepts/hub.md" in selected
+        assert "concepts/old-nonhub.md" not in selected
+
+    def test_context_budget_zero_inbound_evicted_while_hub_kept(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A zero-inbound article is a non-hub and is evicted before a hub."""
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+
+        hub = kb / "concepts" / "hub.md"
+        hub.write_text("hub " * 1500)  # 6000 chars
+        linker = kb / "concepts" / "linker.md"
+        linker.write_text("[[concepts/hub]]")  # hub gets 1 inbound
+
+        zero = kb / "concepts" / "zero.md"
+        zero.write_text("zero " * 1500)  # 6000 chars, oldest
+        old_mtime = time.time() - 86400
+        os.utime(zero, (old_mtime, old_mtime))
+
+        articles = _list_existing_articles(kb)
+        monkeypatch.setattr(_compile_module, "_CONTEXT_BUDGET_CHARS", 7000)
+        selected = _apply_context_budget(kb, articles)
+
+        assert "concepts/hub.md" in selected
+        assert "concepts/zero.md" not in selected
+
+    def test_context_budget_ties_at_median_are_hubs(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Articles tied at the median inbound count are classified as hubs."""
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+
+        a = kb / "concepts" / "a.md"
+        a.write_text("a " * 1500)  # 3000 chars
+        b = kb / "concepts" / "b.md"
+        b.write_text("b " * 1500)  # 3000 chars
+        # Two inbound links each so a and b share the median of [2, 2].
+        (kb / "concepts" / "linker-a1.md").write_text("[[concepts/a]]")
+        (kb / "concepts" / "linker-a2.md").write_text("[[concepts/a]]")
+        (kb / "concepts" / "linker-b1.md").write_text("[[concepts/b]]")
+        (kb / "concepts" / "linker-b2.md").write_text("[[concepts/b]]")
+
+        zero = kb / "concepts" / "zero.md"
+        zero.write_text("z " * 1500)  # 3000 chars
+
+        articles = _list_existing_articles(kb)
+        monkeypatch.setattr(_compile_module, "_CONTEXT_BUDGET_CHARS", 6500)
+        selected = _apply_context_budget(kb, articles)
+
+        assert "concepts/a.md" in selected
+        assert "concepts/b.md" in selected
+        assert "concepts/zero.md" not in selected
+
+    def test_context_budget_single_positive_inbound_is_hub(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A lone article with a positive inbound count is treated as a hub."""
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+
+        target = kb / "concepts" / "target.md"
+        target.write_text("target " * 1500)  # 9000 chars
+        linker = kb / "concepts" / "linker.md"
+        linker.write_text("[[concepts/target]]")  # target gets 1 inbound
+
+        zero = kb / "concepts" / "zero.md"
+        zero.write_text("zero " * 1500)  # 6000 chars
+
+        articles = _list_existing_articles(kb)
+        monkeypatch.setattr(_compile_module, "_CONTEXT_BUDGET_CHARS", 9500)
+        selected = _apply_context_budget(kb, articles)
+
+        assert "concepts/target.md" in selected
+        assert "concepts/zero.md" not in selected
+
+    def test_context_budget_includes_catalog_separately(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """A huge catalog does not push articles out of the budget."""
+        repo, log, kb, config = kb_repo
+        (kb / "concepts" / "existing.md").write_text("existing body")
+        (kb / f"{config.repo_name}.md").write_text("catalog " * 10_000)
+
+        answer = json.dumps(
+            {
+                "articles": [],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+        captured: dict[str, Any] = {}
+        fake_sdk, fake_import = _make_fake_sdk(answer, capture=captured)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+        monkeypatch.setattr(_compile_module, "_CONTEXT_BUDGET_CHARS", 100)
+        monkeypatch.setattr(_compile_module, "_TOKEN_ESTIMATE_THRESHOLD", 100_000)
+
+        _compile_one(log, repo, kb, config)
+
+        prompt = captured["prompt"]
+        assert "existing body" in prompt
+
+
+class TestCompileCostCap:
+    """ADR-011: per-log USD cap records cost and skips writes/registry on failure."""
+
+    def test_per_log_usd_cap_raises_before_writing(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """A cost above the cap raises CompileError with the cost attached."""
+        repo, log, kb, config = kb_repo
+        answer = json.dumps(
+            {
+                "articles": [
+                    {
+                        "title": "Should Not Write",
+                        "slug": "should-not-write",
+                        "category": "concepts",
+                        "frontmatter": "title: Should Not Write",
+                        "body": "# Should Not Write\n\nBody.",
+                    }
+                ],
+                "catalog_additions": [],
+                "log_created": ["concepts/should-not-write"],
+                "log_updated": [],
+            }
+        )
+        fake_sdk, fake_import = _make_fake_sdk(answer, cost=1.00)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+        monkeypatch.setattr(_compile_module, "_PER_LOG_USD_CAP", 0.10)
+
+        with pytest.raises(CompileError) as exc_info:
+            _compile_one(log, repo, kb, config)
+
+        assert exc_info.value.cost_usd == 1.00
+        assert "0.10" in str(exc_info.value)
+        assert not (kb / "concepts" / "should-not-write.md").exists()
+        assert not (kb / "log.md").exists()
+
+    def test_per_log_usd_cap_records_cost_and_skips_registry(
+        self,
+        monkeypatch: Any,
+        tmp_path: Path,
+        mocker: Any,
+        capsys: Any,
+    ) -> None:
+        """CLI records the failed log's cost and does not stamp the registry."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-19.md").write_text("a")
+
+        monkeypatch.chdir(repo)
+
+        def side_effect(log_path: Path, *args: Any, **kwargs: Any) -> float:
+            raise CompileError("cap exceeded", cost_usd=0.99)
+
+        mocker.patch(
+            "claude_wiki.commands.compile._compile_one", side_effect=side_effect
+        )
+        register_mock = mocker.patch(
+            "claude_wiki.commands.compile.GlobalIndexManager.register"
+        )
+
+        exit_code = main(["compile", "--all"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 1
+        assert "cap exceeded" in captured.err
+        register_mock.assert_not_called()
+
+        state = json.loads((repo / ".claude" / "state" / "state.json").read_text())
+        assert state["ingested"]["2026-06-19.md"]["cost_usd"] == 0.99
+        assert state["ingested"]["2026-06-19.md"]["failed"] is True
+        assert state["total_cost"] == 0.99
+
+    def test_per_log_usd_cap_respects_continue_on_error(
+        self,
+        monkeypatch: Any,
+        tmp_path: Path,
+        mocker: Any,
+    ) -> None:
+        """--continue-on-error records capped costs and keeps compiling."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("a")
+        (daily_dir / "2026-06-19.md").write_text("b")
+
+        monkeypatch.chdir(repo)
+
+        def side_effect(log_path: Path, *args: Any, **kwargs: Any) -> float:
+            if log_path.name == "2026-06-18.md":
+                raise CompileError("cap", cost_usd=0.50)
+            return 0.25
+
+        mocker.patch(
+            "claude_wiki.commands.compile._compile_one", side_effect=side_effect
+        )
+
+        exit_code = main(["compile", "--all", "--continue-on-error"])
+
+        assert exit_code == 1
+        state = json.loads((repo / ".claude" / "state" / "state.json").read_text())
+        assert state["ingested"]["2026-06-18.md"]["cost_usd"] == 0.50
+        assert state["ingested"]["2026-06-18.md"]["failed"] is True
+        assert state["ingested"]["2026-06-19.md"]["cost_usd"] == 0.25
+        assert "failed" not in state["ingested"]["2026-06-19.md"]
+        assert state["total_cost"] == 0.75
+
+
+class TestCompileTokenGuard:
+    """ADR-011: reject obviously oversized prompts before spending."""
+
+    def test_token_guard_raises_before_llm_call(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """An estimated token count above the threshold aborts before query()."""
+        repo, log, kb, config = kb_repo
+
+        answer = json.dumps(
+            {
+                "articles": [],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+        calls: list[str] = []
+
+        fake_sdk, fake_import = _make_fake_sdk(answer)
+        original_query = fake_sdk.query
+
+        async def query(*, prompt: str, options: object) -> Any:
+            calls.append(prompt)
+            async for message in original_query(prompt=prompt, options=options):
+                yield message
+
+        fake_sdk.query = query
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+        monkeypatch.setattr(_compile_module, "_TOKEN_ESTIMATE_THRESHOLD", 1)
+
+        with pytest.raises(CompileError, match="token guard"):
+            _compile_one(log, repo, kb, config)
+
+        assert not calls
+
+
+class TestCompileModelSelection:
+    """ADR-011: --model and --cheap opt-in model selection."""
+
+    def test_model_arg_passed_to_sdk(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """A non-empty model argument is forwarded to ClaudeAgentOptions."""
+        repo, log, kb, config = kb_repo
+        answer = json.dumps(
+            {
+                "articles": [],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+        captured: dict[str, Any] = {}
+        fake_sdk, fake_import = _make_fake_sdk(answer, capture=captured)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        _compile_one(log, repo, kb, config, model="custom-model")
+
+        assert captured["options"].kwargs.get("model") == "custom-model"
+
+    def test_default_model_not_set(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """When no model is requested, options do not include a model key."""
+        repo, log, kb, config = kb_repo
+        answer = json.dumps(
+            {
+                "articles": [],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+        captured: dict[str, Any] = {}
+        fake_sdk, fake_import = _make_fake_sdk(answer, capture=captured)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        _compile_one(log, repo, kb, config)
+
+        assert "model" not in captured["options"].kwargs
+
+    def test_cheap_flag_sets_model_and_warns(
+        self,
+        monkeypatch: Any,
+        tmp_path: Path,
+        mocker: Any,
+        capsys: Any,
+    ) -> None:
+        """--cheap uses the cheaper model and prints a quality warning."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-19.md").write_text("a")
+
+        monkeypatch.chdir(repo)
+        compile_mock = mocker.patch(
+            "claude_wiki.commands.compile._compile_one", return_value=0.0
+        )
+
+        exit_code = main(["compile", "--cheap"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert compile_mock.call_count == 1
+        assert compile_mock.call_args.kwargs.get("model") == _CHEAP_MODEL
+        assert "cheaper model" in captured.err
+        assert _CHEAP_MODEL in captured.err
+
+    def test_cheap_overrides_explicit_model(
+        self,
+        monkeypatch: Any,
+        tmp_path: Path,
+        mocker: Any,
+        capsys: Any,
+    ) -> None:
+        """--cheap wins over --model with an override warning."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-19.md").write_text("a")
+
+        monkeypatch.chdir(repo)
+        compile_mock = mocker.patch(
+            "claude_wiki.commands.compile._compile_one", return_value=0.0
+        )
+
+        exit_code = main(["compile", "--model", "custom", "--cheap"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert compile_mock.call_args.kwargs.get("model") == _CHEAP_MODEL
+        assert "overrides" in captured.err
