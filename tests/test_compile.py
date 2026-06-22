@@ -14,10 +14,14 @@ from claude_wiki.cli import main
 from claude_wiki.commands import compile as _compile_module  # noqa: F401
 from claude_wiki.commands.compile import (
     _DEFAULT_SCHEMA,
+    _append_compile_log,
     _compile_one,
+    _format_catalog_row,
     _list_existing_articles,
+    _parse_compile_response,
     _read_index,
     _read_schema,
+    _update_catalog,
 )
 from claude_wiki.errors import WriterError
 from claude_wiki.models import ProjectConfig
@@ -598,7 +602,7 @@ class TestCompileGaps:
         assert set(options.kwargs["allowed_tools"]) == {"Read", "Glob", "Grep"}
         assert "Write" not in options.kwargs["allowed_tools"]
         assert "Edit" not in options.kwargs["allowed_tools"]
-        assert options.kwargs.get("permission_mode") != "acceptEdits"
+        assert options.kwargs.get("permission_mode") == "dontAsk"
 
     def test_schema_cites_daily_logs_as_plain_text(self) -> None:
         """Daily-log citations are plain text, never [[wikilinks]] (ADR-007)."""
@@ -678,7 +682,7 @@ class TestCompileGaps:
         assert set(options.kwargs["allowed_tools"]) == {"Read", "Glob", "Grep"}
         assert "Write" not in options.kwargs["allowed_tools"]
         assert "Edit" not in options.kwargs["allowed_tools"]
-        assert options.kwargs.get("permission_mode") != "acceptEdits"
+        assert options.kwargs.get("permission_mode") == "dontAsk"
 
     def test_compile_file_absolute_path(
         self, monkeypatch: Any, tmp_path: Path, mocker: Any
@@ -1216,3 +1220,166 @@ class TestCompileWriterIntegration:
             _compile_one(log, repo, kb, config)
 
         assert not (kb / "concepts" / "first.md").exists()
+
+
+class TestCompileSecurity:
+    """Critic-identified integrity/escape defects in compile.py."""
+
+    def test_catalog_update_anchors_link_not_substring(self, tmp_path: Path) -> None:
+        """Only the row for the article column is replaced; citing rows stay."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        catalog = kb / "repo-name.md"
+        catalog.write_text(
+            "# repo-name Knowledge Base\n\n"
+            "| Article | Summary | Compiled From | Updated |\n"
+            "|---|---|---|---|\n"
+            "| [[concepts/foo]] | old summary | daily/2026-06-18.md | 2026-06-18 |\n"
+            "| [[concepts/bar]] | see [[concepts/foo]] for more | daily/2026-06-18.md | 2026-06-18 |"
+        )
+        addition = {
+            "slug": "foo",
+            "category": "concepts",
+            "summary": "new summary",
+            "compiled_from": "daily/2026-06-19.md",
+            "updated": "2026-06-19",
+        }
+
+        _update_catalog(kb, "repo-name", [addition], "2026-06-19.md", "2026-06-19")
+
+        lines = catalog.read_text(encoding="utf-8").splitlines()
+        assert any(
+            line
+            == "| [[concepts/foo]] | new summary | daily/2026-06-19.md | 2026-06-19 |"
+            for line in lines
+        )
+        assert any(
+            line
+            == "| [[concepts/bar]] | see [[concepts/foo]] for more | daily/2026-06-18.md | 2026-06-18 |"
+            for line in lines
+        )
+
+    def test_catalog_row_sanitizes_all_fields(self) -> None:
+        """Injection characters in any table field become a single safe row."""
+        addition = {
+            "slug": "foo",
+            "category": "concepts",
+            "summary": "one\nline\rsummary",
+            "compiled_from": "daily/2026-06-19.md|extra|column",
+            "updated": "2026-06-19\n",
+        }
+        row = _format_catalog_row(addition, "2026-06-19.md", "2026-06-19")
+        assert row.count("|") == 5  # 4 columns + outer table delimiters
+        assert "\n" not in row
+        assert "\r" not in row
+        assert "daily/2026-06-19.md|extra|column" not in row
+        assert "daily/2026-06-19.md extra column" in row
+
+    def test_compile_log_rejects_malicious_ref(self, tmp_path: Path) -> None:
+        """A crafted log ref is rejected and log.md is not written."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        log_path = tmp_path / "daily" / "2026-06-19.md"
+        log_path.parent.mkdir(parents=True)
+        log_path.write_text("log content")
+
+        with pytest.raises(WriterError, match="log_created"):
+            _append_compile_log(
+                kb,
+                log_path,
+                ["concepts/foo]]\n## injected\n- [[malicious"],
+                [],
+            )
+
+        assert not (kb / "log.md").exists()
+
+    def test_parse_compile_response_rejects_non_string_catalog_fields(
+        self, tmp_path: Path
+    ) -> None:
+        """A catalog addition with non-string fields raises WriterError fast."""
+        answer = json.dumps(
+            {
+                "articles": [],
+                "catalog_additions": [
+                    {
+                        "slug": 123,
+                        "category": "concepts",
+                        "summary": "summary",
+                        "compiled_from": "daily/2026-06-19.md",
+                        "updated": "2026-06-19",
+                    }
+                ],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+
+        with pytest.raises(WriterError, match="must be strings"):
+            _parse_compile_response(answer)
+
+    def test_permission_mode_is_dontask_not_accept_edits(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+    ) -> None:
+        """Compile SDK options explicitly set permission_mode='dontAsk'."""
+        answer = json.dumps(
+            {
+                "articles": [],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+
+        class TextBlock:
+            text = answer
+
+        class AssistantMessage:
+            content = [TextBlock()]
+
+        class ResultMessage:
+            total_cost_usd = 0.0
+
+        class ClaudeAgentOptions:
+            def __init__(self, **kwargs: Any) -> None:
+                self.kwargs = kwargs
+
+        captured: dict[str, Any] = {}
+
+        async def query(*, prompt: str, options: object) -> Any:
+            captured["options"] = options
+            yield AssistantMessage()
+            yield ResultMessage()
+
+        fake_sdk = types.SimpleNamespace(
+            AssistantMessage=AssistantMessage,
+            ClaudeAgentOptions=ClaudeAgentOptions,
+            ResultMessage=ResultMessage,
+            TextBlock=TextBlock,
+            query=query,
+        )
+
+        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "claude_agent_sdk":
+                return fake_sdk
+            raise ImportError(name)
+
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        daily = repo / "daily"
+        daily.mkdir()
+        log = daily / "2026-06-19.md"
+        log.write_text("discussed asyncio patterns")
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+        config = ProjectConfig(repo_name="sdk-test")
+
+        _compile_one(log, repo, kb, config)
+
+        options = captured["options"]
+        assert options.kwargs["permission_mode"] == "dontAsk"
+        assert options.kwargs["permission_mode"] != "acceptEdits"

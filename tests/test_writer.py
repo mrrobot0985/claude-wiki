@@ -410,3 +410,35 @@ def test_append_log_creates_and_appends_confined_to_kb_root(tmp_path: Path) -> N
     content = log_path.read_text(encoding="utf-8")
     assert "## Entry one" in content
     assert "## Entry two" in content
+
+
+def test_symlinked_catalog_blocked_from_escape(tmp_path: Path) -> None:
+    """A catalog file symlinked outside kb_root must not be written."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_catalog = outside / "stolen.md"
+    outside_catalog.write_text("# Stolen\n")
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    os.symlink(outside_catalog, kb / "my-repo.md")
+
+    with pytest.raises(WriterError):
+        write_catalog(kb, "my-repo", "# My Catalog\n")
+
+    assert outside_catalog.read_text(encoding="utf-8") == "# Stolen\n"
+
+
+def test_symlinked_log_blocked_from_escape(tmp_path: Path) -> None:
+    """A log.md symlinked outside kb_root must not be appended."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_log = outside / "stolen.md"
+    outside_log.write_text("# Stolen Log\n")
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    os.symlink(outside_log, kb / "log.md")
+
+    with pytest.raises(WriterError):
+        append_log(kb, "## Entry\n")
+
+    assert "## Entry" not in outside_log.read_text(encoding="utf-8")
