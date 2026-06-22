@@ -13,7 +13,7 @@ _claude_wiki_completion() {
 
     local cmd="${COMP_WORDS[1]}"
     if [ "$cmd" = "compile" ]; then
-        local compile_opts=(--all --continue-on-error --dry-run --file --help --limit --max-logs --path)
+        local compile_opts=(--all --cheap --continue-on-error --dry-run --file --help --limit --max-logs --model --path)
         COMPREPLY=( $(compgen -W "${compile_opts[*]}" -- "$cur") )
         return 0
     fi

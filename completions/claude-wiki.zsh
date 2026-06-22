@@ -18,12 +18,14 @@ _claude_wiki() {
         (compile)
             _arguments -C \
                 '--all[]' \
+                '--cheap[]' \
                 '--continue-on-error[]' \
                 '--dry-run[]' \
                 '--file[]' \
                 '--help[]' \
                 '--limit[]' \
                 '--max-logs[]' \
+                '--model[]' \
                 '--path[]' \
                 '*:: :_files'
             ;;

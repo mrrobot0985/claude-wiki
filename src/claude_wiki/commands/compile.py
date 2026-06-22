@@ -9,6 +9,7 @@ import importlib
 import json
 import os
 import re
+import statistics
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,8 +17,9 @@ from typing import Any
 
 from claude_wiki.catalog_utils import resolve_catalog
 from claude_wiki.config import ConfigManager
-from claude_wiki.errors import WriterError
+from claude_wiki.errors import CompileError, WriterError
 from claude_wiki.factories import DefaultConfigResolver
+from claude_wiki import graph_utils
 from claude_wiki.global_index import GlobalIndexManager
 from claude_wiki.models import ProjectConfig
 from claude_wiki.writer import (
@@ -31,6 +33,12 @@ from claude_wiki.writer import (
 )
 
 _KB_SUBDIRS = ("concepts", "connections", "qa")
+
+# ADR-011 compile cost-control constants (hardcoded for v1).
+_CONTEXT_BUDGET_CHARS = 20_000
+_PER_LOG_USD_CAP = 0.75
+_TOKEN_ESTIMATE_THRESHOLD = 8_000
+_CHEAP_MODEL = "claude-sonnet-4-6-20251001"
 
 _CATALOG_HEADER = (
     "# {repo_name} Knowledge Base\n\n"
@@ -153,6 +161,47 @@ def _list_existing_articles(kb_root: Path) -> dict[str, str]:
             rel = article.relative_to(kb_root)
             articles[str(rel)] = article.read_text(encoding="utf-8")
     return articles
+
+
+def _apply_context_budget(kb_root: Path, articles: dict[str, str]) -> dict[str, str]:
+    """Trim existing articles to the context budget.
+
+    The catalog/index is excluded from the budget. Hub articles (those with
+    above-median inbound wikilinks) are kept longer than non-hubs; within each
+    group, oldest articles are evicted first.
+    """
+    if not articles:
+        return {}
+
+    total_chars = sum(len(content) for content in articles.values())
+    if total_chars <= _CONTEXT_BUDGET_CHARS:
+        return articles
+
+    graph = graph_utils.build_link_graph(kb_root)
+    inbound = graph.inbound
+    median_inbound = statistics.median(inbound.values()) if inbound else 0.0
+
+    scored: list[tuple[str, str, bool, float]] = []
+    for rel_path, content in articles.items():
+        target = rel_path[: -len(".md")] if rel_path.endswith(".md") else rel_path
+        count = inbound.get(target, 0)
+        is_hub = count > median_inbound
+        path = kb_root / rel_path
+        mtime = path.stat().st_mtime if path.exists() else 0.0
+        scored.append((rel_path, content, is_hub, mtime))
+
+    # Keep priority: hubs first, then newest first (larger mtime).
+    scored.sort(key=lambda item: (item[2], item[3]), reverse=True)
+
+    selected: dict[str, str] = {}
+    used = 0
+    for rel_path, content, _is_hub, _mtime in scored:
+        if used + len(content) > _CONTEXT_BUDGET_CHARS and used > 0:
+            break
+        selected[rel_path] = content
+        used += len(content)
+
+    return selected
 
 
 def _read_schema() -> str:
@@ -377,6 +426,7 @@ async def _compile_daily_log_async(
     *,
     wiki_index: str | None = None,
     existing_articles: dict[str, str] | None = None,
+    model: str | None = None,
 ) -> float:
     """Ask the LLM to compile a single daily log into wiki articles.
 
@@ -405,11 +455,15 @@ async def _compile_daily_log_async(
     if existing_articles is None:
         existing_articles = _list_existing_articles(kb_root)
 
+    # ADR-011: keep existing articles within the context budget; the catalog is
+    # always included separately and never counted toward the budget.
+    budgeted_articles = _apply_context_budget(kb_root, existing_articles)
+
     existing_context = "(No existing articles yet)"
-    if existing_articles:
+    if budgeted_articles:
         parts = [
             f"### {rel_path}\n```markdown\n{content}\n```"
-            for rel_path, content in existing_articles.items()
+            for rel_path, content in budgeted_articles.items()
         ]
         existing_context = "\n\n".join(parts)
 
@@ -445,20 +499,32 @@ Return ONLY the JSON object. Do not write files — the caller writes them from 
 Every concept article must have YAML frontmatter, at least two wikilinks, 3-5 key points, and cite `daily/{log_path.name}` in its sources. Cite the daily log as **plain text** (`- daily/{log_path.name} - context`), never as a `[[wikilink]]` — daily logs live outside the vault, so a `[[daily/…]]` link is dead and collapses across repos (ADR-007).
 """
 
+    # ADR-011: fail-fast before spending on an obviously oversized prompt.
+    estimated_tokens = len(prompt) // 4
+    if estimated_tokens > _TOKEN_ESTIMATE_THRESHOLD:
+        raise CompileError(
+            f"Prompt too large: estimated {estimated_tokens} tokens exceeds "
+            f"{_TOKEN_ESTIMATE_THRESHOLD} token guard"
+        )
+
     cost = 0.0
     response_text = ""
+    options: dict[str, Any] = {
+        "cwd": str(kb_root),
+        "system_prompt": {"type": "preset", "preset": "claude_code"},
+        "allowed_tools": ["Read", "Glob", "Grep"],
+        # Read-only tools are auto-approved by ``allowed_tools``; deny any
+        # other tool so the LLM cannot edit files or prompt for permissions.
+        "permission_mode": "dontAsk",
+        "max_turns": 30,
+    }
+    if model:
+        options["model"] = model
+
     # ADR-012 fallback: chunk category-by-category here if a single response overflows.
     async for message in query(
         prompt=prompt,
-        options=ClaudeAgentOptions(
-            cwd=str(kb_root),
-            system_prompt={"type": "preset", "preset": "claude_code"},
-            allowed_tools=["Read", "Glob", "Grep"],
-            # Read-only tools are auto-approved by ``allowed_tools``; deny any
-            # other tool so the LLM cannot edit files or prompt for permissions.
-            permission_mode="dontAsk",
-            max_turns=30,
-        ),
+        options=ClaudeAgentOptions(**options),
     ):
         if isinstance(message, AssistantMessage):
             for block in message.content:
@@ -470,6 +536,14 @@ Every concept article must have YAML frontmatter, at least two wikilinks, 3-5 ke
 
     if not response_text.strip():
         raise WriterError("LLM returned an empty response")
+
+    # ADR-011: per-log spend cap. Fail-fast after the call so the cost is still
+    # recorded, but do not write any articles from an over-budget response.
+    if cost > _PER_LOG_USD_CAP:
+        raise CompileError(
+            f"Compile cost ${cost:.4f} exceeds per-log cap of ${_PER_LOG_USD_CAP:.2f}",
+            cost_usd=cost,
+        )
 
     articles, catalog_additions, log_created, log_updated = _parse_compile_response(
         response_text
@@ -488,6 +562,7 @@ def _compile_one(
     repo_root: Path,
     kb_root: Path,
     config: ProjectConfig,
+    model: str | None = None,
 ) -> float:
     """Synchronous wrapper around the async LLM compiler call."""
     wiki_index, existing_articles = _get_compile_context(kb_root, config.repo_name)
@@ -499,6 +574,7 @@ def _compile_one(
             config,
             wiki_index=wiki_index,
             existing_articles=existing_articles,
+            model=model,
         )
     )
 
@@ -614,6 +690,22 @@ def _handle_compile(args: argparse.Namespace) -> int:
     for subdir_name in _KB_SUBDIRS:
         (kb_root / subdir_name).mkdir(parents=True, exist_ok=True)
 
+    model = args.model
+    if args.cheap:
+        if model and model != _CHEAP_MODEL:
+            print(
+                f"Warning: --cheap overrides --model; using {_CHEAP_MODEL}. "
+                "Output quality may be lower than the default model.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"Warning: using cheaper model {_CHEAP_MODEL}; "
+                "output quality may be lower.",
+                file=sys.stderr,
+            )
+        model = _CHEAP_MODEL
+
     _preload_compile_context(kb_root, config.repo_name)
     total_cost = 0.0
     failed_logs: list[str] = []
@@ -621,7 +713,24 @@ def _handle_compile(args: argparse.Namespace) -> int:
         for log_path in to_compile:
             print(f"\nCompiling {log_path.name}...")
             try:
-                cost = _compile_one(log_path, repo_root, kb_root, config)
+                cost = _compile_one(log_path, repo_root, kb_root, config, model=model)
+            except CompileError as exc:
+                print(f"  Error: {exc}", file=sys.stderr)
+                failed_logs.append(log_path.name)
+                # ADR-011: record the cost even when the log fails so the user
+                # knows what was spent and can retry or review manually.
+                if exc.cost_usd is not None:
+                    state["ingested"][log_path.name] = {
+                        "hash": _file_hash(log_path),
+                        "compiled_at": _iso_timestamp(),
+                        "cost_usd": exc.cost_usd,
+                        "failed": True,
+                    }
+                    total_cost += exc.cost_usd
+                    state["total_cost"] = state.get("total_cost", 0.0) + exc.cost_usd
+                if not args.continue_on_error:
+                    break
+                continue
             except Exception as exc:
                 print(f"  Error: {exc}", file=sys.stderr)
                 failed_logs.append(log_path.name)
@@ -728,5 +837,18 @@ def register(
         "--path",
         type=Path,
         help="Repo root (default: auto-detect from current directory)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Model override for the LLM compiler (default: SDK default)",
+    )
+    parser.add_argument(
+        "--cheap",
+        action="store_true",
+        help=(
+            f"Use the cheaper model {_CHEAP_MODEL} (opt-in; lower quality, lower cost)"
+        ),
     )
     handlers["compile"] = _handle_compile

@@ -35,7 +35,12 @@ class TestKBWorkflow:
         return repo
 
     def _fake_compile(
-        self, log_path: Path, repo_root: Path, kb_root: Path, config: Any
+        self,
+        log_path: Path,
+        repo_root: Path,
+        kb_root: Path,
+        config: Any,
+        **kwargs: Any,
     ) -> float:
         """Simulate LLM compilation by writing realistic KB artifacts."""
         kb_root.mkdir(parents=True, exist_ok=True)

@@ -8,12 +8,14 @@ complete -c claude-wiki -n '__fish_use_subcommand' -a "compile graph init lint m
 
 # compile flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l all
+complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l cheap
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l continue-on-error
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l dry-run
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l file
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l help
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l limit
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l max-logs
+complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l model
 complete -c claude-wiki -n '__fish_seen_subcommand_from compile' -l path
 # graph flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from graph' -l help
