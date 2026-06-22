@@ -11,6 +11,7 @@ from claude_wiki.errors import WriterError
 
 CATEGORIES: tuple[str, ...] = ("concepts", "connections", "qa")
 _MAX_SLUG_LEN = 80
+# Intentionally ASCII-strict; reconcile with query._slugify in compile wiring (ADR-012).
 _SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 
 
@@ -19,6 +20,15 @@ def is_valid_slug(slug: str) -> bool:
 
 
 def resolve_article_path(article: CompiledArticle, kb_root: Path) -> Path:
+    """Return the article path confined to the resolved ``kb_root`` tree.
+
+    Containment is realpath-based: both ``kb_root`` and the constructed target
+    are resolved with ``Path.resolve()``. The target must equal ``kb_root`` or
+    live inside it. ``kb_root`` may itself be a symlink (the vault is often a
+    symlink to external storage); writes still land in the resolved target and
+    remain confined to the resolved ``kb_root`` tree. ``..``, absolute paths,
+    and category symlinks that point outside ``kb_root`` are rejected.
+    """
     target = kb_root / article.category / f"{article.slug}.md"
     kb_resolved = kb_root.resolve()
     target_resolved = target.resolve()
@@ -29,11 +39,17 @@ def resolve_article_path(article: CompiledArticle, kb_root: Path) -> Path:
 
 def write_article(article: CompiledArticle, kb_root: Path) -> Path:
     path = resolve_article_path(article, kb_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    content = "\n".join(["---", article.frontmatter, "---", article.body, ""])
-    temp = path.parent / f".{path.name}.tmp.{os.getpid()}"
-    temp.write_text(content, encoding="utf-8")
-    os.replace(temp, path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        content = "\n".join(["---", article.frontmatter, "---", article.body, ""])
+        temp = path.parent / f".{path.name}.tmp.{os.getpid()}"
+        try:
+            temp.write_text(content, encoding="utf-8", newline="\n")
+            os.replace(temp, path)
+        finally:
+            temp.unlink(missing_ok=True)
+    except OSError as exc:
+        raise WriterError(f"failed to write article {path}") from exc
     return path
 
 
@@ -64,6 +80,9 @@ class CompiledArticle:
 
         if not self.frontmatter.strip():
             raise WriterError("frontmatter must be non-empty")
+
+        if any(line.strip() == "---" for line in self.frontmatter.splitlines()):
+            raise WriterError("frontmatter must not contain a '---' delimiter line")
 
         if not self.body.strip():
             raise WriterError("body must be non-empty")

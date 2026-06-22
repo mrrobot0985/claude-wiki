@@ -3,6 +3,7 @@
 import dataclasses
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -236,3 +237,116 @@ def test_resolve_article_path_detects_symlink_escape(tmp_path: Path) -> None:
     )
     with pytest.raises(WriterError):
         resolve_article_path(article, kb_root)
+
+
+def test_temp_file_cleaned_up_when_replace_fails(tmp_path: Path) -> None:
+    article = CompiledArticle(
+        title="Temp Leak",
+        slug="temp-leak",
+        category="concepts",
+        frontmatter="title: Temp Leak",
+        body="body",
+    )
+    with patch("claude_wiki.writer.os.replace", side_effect=OSError("boom")):
+        with pytest.raises(WriterError):
+            write_article(article, tmp_path)
+
+    assert not list((tmp_path / "concepts").glob(".*.tmp.*"))
+
+
+@pytest.mark.parametrize(
+    "frontmatter",
+    [
+        "title: x\n---\nmalicious: y",
+        "---\ntitle: x",
+        "title: x\n---",
+    ],
+)
+def test_reject_frontmatter_containing_delimiter(frontmatter: str) -> None:
+    with pytest.raises(
+        WriterError, match="frontmatter must not contain a '---' delimiter line"
+    ):
+        CompiledArticle(
+            title="Title",
+            slug="slug",
+            category="concepts",
+            frontmatter=frontmatter,
+            body="body",
+        )
+
+
+def test_write_article_wraps_oserror_as_writer_error(tmp_path: Path) -> None:
+    article = CompiledArticle(
+        title="Blocked",
+        slug="blocked",
+        category="concepts",
+        frontmatter="title: Blocked",
+        body="body",
+    )
+    tmp_path.chmod(0o555)
+    try:
+        with pytest.raises(WriterError) as exc_info:
+            write_article(article, tmp_path)
+        assert isinstance(exc_info.value.__cause__, OSError)
+        assert "failed to write article" in str(exc_info.value)
+    finally:
+        tmp_path.chmod(0o755)
+
+
+def test_symlinked_kb_root_writes_to_resolved_target(tmp_path: Path) -> None:
+    real_vault = tmp_path / "real_vault"
+    real_vault.mkdir()
+    kb_link = tmp_path / "kb"
+    os.symlink(real_vault, kb_link)
+
+    article = CompiledArticle(
+        title="Symlinked",
+        slug="symlinked",
+        category="concepts",
+        frontmatter="title: Symlinked",
+        body="body",
+    )
+    path = write_article(article, kb_link)
+
+    real_path = real_vault / "concepts" / "symlinked.md"
+    assert path.resolve() == real_path
+    assert real_path.exists()
+    assert real_path.read_text(encoding="utf-8") == "---\ntitle: Symlinked\n---\nbody\n"
+
+
+def test_escape_blocked_when_kb_root_is_symlink(tmp_path: Path) -> None:
+    real_vault = tmp_path / "real_vault"
+    real_vault.mkdir()
+    kb_link = tmp_path / "kb"
+    os.symlink(real_vault, kb_link)
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    concepts_link = real_vault / "concepts"
+    os.symlink(outside, concepts_link)
+
+    article = CompiledArticle(
+        title="Escape",
+        slug="escape",
+        category="concepts",
+        frontmatter="title: Escape",
+        body="body",
+    )
+    with pytest.raises(WriterError):
+        write_article(article, kb_link)
+
+    assert not (outside / "escape.md").exists()
+
+
+def test_body_starting_with_three_dashes_is_allowed(tmp_path: Path) -> None:
+    article = CompiledArticle(
+        title="Body Dash",
+        slug="body-dash",
+        category="concepts",
+        frontmatter='title: "Body Dash"',
+        body="---\n# section",
+    )
+    path = write_article(article, tmp_path)
+    assert path.read_text(encoding="utf-8") == (
+        '---\ntitle: "Body Dash"\n---\n---\n# section\n'
+    )
