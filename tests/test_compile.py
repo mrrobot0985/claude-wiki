@@ -5,6 +5,7 @@ All LLM calls are mocked so these tests run offline and deterministically.
 
 import json
 import os
+import threading
 import time
 import types
 from pathlib import Path
@@ -1912,3 +1913,116 @@ class TestCompileModelSelection:
         assert exit_code == 0
         assert compile_mock.call_args.kwargs.get("model") == _CHEAP_MODEL
         assert "overrides" in captured.err
+
+
+class TestCompileStateLock:
+    """ADR-013: advisory fcntl lock around state.json RMW."""
+
+    def test_concurrent_compiles_do_not_clobber_state(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        mocker: Any,
+    ) -> None:
+        """Two concurrent compiles of different files keep both state entries."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("a")
+        (daily_dir / "2026-06-19.md").write_text("b")
+
+        mocker.patch("claude_wiki.commands.compile._compile_one", return_value=0.25)
+
+        barrier = threading.Barrier(2)
+        exceptions: list[BaseException] = []
+
+        thread_lock = threading.Lock()
+
+        def fake_lockf(_fd: int, operation: int, *_args: Any, **_kwargs: Any) -> None:
+            if operation == _compile_module.fcntl.LOCK_UN:
+                thread_lock.release()
+                return
+            if not thread_lock.acquire(blocking=False):
+                raise BlockingIOError("lock busy")
+
+        monkeypatch.setattr(_compile_module.fcntl, "lockf", fake_lockf)
+
+        def compile_file(file_arg: str) -> None:
+            barrier.wait()
+            try:
+                exit_code = main(["compile", "--path", str(repo), "--file", file_arg])
+                if exit_code != 0:
+                    raise AssertionError(f"compile exited {exit_code}")
+            except BaseException as e:
+                exceptions.append(e)
+
+        t1 = threading.Thread(target=compile_file, args=("daily/2026-06-18.md",))
+        t2 = threading.Thread(target=compile_file, args=("daily/2026-06-19.md",))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert not exceptions
+        state = json.loads((repo / ".claude" / "state" / "state.json").read_text())
+        assert "2026-06-18.md" in state["ingested"]
+        assert "2026-06-19.md" in state["ingested"]
+        assert state["total_cost"] == 0.5
+
+    def test_state_lock_timeout_raises_timeout_error(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """If the state lock cannot be acquired, a TimeoutError is raised."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("a")
+
+        def busy_on_acquire(
+            _fd: int, operation: int, *_args: Any, **_kwargs: Any
+        ) -> None:
+            if operation == _compile_module.fcntl.LOCK_UN:
+                return
+            raise BlockingIOError("lock busy")
+
+        monkeypatch.setattr(_compile_module.fcntl, "lockf", busy_on_acquire)
+        monkeypatch.setattr(_compile_module, "_STATE_LOCK_RETRIES", 3)
+        monkeypatch.setattr(_compile_module, "_STATE_LOCK_RETRY_INTERVAL", 0.01)
+
+        with pytest.raises(TimeoutError, match="timed out acquiring state lock"):
+            main(["compile", "--path", str(repo), "--all"])
+
+    def test_windows_platform_skips_state_lock(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        mocker: Any,
+    ) -> None:
+        """On Windows the lock context manager is a no-op but compile still succeeds."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("a")
+
+        mocker.patch("claude_wiki.commands.compile._compile_one", return_value=0.0)
+        mocker.patch("claude_wiki.commands.compile.GlobalIndexManager.register")
+
+        calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        if getattr(_compile_module, "fcntl", None) is not None:
+            original_lockf = _compile_module.fcntl.lockf
+
+            def capture_lockf(*args: Any, **kwargs: Any) -> None:
+                calls.append((args, kwargs))
+                return original_lockf(*args, **kwargs)
+
+            monkeypatch.setattr(_compile_module.fcntl, "lockf", capture_lockf)
+        monkeypatch.setattr(_compile_module.sys, "platform", "win32")
+
+        exit_code = main(["compile", "--path", str(repo)])
+
+        assert exit_code == 0
+        state = json.loads((repo / ".claude" / "state" / "state.json").read_text())
+        assert "2026-06-18.md" in state["ingested"]
+        assert not calls

@@ -10,6 +10,14 @@ import json
 import os
 import re
 import sys
+import time
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -38,6 +46,12 @@ _CONTEXT_BUDGET_CHARS = 20_000
 _PER_LOG_USD_CAP = 0.75
 _TOKEN_ESTIMATE_THRESHOLD = 8_000
 _CHEAP_MODEL = "claude-sonnet-4-6-20251001"
+
+# Advisory lock around state.json RMW: bounded retries so a peer holding the
+# lock cannot block this process indefinitely. The budget is larger than the
+# flush/registry patterns because this lock spans LLM work, not just disk I/O.
+_STATE_LOCK_RETRIES = 600
+_STATE_LOCK_RETRY_INTERVAL = 1.0
 
 _CATALOG_HEADER = (
     "# {repo_name} Knowledge Base\n\n"
@@ -135,6 +149,42 @@ def _save_state(state_path: Path, state: dict[str, Any]) -> None:
     temp = state_path.with_suffix(".json.tmp")
     temp.write_text(json.dumps(state, indent=2), encoding="utf-8")
     os.replace(temp, state_path)
+
+
+@contextmanager
+def _state_json_lock(lock_path: Path) -> Iterator[None]:
+    """Advisory lock protecting state.json read-modify-write cycles.
+
+    Uses a non-blocking acquire with bounded retries so a peer holding the
+    lock cannot block this process indefinitely; raises ``TimeoutError`` if
+    the lock cannot be acquired within the retry budget.
+
+    The retry budget is intentionally generous (10 minutes) because the lock
+    spans LLM work, not just disk I/O, so a concurrent compile may need to
+    wait for an in-flight compilation to finish.
+
+    On Windows this is a no-op because ``fcntl`` is unavailable.
+    """
+    if sys.platform == "win32" or fcntl is None:
+        yield
+        return
+
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "w") as lock_file:
+        acquired = False
+        for _ in range(_STATE_LOCK_RETRIES):
+            try:
+                fcntl.lockf(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+                break
+            except BlockingIOError:
+                time.sleep(_STATE_LOCK_RETRY_INTERVAL)
+        if not acquired:
+            raise TimeoutError(f"timed out acquiring state lock at {lock_path}")
+        try:
+            yield
+        finally:
+            fcntl.lockf(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def _iso_timestamp() -> str:
@@ -669,105 +719,113 @@ def _handle_compile(args: argparse.Namespace) -> int:
     machine_state_dir = detector.get_machine_state_dir(repo_root, config)
     machine_state_dir.mkdir(parents=True, exist_ok=True)
     state_path = machine_state_dir / "state.json"
-    state = _load_state(state_path)
+    lock_path = state_path.with_suffix(".json.lock")
+    with _state_json_lock(lock_path):
+        state = _load_state(state_path)
 
-    to_compile, total_pending = _find_files_to_compile(
-        args, daily_dir, repo_root, state
-    )
-    if not to_compile:
-        if args.file:
-            return 1
-        print("Nothing to compile - all daily logs are up to date.")
-        return 0
+        to_compile, total_pending = _find_files_to_compile(
+            args, daily_dir, repo_root, state
+        )
+        if not to_compile:
+            if args.file:
+                return 1
+            print("Nothing to compile - all daily logs are up to date.")
+            return 0
 
-    capped = (
-        args.max_logs is not None and not args.file and total_pending > args.max_logs
-    )
+        capped = (
+            args.max_logs is not None
+            and not args.file
+            and total_pending > args.max_logs
+        )
 
-    if args.dry_run:
+        if args.dry_run:
+            if capped:
+                print(
+                    f"[DRY RUN] Would compile {len(to_compile)} of {total_pending} pending logs "
+                    "(capped by --max-logs)."
+                )
+            print(f"[DRY RUN] Files to compile ({len(to_compile)}):")
+            for log_path in to_compile:
+                print(f"  - {log_path.name}")
+            return 0
+
         if capped:
             print(
-                f"[DRY RUN] Would compile {len(to_compile)} of {total_pending} pending logs "
-                "(capped by --max-logs)."
-            )
-        print(f"[DRY RUN] Files to compile ({len(to_compile)}):")
-        for log_path in to_compile:
-            print(f"  - {log_path.name}")
-        return 0
-
-    if capped:
-        print(
-            f"Files to compile ({len(to_compile)} of {total_pending} - capped by --max-logs):"
-        )
-    else:
-        print(f"Files to compile ({len(to_compile)}):")
-    for log_path in to_compile:
-        print(f"  - {log_path.name}")
-
-    kb_root.mkdir(parents=True, exist_ok=True)
-    for subdir_name in _KB_SUBDIRS:
-        (kb_root / subdir_name).mkdir(parents=True, exist_ok=True)
-
-    model = args.model
-    if args.cheap:
-        if model and model != _CHEAP_MODEL:
-            print(
-                f"Warning: --cheap overrides --model; using {_CHEAP_MODEL}. "
-                "Output quality may be lower than the default model.",
-                file=sys.stderr,
+                f"Files to compile ({len(to_compile)} of {total_pending} - capped by --max-logs):"
             )
         else:
-            print(
-                f"Warning: using cheaper model {_CHEAP_MODEL}; "
-                "output quality may be lower.",
-                file=sys.stderr,
-            )
-        model = _CHEAP_MODEL
-
-    _preload_compile_context(kb_root, config.repo_name)
-    total_cost = 0.0
-    failed_logs: list[str] = []
-    try:
+            print(f"Files to compile ({len(to_compile)}):")
         for log_path in to_compile:
-            print(f"\nCompiling {log_path.name}...")
-            try:
-                cost = _compile_one(log_path, repo_root, kb_root, config, model=model)
-            except CompileError as exc:
-                print(f"  Error: {exc}", file=sys.stderr)
-                failed_logs.append(log_path.name)
-                # ADR-011: record the cost even when the log fails so the user
-                # knows what was spent and can retry or review manually.
-                if exc.cost_usd is not None:
-                    state["ingested"][log_path.name] = {
-                        "hash": _file_hash(log_path),
-                        "compiled_at": _iso_timestamp(),
-                        "cost_usd": exc.cost_usd,
-                        "failed": True,
-                    }
-                    total_cost += exc.cost_usd
-                    state["total_cost"] = state.get("total_cost", 0.0) + exc.cost_usd
-                if not args.continue_on_error:
-                    break
-                continue
-            except Exception as exc:
-                print(f"  Error: {exc}", file=sys.stderr)
-                failed_logs.append(log_path.name)
-                if not args.continue_on_error:
-                    break
-                continue
+            print(f"  - {log_path.name}")
 
-            state["ingested"][log_path.name] = {
-                "hash": _file_hash(log_path),
-                "compiled_at": _iso_timestamp(),
-                "cost_usd": cost,
-            }
-            total_cost += cost
-            state["total_cost"] = state.get("total_cost", 0.0) + cost
-            print("  Done.")
-    finally:
-        _clear_compile_context(kb_root)
+        kb_root.mkdir(parents=True, exist_ok=True)
+        for subdir_name in _KB_SUBDIRS:
+            (kb_root / subdir_name).mkdir(parents=True, exist_ok=True)
 
-    _save_state(state_path, state)
+        model = args.model
+        if args.cheap:
+            if model and model != _CHEAP_MODEL:
+                print(
+                    f"Warning: --cheap overrides --model; using {_CHEAP_MODEL}. "
+                    "Output quality may be lower than the default model.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Warning: using cheaper model {_CHEAP_MODEL}; "
+                    "output quality may be lower.",
+                    file=sys.stderr,
+                )
+            model = _CHEAP_MODEL
+
+        _preload_compile_context(kb_root, config.repo_name)
+        total_cost = 0.0
+        failed_logs: list[str] = []
+        try:
+            for log_path in to_compile:
+                print(f"\nCompiling {log_path.name}...")
+                try:
+                    cost = _compile_one(
+                        log_path, repo_root, kb_root, config, model=model
+                    )
+                except CompileError as exc:
+                    print(f"  Error: {exc}", file=sys.stderr)
+                    failed_logs.append(log_path.name)
+                    # ADR-011: record the cost even when the log fails so the user
+                    # knows what was spent and can retry or review manually.
+                    if exc.cost_usd is not None:
+                        state["ingested"][log_path.name] = {
+                            "hash": _file_hash(log_path),
+                            "compiled_at": _iso_timestamp(),
+                            "cost_usd": exc.cost_usd,
+                            "failed": True,
+                        }
+                        total_cost += exc.cost_usd
+                        state["total_cost"] = (
+                            state.get("total_cost", 0.0) + exc.cost_usd
+                        )
+                    if not args.continue_on_error:
+                        break
+                    continue
+                except Exception as exc:
+                    print(f"  Error: {exc}", file=sys.stderr)
+                    failed_logs.append(log_path.name)
+                    if not args.continue_on_error:
+                        break
+                    continue
+
+                state["ingested"][log_path.name] = {
+                    "hash": _file_hash(log_path),
+                    "compiled_at": _iso_timestamp(),
+                    "cost_usd": cost,
+                }
+                total_cost += cost
+                state["total_cost"] = state.get("total_cost", 0.0) + cost
+                print("  Done.")
+        finally:
+            _clear_compile_context(kb_root)
+
+        _save_state(state_path, state)
 
     # Only stamp last_compiled when the run actually produced a usable KB.
     # Registering on a total failure would advertise a fresh compile that
