@@ -13,6 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CLI_DOC = REPO_ROOT / "docs" / "reference" / "cli.md"
 INDEX_DOC = REPO_ROOT / "docs" / "index.md"
 HOWTO_DIR = REPO_ROOT / "docs" / "how-to"
+ADR_DIR = REPO_ROOT / "docs" / "adr"
 
 
 def _run_claude_wiki(*args: str) -> str:
@@ -80,3 +81,47 @@ def test_how_to_guides_are_linked_from_index() -> None:
 
     missing = how_to_files - linked
     assert not missing, f"How-to guides missing from {INDEX_DOC}: {missing}"
+
+
+def _parse_adr_section(index_text: str) -> tuple[set[str], set[str]]:
+    """Return the ADR numbers and link targets listed under the ADR heading."""
+    numbers: set[str] = set()
+    links: set[str] = set()
+    in_section = False
+    for line in index_text.splitlines():
+        if line.startswith("## "):
+            if in_section:
+                break
+            if line.strip() == "## Architecture Decision Records":
+                in_section = True
+        elif in_section:
+            match = re.match(r"-\s*\[ADR-(\d{3})\]\((adr/[^)]+)\)", line)
+            if match:
+                numbers.add(match.group(1))
+                links.add(match.group(2))
+    return numbers, links
+
+
+def test_adr_files_are_linked_from_index() -> None:
+    """Every docs/adr/*.md file has a matching [ADR-NNN] entry in docs/index.md."""
+    if not INDEX_DOC.exists():
+        pytest.skip("docs/index.md is missing")
+    if not ADR_DIR.exists():
+        pytest.skip("docs/adr directory is missing")
+
+    index_numbers, index_links = _parse_adr_section(INDEX_DOC.read_text())
+
+    file_numbers = {
+        re.match(r"^(\d{3})-", path.name).group(1)
+        for path in ADR_DIR.glob("*.md")
+        if path.is_file() and re.match(r"^(\d{3})-", path.name)
+    }
+
+    missing_from_index = file_numbers - index_numbers
+    assert not missing_from_index, (
+        f"ADR files missing from {INDEX_DOC}: {sorted(missing_from_index)}"
+    )
+
+    docs_root = REPO_ROOT / "docs"
+    dangling = {link for link in index_links if not (docs_root / link).is_file()}
+    assert not dangling, f"Dangling ADR links in {INDEX_DOC}: {sorted(dangling)}"
