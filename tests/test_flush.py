@@ -6,6 +6,7 @@ import asyncio
 import json
 import subprocess
 import sys
+import threading
 import types
 from datetime import date
 from pathlib import Path
@@ -436,3 +437,99 @@ class TestAppendToDailyLog:
         monkeypatch.setattr(flush.os, "replace", raise_on_replace)
         with pytest.raises(OSError, match="write failed"):
             flush.append_to_daily_log("entry", repo, config)
+
+    def test_concurrent_appends_do_not_drop_entries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two concurrent appends to the same daily log keep both entries.
+
+        ``fcntl.lockf`` locks are process-level, so the test uses a thread-level
+        lock stand-in to exercise the read-modify-write serialization.
+        """
+        repo = tmp_path / "repo"
+        config = ProjectConfig(repo_name="repo", daily_dir="daily")
+        lock_path = tmp_path / "daily.log.lock"
+        barrier = threading.Barrier(2)
+        results: list[Path] = []
+        exceptions: list[BaseException] = []
+
+        thread_lock = threading.Lock()
+
+        def fake_lockf(_fd: int, operation: int, *_args: Any, **_kwargs: Any) -> None:
+            if operation == flush.fcntl.LOCK_UN:
+                thread_lock.release()
+                return
+            if not thread_lock.acquire(blocking=False):
+                raise BlockingIOError("lock busy")
+
+        monkeypatch.setattr(flush.fcntl, "lockf", fake_lockf)
+
+        def append(content: str) -> None:
+            barrier.wait()
+            try:
+                results.append(
+                    flush.append_to_daily_log(
+                        content, repo, config, lock_path=lock_path
+                    )
+                )
+            except BaseException as e:
+                exceptions.append(e)
+
+        t1 = threading.Thread(target=append, args=("first entry",))
+        t2 = threading.Thread(target=append, args=("second entry",))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert not exceptions
+        log_path = repo / "daily" / f"{date.today().strftime('%Y-%m-%d')}.md"
+        assert all(p == log_path for p in results)
+        text = log_path.read_text(encoding="utf-8")
+        assert "first entry" in text
+        assert "second entry" in text
+
+    def test_lock_timeout_raises_timeout_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If the lock cannot be acquired, a TimeoutError is raised."""
+        repo = tmp_path / "repo"
+        config = ProjectConfig(repo_name="repo", daily_dir="daily")
+        lock_path = tmp_path / "daily.log.lock"
+
+        def busy_on_acquire(
+            _fd: int, operation: int, *_args: Any, **_kwargs: Any
+        ) -> None:
+            if operation == flush.fcntl.LOCK_UN:
+                return
+            raise BlockingIOError("lock busy")
+
+        monkeypatch.setattr(flush.fcntl, "lockf", busy_on_acquire)
+
+        with pytest.raises(TimeoutError, match="timed out acquiring daily log lock"):
+            flush.append_to_daily_log("entry", repo, config, lock_path=lock_path)
+
+    def test_windows_platform_skips_lock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On Windows the lock context manager is a no-op but still appends."""
+        repo = tmp_path / "repo"
+        config = ProjectConfig(repo_name="repo", daily_dir="daily")
+        lock_path = tmp_path / "daily.log.lock"
+
+        calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        if getattr(flush, "fcntl", None) is not None:
+            original_lockf = flush.fcntl.lockf
+
+            def capture_lockf(*args: Any, **kwargs: Any) -> None:
+                calls.append((args, kwargs))
+                return original_lockf(*args, **kwargs)
+
+            monkeypatch.setattr(flush.fcntl, "lockf", capture_lockf)
+        monkeypatch.setattr(flush.sys, "platform", "win32")
+
+        flush.append_to_daily_log("entry", repo, config, lock_path=lock_path)
+
+        log_path = repo / "daily" / f"{date.today().strftime('%Y-%m-%d')}.md"
+        assert "entry" in log_path.read_text(encoding="utf-8")
+        assert not calls
