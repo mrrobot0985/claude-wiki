@@ -256,6 +256,11 @@ def _parse_compile_response(
     ):
         raise WriterError("'log_updated' must be a list of strings")
 
+    for ref in log_created:
+        _validate_log_ref(ref)
+    for ref in log_updated:
+        _validate_log_ref(ref)
+
     return articles, catalog_additions, log_created, log_updated
 
 
@@ -348,11 +353,11 @@ def _append_compile_log(
     log_created: list[str],
     log_updated: list[str],
 ) -> None:
-    """Append a timestamped compile entry to ``kb_root/log.md``."""
-    for ref in log_created:
-        _validate_log_ref(ref)
-    for ref in log_updated:
-        _validate_log_ref(ref)
+    """Append a timestamped compile entry to ``kb_root/log.md``.
+
+    ``log_created`` / ``log_updated`` refs are pre-validated in
+    ``_parse_compile_response``; this function assumes they are safe.
+    """
     created_refs = ", ".join(f"[[{ref}]]" for ref in log_created) or "(none)"
     updated_refs = ", ".join(f"[[{ref}]]" for ref in log_updated) or "(none)"
     entry = (

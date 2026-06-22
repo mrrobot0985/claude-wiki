@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from claude_wiki.catalog_utils import resolve_catalog
 from claude_wiki.cli import main
 from claude_wiki.commands import compile as _compile_module  # noqa: F401
 from claude_wiki.commands.compile import (
@@ -22,6 +23,7 @@ from claude_wiki.commands.compile import (
     _read_index,
     _read_schema,
     _update_catalog,
+    _write_articles,
 )
 from claude_wiki.errors import WriterError
 from claude_wiki.models import ProjectConfig
@@ -1276,22 +1278,54 @@ class TestCompileSecurity:
         assert "daily/2026-06-19.md extra column" in row
 
     def test_compile_log_rejects_malicious_ref(self, tmp_path: Path) -> None:
-        """A crafted log ref is rejected and log.md is not written."""
+        """A crafted log ref is rejected before any write, leaving KB untouched."""
         kb = tmp_path / "kb"
         kb.mkdir()
         log_path = tmp_path / "daily" / "2026-06-19.md"
         log_path.parent.mkdir(parents=True)
         log_path.write_text("log content")
 
+        answer = json.dumps(
+            {
+                "articles": [
+                    {
+                        "title": "Good Article",
+                        "slug": "good-article",
+                        "category": "concepts",
+                        "frontmatter": "title: Good Article\ncreated: 2026-06-19\nupdated: 2026-06-19",
+                        "body": "# Good Article\n\nContent.",
+                    }
+                ],
+                "catalog_additions": [
+                    {
+                        "slug": "good-article",
+                        "category": "concepts",
+                        "summary": "summary",
+                        "compiled_from": "daily/2026-06-19.md",
+                        "updated": "2026-06-19",
+                    }
+                ],
+                "log_created": ["concepts/foo]]\n## injected\n- [[malicious"],
+                "log_updated": [],
+            }
+        )
+
         with pytest.raises(WriterError, match="log_created"):
-            _append_compile_log(
-                kb,
-                log_path,
-                ["concepts/foo]]\n## injected\n- [[malicious"],
-                [],
+            (
+                articles,
+                catalog_additions,
+                log_created,
+                log_updated,
+            ) = _parse_compile_response(answer)
+            _write_articles(articles, kb)
+            _update_catalog(
+                kb, "my-project", catalog_additions, log_path.name, log_path.stem
             )
+            _append_compile_log(kb, log_path, log_created, log_updated)
 
         assert not (kb / "log.md").exists()
+        assert not (kb / "concepts" / "good-article.md").exists()
+        assert not resolve_catalog(kb, "my-project").exists()
 
     def test_parse_compile_response_rejects_non_string_catalog_fields(
         self, tmp_path: Path
