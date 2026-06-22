@@ -9,7 +9,6 @@ import importlib
 import json
 import os
 import re
-import statistics
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -163,6 +162,18 @@ def _list_existing_articles(kb_root: Path) -> dict[str, str]:
     return articles
 
 
+def _median(values: list[int]) -> float:
+    """Return the median of a list of integers."""
+    sorted_values = sorted(values)
+    n = len(sorted_values)
+    if n == 0:
+        return 0.0
+    mid = n // 2
+    if n % 2 == 1:
+        return float(sorted_values[mid])
+    return (sorted_values[mid - 1] + sorted_values[mid]) / 2.0
+
+
 def _apply_context_budget(kb_root: Path, articles: dict[str, str]) -> dict[str, str]:
     """Trim existing articles to the context budget.
 
@@ -177,15 +188,22 @@ def _apply_context_budget(kb_root: Path, articles: dict[str, str]) -> dict[str, 
     if total_chars <= _CONTEXT_BUDGET_CHARS:
         return articles
 
-    graph = graph_utils.build_link_graph(kb_root)
-    inbound = graph.inbound
-    median_inbound = statistics.median(inbound.values()) if inbound else 0.0
+    # ADR-011: compute inbound counts from the already-in-memory articles dict.
+    # Do not re-read the KB from disk via build_link_graph in this hot path.
+    inbound: dict[str, int] = {}
+    for rel_path, content in articles.items():
+        for link in graph_utils.extract_wikilinks(content):
+            target = graph_utils.wikilink_target(link)
+            if target != rel_path.replace(".md", ""):
+                inbound[target] = inbound.get(target, 0) + 1
+
+    median_inbound = _median(list(inbound.values()))
 
     scored: list[tuple[str, str, bool, float]] = []
     for rel_path, content in articles.items():
         target = rel_path[: -len(".md")] if rel_path.endswith(".md") else rel_path
         count = inbound.get(target, 0)
-        is_hub = count > median_inbound
+        is_hub = count > 0 and count >= median_inbound
         path = kb_root / rel_path
         mtime = path.stat().st_mtime if path.exists() else 0.0
         scored.append((rel_path, content, is_hub, mtime))

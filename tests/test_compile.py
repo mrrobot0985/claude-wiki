@@ -1485,6 +1485,34 @@ class TestCompileSecurity:
 class TestCompileContextBudget:
     """ADR-011: existing-article context budget with hub-weighted eviction."""
 
+    def test_context_budget_computes_inbound_from_memory(
+        self, tmp_path: Path, monkeypatch: Any, mocker: Any
+    ) -> None:
+        """Inbound counts come from the articles dict, not a fresh disk read."""
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+        a = kb / "concepts" / "a.md"
+        a.write_text("[[concepts/b]]")
+        b = kb / "concepts" / "b.md"
+        b.write_text("content")
+        # Make a the newest; only hub classification would select b first.
+        now = time.time()
+        os.utime(a, (now, now))
+        os.utime(b, (now - 1, now - 1))
+
+        articles = _list_existing_articles(kb)
+        build_graph_spy = mocker.patch(
+            "claude_wiki.graph_utils.build_link_graph",
+            side_effect=RuntimeError("disk read"),
+        )
+        monkeypatch.setattr(_compile_module, "_CONTEXT_BUDGET_CHARS", 12)
+
+        selected = _apply_context_budget(kb, articles)
+
+        build_graph_spy.assert_not_called()
+        assert "concepts/b.md" in selected
+        assert "concepts/a.md" not in selected
+
     def test_context_budget_keeps_all_when_under_budget(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
@@ -1525,6 +1553,80 @@ class TestCompileContextBudget:
 
         assert "concepts/hub.md" in selected
         assert "concepts/old-nonhub.md" not in selected
+
+    def test_context_budget_zero_inbound_evicted_while_hub_kept(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A zero-inbound article is a non-hub and is evicted before a hub."""
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+
+        hub = kb / "concepts" / "hub.md"
+        hub.write_text("hub " * 1500)  # 6000 chars
+        linker = kb / "concepts" / "linker.md"
+        linker.write_text("[[concepts/hub]]")  # hub gets 1 inbound
+
+        zero = kb / "concepts" / "zero.md"
+        zero.write_text("zero " * 1500)  # 6000 chars, oldest
+        old_mtime = time.time() - 86400
+        os.utime(zero, (old_mtime, old_mtime))
+
+        articles = _list_existing_articles(kb)
+        monkeypatch.setattr(_compile_module, "_CONTEXT_BUDGET_CHARS", 7000)
+        selected = _apply_context_budget(kb, articles)
+
+        assert "concepts/hub.md" in selected
+        assert "concepts/zero.md" not in selected
+
+    def test_context_budget_ties_at_median_are_hubs(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Articles tied at the median inbound count are classified as hubs."""
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+
+        a = kb / "concepts" / "a.md"
+        a.write_text("a " * 1500)  # 3000 chars
+        b = kb / "concepts" / "b.md"
+        b.write_text("b " * 1500)  # 3000 chars
+        # Two inbound links each so a and b share the median of [2, 2].
+        (kb / "concepts" / "linker-a1.md").write_text("[[concepts/a]]")
+        (kb / "concepts" / "linker-a2.md").write_text("[[concepts/a]]")
+        (kb / "concepts" / "linker-b1.md").write_text("[[concepts/b]]")
+        (kb / "concepts" / "linker-b2.md").write_text("[[concepts/b]]")
+
+        zero = kb / "concepts" / "zero.md"
+        zero.write_text("z " * 1500)  # 3000 chars
+
+        articles = _list_existing_articles(kb)
+        monkeypatch.setattr(_compile_module, "_CONTEXT_BUDGET_CHARS", 6500)
+        selected = _apply_context_budget(kb, articles)
+
+        assert "concepts/a.md" in selected
+        assert "concepts/b.md" in selected
+        assert "concepts/zero.md" not in selected
+
+    def test_context_budget_single_positive_inbound_is_hub(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A lone article with a positive inbound count is treated as a hub."""
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+
+        target = kb / "concepts" / "target.md"
+        target.write_text("target " * 1500)  # 9000 chars
+        linker = kb / "concepts" / "linker.md"
+        linker.write_text("[[concepts/target]]")  # target gets 1 inbound
+
+        zero = kb / "concepts" / "zero.md"
+        zero.write_text("zero " * 1500)  # 6000 chars
+
+        articles = _list_existing_articles(kb)
+        monkeypatch.setattr(_compile_module, "_CONTEXT_BUDGET_CHARS", 9500)
+        selected = _apply_context_budget(kb, articles)
+
+        assert "concepts/target.md" in selected
+        assert "concepts/zero.md" not in selected
 
     def test_context_budget_includes_catalog_separately(
         self,
