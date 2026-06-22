@@ -201,6 +201,12 @@ usage: claude-wiki status [-h] [--path PATH] [--json]
 | `--path PATH` | Repo root (default: auto-detect from current directory) |
 | `--json`      | Emit machine-readable JSON instead of human text        |
 
+The `Concurrency` check reports whether write serialization is active. On
+Unix-like platforms this uses `fcntl` advisory locks to serialize daily-log
+appends and `state.json` updates; per-repo catalog writes use atomic temp-file
+rename instead. On Windows, advisory locks are unavailable, so concurrent
+writes may race.
+
 ### `claude-wiki tags`
 
 List every YAML frontmatter tag in the knowledge base with a count and an

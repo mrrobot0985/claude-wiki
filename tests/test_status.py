@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from claude_wiki.cli import main
+from claude_wiki.commands.status import _check_concurrency
 from claude_wiki.factories import CLAUDE_WIKI_HOOK_COMMAND
 
 
@@ -306,6 +307,11 @@ class TestStatusCommand:
         assert payload["total_errors"] == 0
         assert isinstance(payload["checks"], list)
         assert len(payload["checks"]) > 0
+
+        concurrency = next(c for c in payload["checks"] if c["name"] == "Concurrency")
+        assert concurrency["status"] == "ok"
+        assert "write serialization active" in concurrency["message"]
+
         for check in payload["checks"]:
             assert check["status"] in {"ok", "warning", "error"}
             assert isinstance(check["message"], str)
@@ -405,3 +411,33 @@ class TestStatusCommand:
         assert "claude-wiki status for my-project" in captured.out
         assert "Lock file" in captured.out
         assert "All checks passed." in captured.out
+
+
+class TestCheckConcurrency:
+    """Concurrency check reports write-serialization availability."""
+
+    def test_check_concurrency_warns_on_windows(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("claude_wiki.commands.status.sys.platform", "win32")
+        monkeypatch.setattr("claude_wiki.commands.status.fcntl", None)
+
+        label, msg, err = _check_concurrency()
+
+        assert label == "Concurrency"
+        assert "not available on this platform" in msg
+        assert "concurrent writes may race" in msg
+        assert err == 0
+
+    def test_check_concurrency_active_on_linux(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("claude_wiki.commands.status.sys.platform", "linux")
+        monkeypatch.setattr("claude_wiki.commands.status.fcntl", object())
+
+        label, msg, err = _check_concurrency()
+
+        assert label == "Concurrency"
+        assert "write serialization active" in msg
+        assert "fcntl advisory locks" in msg
+        assert err == 0
