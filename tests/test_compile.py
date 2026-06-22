@@ -1988,6 +1988,8 @@ class TestCompileStateLock:
             raise BlockingIOError("lock busy")
 
         monkeypatch.setattr(_compile_module.fcntl, "lockf", busy_on_acquire)
+        monkeypatch.setattr(_compile_module, "_STATE_LOCK_RETRIES", 3)
+        monkeypatch.setattr(_compile_module, "_STATE_LOCK_RETRY_INTERVAL", 0.01)
 
         with pytest.raises(TimeoutError, match="timed out acquiring state lock"):
             main(["compile", "--path", str(repo), "--all"])
