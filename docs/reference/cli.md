@@ -203,7 +203,8 @@ usage: claude-wiki status [-h] [--path PATH] [--json]
 
 The `Concurrency` check reports whether write serialization is active. On
 Unix-like platforms this uses `fcntl` advisory locks to serialize daily-log
-and catalog writes. On Windows, advisory locks are unavailable, so concurrent
+appends and `state.json` updates; per-repo catalog writes use atomic temp-file
+rename instead. On Windows, advisory locks are unavailable, so concurrent
 writes may race.
 
 ### `claude-wiki tags`

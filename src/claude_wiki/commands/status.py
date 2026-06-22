@@ -332,10 +332,6 @@ def _handle_status(args: argparse.Namespace) -> int:
         label, msg, err = _check_registry(config)
         rows.append((label, msg, err))
         total_errors += err
-
-        label, msg, err = _check_concurrency()
-        rows.append((label, msg, err))
-        total_errors += err
     else:
         rows.append(
             ("Daily logs", f"{_StatusIcon['warn']} skipped — config unavailable", 0)
@@ -348,9 +344,10 @@ def _handle_status(args: argparse.Namespace) -> int:
         rows.append(
             ("Registry", f"{_StatusIcon['warn']} skipped — config unavailable", 0)
         )
-        rows.append(
-            ("Concurrency", f"{_StatusIcon['warn']} skipped — config unavailable", 0)
-        )
+
+    label, msg, err = _check_concurrency()
+    rows.append((label, msg, err))
+    total_errors += err
 
     if args.json:
         _print_status_json(repo_root.name, rows)

@@ -307,6 +307,11 @@ class TestStatusCommand:
         assert payload["total_errors"] == 0
         assert isinstance(payload["checks"], list)
         assert len(payload["checks"]) > 0
+
+        concurrency = next(c for c in payload["checks"] if c["name"] == "Concurrency")
+        assert concurrency["status"] == "ok"
+        assert "write serialization active" in concurrency["message"]
+
         for check in payload["checks"]:
             assert check["status"] in {"ok", "warning", "error"}
             assert isinstance(check["message"], str)
@@ -336,7 +341,7 @@ class TestStatusCommand:
         assert lock_check["errors"] == 1
 
         skipped = [c for c in payload["checks"] if "skipped" in c["message"]]
-        assert len(skipped) == 6
+        assert len(skipped) == 5
         assert all(c["status"] == "warning" for c in skipped)
         assert all(c["errors"] == 0 for c in skipped)
 
@@ -363,7 +368,7 @@ class TestStatusCommand:
         assert "corrupt" in lock_check["message"].lower()
 
         skipped = [c for c in payload["checks"] if "skipped" in c["message"]]
-        assert len(skipped) == 6
+        assert len(skipped) == 5
         assert all(c["status"] == "warning" for c in skipped)
 
         assert exit_code == 1
@@ -428,6 +433,7 @@ class TestCheckConcurrency:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr("claude_wiki.commands.status.sys.platform", "linux")
+        monkeypatch.setattr("claude_wiki.commands.status.fcntl", object())
 
         label, msg, err = _check_concurrency()
 
