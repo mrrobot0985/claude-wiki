@@ -17,6 +17,7 @@ from claude_wiki.catalog_utils import extract_tags, resolve_catalog
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
 from claude_wiki.models import QueryResult
+from claude_wiki.writer import slugify
 
 
 EXIT_OK = 0
@@ -389,11 +390,7 @@ def _extract_wikilinks(text: str) -> list[str]:
 
 def _slugify(text: str) -> str:
     """Convert text to a filename-safe slug, truncated to 80 chars."""
-    text = text.lower().strip()
-    text = re.sub(r"[^\w\s-]", "", text)
-    text = re.sub(r"[\s_]+", "-", text)
-    text = re.sub(r"-+", "-", text)
-    return text.strip("-")[:80].rstrip("-")
+    return slugify(text)
 
 
 def _file_back(
