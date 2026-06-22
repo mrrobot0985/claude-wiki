@@ -36,6 +36,18 @@ def default_daily_dir(kb_mode: str, repo_owner: str, repo_name: str) -> Path:
 class ConfigManager(RepoDetector, ConfigLoader):
     """Concrete implementation: walks filesystem, resolves XDG paths."""
 
+    @staticmethod
+    def resolve_repo_path(path: Path, repo_root: Path | None = None) -> Path:
+        """Resolve a repo-relative path: absolute paths kept as-is;
+        relative paths resolved against repo_root (or cwd if None).
+        """
+        path = path.expanduser()
+        if path.is_absolute():
+            return path.resolve(strict=False)
+        if repo_root is not None:
+            return (repo_root / path).resolve(strict=False)
+        return path.resolve(strict=False)
+
     def find_repo_root(self, start: Path) -> Path:
         """Walk upward looking for .git or .claude-wiki.lock."""
         current = start.resolve()
@@ -131,11 +143,7 @@ class ConfigManager(RepoDetector, ConfigLoader):
         kb_root = self.get_kb_root(repo_root, config)
         state_dir = self.get_machine_state_dir(repo_root, config)
         cache_dir = self.get_cache_dir(repo_root, config)
-        daily_dir = (
-            config.daily_dir
-            if config.daily_dir.is_absolute()
-            else (repo_root / config.daily_dir).resolve(strict=False)
-        )
+        daily_dir = self.resolve_repo_path(config.daily_dir, repo_root)
 
         def move_dir(src: Path, dst: Path, label: str) -> None:
             nonlocal migrated, errors, warnings

@@ -738,28 +738,6 @@ class TestGlobalIndexManager:
             assert mgr._read_lock(repo) is None
             assert "expected object" in caplog.text.lower()
 
-    def test_resolve_path_relative_against_repo_root(self):
-        """Relative paths are resolved against repo_root when provided."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            repo = Path(tmpdir) / "repo"
-            repo.mkdir()
-            mgr = GlobalIndexManager(base_dir=Path(tmpdir) / "global")
-            resolved = mgr._resolve_path("kb", str(repo))
-            assert resolved == (repo / "kb").resolve(strict=False)
-
-    def test_resolve_path_relative_without_repo_root(self):
-        """Relative paths resolve against cwd when repo_root is absent."""
-        original_cwd = os.getcwd()
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                base = Path(tmpdir).resolve()
-                os.chdir(base)
-                mgr = GlobalIndexManager(base_dir=base / "global")
-                resolved = mgr._resolve_path("kb", None)
-                assert resolved == (base / "kb").resolve(strict=False)
-        finally:
-            os.chdir(original_cwd)
-
     def test_format_link_escapes_spaces(self):
         """Paths containing spaces are wrapped in angle brackets."""
         with tempfile.TemporaryDirectory() as tmpdir:

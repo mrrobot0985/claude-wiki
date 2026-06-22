@@ -333,6 +333,39 @@ class TestConfigManager:
                 assert result == (home_dir / "config-kb").resolve(strict=False)
 
 
+class TestResolveRepoPath:
+    """Unit tests for ConfigManager.resolve_repo_path."""
+
+    def test_resolve_path_relative_against_repo_root(self):
+        """Relative paths are resolved against repo_root when provided."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            repo.mkdir()
+            resolved = ConfigManager.resolve_repo_path(Path("kb"), repo)
+            assert resolved == (repo / "kb").resolve(strict=False)
+
+    def test_resolve_path_relative_without_repo_root(self):
+        """Relative paths resolve against cwd when repo_root is absent."""
+        original_cwd = os.getcwd()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                base = Path(tmpdir).resolve()
+                os.chdir(base)
+                resolved = ConfigManager.resolve_repo_path(Path("kb"), None)
+                assert resolved == (base / "kb").resolve(strict=False)
+        finally:
+            os.chdir(original_cwd)
+
+    def test_resolve_path_absolute_unchanged(self):
+        """Absolute paths are returned resolved and unaffected by repo_root."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir).resolve()
+            absolute = base / "external" / "kb"
+            resolved = ConfigManager.resolve_repo_path(absolute, base / "repo")
+            assert resolved == absolute.resolve(strict=False)
+            assert resolved.is_absolute()
+
+
 class TestProjectConfig:
     """Pure unit tests for ProjectConfig validation and serialization."""
 

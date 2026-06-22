@@ -15,6 +15,8 @@ from typing import Any
 
 from platformdirs import user_data_dir
 
+from claude_wiki.config import ConfigManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -236,13 +238,8 @@ class GlobalIndexManager:
         Defaults to repo_root / "daily" when the lock file is missing or corrupt.
         """
         data = self._read_lock(repo_root)
-        if data is None:
-            return (repo_root / "daily").resolve(strict=False)
-        daily = data.get("daily_dir", "daily")
-        daily_path = Path(daily).expanduser()
-        if daily_path.is_absolute():
-            return daily_path.resolve(strict=False)
-        return (repo_root / daily_path).resolve(strict=False)
+        daily = data.get("daily_dir", "daily") if data else "daily"
+        return ConfigManager.resolve_repo_path(Path(daily), repo_root)
 
     def _derive_kb_mode_label(self, repo_root: Path) -> str:
         """Return the human-readable KB mode label from the repo lock file."""
@@ -257,15 +254,11 @@ class GlobalIndexManager:
     def _resolve_path(self, path_str: str, repo_root: str | None) -> Path:
         """Resolve a stored path to an absolute path.
 
-        Relative paths are resolved against repo_root when available,
-        otherwise against the current working directory for backwards compatibility.
+        Deprecated: delegates to ConfigManager.resolve_repo_path.
         """
-        path = Path(path_str)
-        if path.is_absolute():
-            return path
-        if repo_root is not None:
-            return (Path(repo_root) / path).resolve(strict=False)
-        return path.resolve(strict=False)
+        return ConfigManager.resolve_repo_path(
+            Path(path_str), Path(repo_root) if repo_root else None
+        )
 
     def _format_link(self, path: Path) -> str:
         """Format a path as an absolute markdown link target."""
