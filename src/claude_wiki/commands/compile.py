@@ -8,6 +8,7 @@ import hashlib
 import importlib
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,6 +71,10 @@ Return a single JSON object describing the articles to write. Do not edit files.
 - Cite the daily log as **plain text** (`- daily/YYYY-MM-DD.md - context`), never as a wikilink to a daily log — daily logs live outside the vault, so such a link is dead and collapses across repos (ADR-007).
 - Use `[[concepts/slug]]` / `[[connections/slug]]` / `[[qa/slug]]` for internal wikilinks.
 """
+
+# Safe reference format for ``log_created`` / ``log_updated``: category/slug.
+_LOG_REF_RE = re.compile(r"^[a-z0-9-]+/[a-z0-9-]+$")
+
 
 # Cache populated once per ``compile`` run so the index and existing articles are
 # not re-read for every daily log.
@@ -228,6 +233,10 @@ def _parse_compile_response(
     for idx, addition in enumerate(catalog_additions):
         if not isinstance(addition, dict):
             raise WriterError(f"catalog_additions[{idx}] is not an object")
+        for field_name in ("slug", "category", "summary", "compiled_from", "updated"):
+            value = addition.get(field_name)
+            if value is not None and not isinstance(value, str):
+                raise WriterError(f"catalog_additions[{idx}] fields must be strings")
         cat = addition.get("category", "")
         slug = addition.get("slug", "")
         if cat not in CATEGORIES:
@@ -256,6 +265,14 @@ def _write_articles(articles: list[CompiledArticle], kb_root: Path) -> None:
         write_article(article, kb_root)
 
 
+def _sanitize_table_field(value: Any, default: str = "") -> str:
+    """Flatten a value into a single-line, pipe-free table cell."""
+    text = str(value if value is not None else default)
+    for char in ("|", "\n", "\r"):
+        text = text.replace(char, " ")
+    return text.strip()
+
+
 def _format_catalog_row(
     addition: dict[str, Any], daily_filename: str, updated: str
 ) -> str:
@@ -266,11 +283,11 @@ def _format_catalog_row(
         raise WriterError(f"catalog addition has invalid slug: {slug}")
     if category not in CATEGORIES:
         raise WriterError(f"catalog addition has invalid category: {category}")
-    summary = str(addition.get("summary", "")).replace("|", " ").strip()
-    compiled_from = str(
+    summary = _sanitize_table_field(addition.get("summary"))
+    compiled_from = _sanitize_table_field(
         addition.get("compiled_from") or f"daily/{daily_filename}"
-    ).strip()
-    updated = str(addition.get("updated") or updated).strip()
+    )
+    updated = _sanitize_table_field(addition.get("updated") or updated)
     return f"| [[{category}/{slug}]] | {summary} | {compiled_from} | {updated} |"
 
 
@@ -298,8 +315,8 @@ def _update_catalog(
     for line in lines:
         matched: dict[str, Any] | None = None
         for addition in additions:
-            link = f"[[{addition.get('category')}/{addition.get('slug')}]]"
-            if link in line:
+            prefix = f"| [[{addition.get('category')}/{addition.get('slug')}]] |"
+            if line.startswith(prefix):
                 matched = addition
                 break
         if matched is not None:
@@ -317,6 +334,14 @@ def _update_catalog(
     write_catalog(kb_root, repo_name, "\n".join(updated_lines) + "\n")
 
 
+def _validate_log_ref(ref: str) -> None:
+    """Fail-fast if ``ref`` is not a safe ``category/slug`` reference."""
+    if not isinstance(ref, str) or not _LOG_REF_RE.match(ref):
+        raise WriterError(
+            f"log_created/log_updated ref must match category/slug, got {ref!r}"
+        )
+
+
 def _append_compile_log(
     kb_root: Path,
     log_path: Path,
@@ -324,6 +349,10 @@ def _append_compile_log(
     log_updated: list[str],
 ) -> None:
     """Append a timestamped compile entry to ``kb_root/log.md``."""
+    for ref in log_created:
+        _validate_log_ref(ref)
+    for ref in log_updated:
+        _validate_log_ref(ref)
     created_refs = ", ".join(f"[[{ref}]]" for ref in log_created) or "(none)"
     updated_refs = ", ".join(f"[[{ref}]]" for ref in log_updated) or "(none)"
     entry = (
@@ -420,6 +449,9 @@ Every concept article must have YAML frontmatter, at least two wikilinks, 3-5 ke
             cwd=str(kb_root),
             system_prompt={"type": "preset", "preset": "claude_code"},
             allowed_tools=["Read", "Glob", "Grep"],
+            # Read-only tools are auto-approved by ``allowed_tools``; deny any
+            # other tool so the LLM cannot edit files or prompt for permissions.
+            permission_mode="dontAsk",
             max_turns=30,
         ),
     ):
