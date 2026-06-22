@@ -13,73 +13,62 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from claude_wiki.catalog_utils import resolve_catalog
 from claude_wiki.config import ConfigManager
+from claude_wiki.errors import WriterError
 from claude_wiki.factories import DefaultConfigResolver
 from claude_wiki.global_index import GlobalIndexManager
 from claude_wiki.models import ProjectConfig
+from claude_wiki.writer import (
+    CATEGORIES,
+    CompiledArticle,
+    append_log,
+    is_valid_slug,
+    slugify,
+    write_article,
+    write_catalog,
+)
 
 _KB_SUBDIRS = ("concepts", "connections", "qa")
 
+_CATALOG_HEADER = (
+    "# {repo_name} Knowledge Base\n\n"
+    "| Article | Summary | Compiled From | Updated |\n"
+    "|---|---|---|---|"
+)
+
 _DEFAULT_SCHEMA = """# Knowledge Base Schema
 
-## `knowledge/{repo_name}.md`
+Return a single JSON object describing the articles to write. Do not edit files.
 
-Master catalog table:
+## Response format
 
-| Article | Summary | Compiled From | Updated |
-|---------|---------|---------------|---------|
-| [[concepts/example]] | One-line summary | daily/YYYY-MM-DD.md | YYYY-MM-DD |
-
-## Concept articles (`knowledge/concepts/`)
-
-```markdown
----
-title: "Concept Name"
-aliases: [alias]
-tags: [tag]
-sources:
-  - "daily/YYYY-MM-DD.md"
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
----
-
-# Concept Name
-
-Core explanation.
-
-## Key Points
-
-- Bullet point
-
-## Details
-
-Deeper explanation.
-
-## Related Concepts
-
-- [[concepts/related]] - connection note
-
-## Sources
-
-- daily/YYYY-MM-DD.md - context
+```json
+{
+  "articles": [
+    {
+      "title": "Concept Name",
+      "slug": "concept-name",
+      "category": "concepts",
+      "frontmatter": "title: \\"Concept Name\\"\\naliases: [alias]\\ntags: [tag]\\nsources:\\n  - \\"daily/YYYY-MM-DD.md\\"\\ncreated: YYYY-MM-DD\\nupdated: YYYY-MM-DD",
+      "body": "# Concept Name\\n\\nCore explanation.\\n\\n## Key Points\\n\\n- Bullet point\\n\\n## Details\\n\\nDeeper explanation.\\n\\n## Related Concepts\\n\\n- [[concepts/related]] - connection note\\n\\n## Sources\\n\\n- daily/YYYY-MM-DD.md - context"
+    }
+  ],
+  "catalog_additions": [
+    {"slug": "concept-name", "category": "concepts", "summary": "one-line summary", "compiled_from": "daily/YYYY-MM-DD.md", "updated": "YYYY-MM-DD"}
+  ],
+  "log_created": ["concept-name"],
+  "log_updated": []
+}
 ```
 
-Daily logs live outside the Obsidian vault (ADR-007), so a `daily/…` citation is
-**plain text, never a `[[wikilink]]`** — a wikilink to a file outside the vault is a
-dead link and, across repos, collapses to the same missing graph node.
+## Rules
 
-## Connection articles (`knowledge/connections/`)
-
-Link two or more concepts and explain the non-obvious relationship.
-
-## Build log (`knowledge/log.md`)
-
-```markdown
-## [YYYY-MM-DDTHH:MM:SS] compile | daily/YYYY-MM-DD.md
-- Source: daily/YYYY-MM-DD.md
-- Articles created: [[concepts/x]]
-- Articles updated: (none)
-```
+- `category` must be exactly `concepts`, `connections`, or `qa`.
+- `slug` must be lowercase ASCII alphanumeric with hyphens only (max 80 chars).
+- The `body` must be full replacement markdown, not an in-place edit.
+- Cite the daily log as **plain text** (`- daily/YYYY-MM-DD.md - context`), never as a wikilink to a daily log — daily logs live outside the vault, so such a link is dead and collapses across repos (ADR-007).
+- Use `[[concepts/slug]]` / `[[connections/slug]]` / `[[qa/slug]]` for internal wikilinks.
 """
 
 # Cache populated once per ``compile`` run so the index and existing articles are
@@ -172,15 +161,178 @@ def _read_schema() -> str:
 
 
 def _read_index(kb_root: Path, repo_name: str) -> str:
-    """Read the current index, returning a default header if absent."""
-    index_file = kb_root / f"{repo_name}.md"
+    """Read the current catalog, returning a default header if absent."""
+    index_file = resolve_catalog(kb_root, repo_name)
     if index_file.exists():
         return index_file.read_text(encoding="utf-8")
-    return (
-        f"# {repo_name} Knowledge Base\n\n"
-        "| Article | Summary | Compiled From | Updated |\n"
-        "|---------|---------|---------------|---------|"
+    return _CATALOG_HEADER.format(repo_name=repo_name)
+
+
+def _extract_json(raw_text: str) -> str:
+    """Locate the outermost JSON object in ``raw_text``."""
+    start = raw_text.find("{")
+    if start == -1:
+        raise WriterError("no JSON object found in LLM response")
+    end = raw_text.rfind("}")
+    if end == -1 or end < start:
+        raise WriterError("unclosed JSON object in LLM response")
+    return raw_text[start : end + 1]
+
+
+def _parse_compile_response(
+    raw_text: str,
+) -> tuple[list[CompiledArticle], list[dict[str, Any]], list[str], list[str]]:
+    """Parse and validate the LLM's structured response.
+
+    Fail-fast on malformed JSON, missing fields, or any article that does not
+    pass ``CompiledArticle`` validation. All articles are validated before any
+    write happens (ADR-012 guardrail).
+    """
+    json_text = _extract_json(raw_text)
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        raise WriterError(f"malformed JSON in LLM response: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise WriterError("LLM response JSON must be an object")
+
+    articles_raw = data.get("articles")
+    if not isinstance(articles_raw, list):
+        raise WriterError("LLM response missing 'articles' list")
+
+    articles: list[CompiledArticle] = []
+    for idx, item in enumerate(articles_raw):
+        if not isinstance(item, dict):
+            raise WriterError(f"article {idx} is not an object")
+        slug = item.get("slug")
+        if not slug:
+            title = item.get("title", "")
+            slug = slugify(title) if isinstance(title, str) and title.strip() else ""
+        try:
+            articles.append(
+                CompiledArticle(
+                    title=item.get("title", ""),
+                    slug=slug,
+                    category=item.get("category", ""),
+                    frontmatter=item.get("frontmatter", ""),
+                    body=item.get("body", ""),
+                )
+            )
+        except WriterError as exc:
+            raise WriterError(f"article {idx} invalid: {exc}") from exc
+
+    catalog_additions = data.get("catalog_additions", [])
+    if not isinstance(catalog_additions, list):
+        raise WriterError("'catalog_additions' must be a list")
+    for idx, addition in enumerate(catalog_additions):
+        if not isinstance(addition, dict):
+            raise WriterError(f"catalog_additions[{idx}] is not an object")
+        cat = addition.get("category", "")
+        slug = addition.get("slug", "")
+        if cat not in CATEGORIES:
+            raise WriterError(f"catalog_additions[{idx}] has invalid category: {cat}")
+        if not is_valid_slug(slug):
+            raise WriterError(f"catalog_additions[{idx}] has invalid slug: {slug}")
+
+    log_created = data.get("log_created", [])
+    if not isinstance(log_created, list) or not all(
+        isinstance(x, str) for x in log_created
+    ):
+        raise WriterError("'log_created' must be a list of strings")
+
+    log_updated = data.get("log_updated", [])
+    if not isinstance(log_updated, list) or not all(
+        isinstance(x, str) for x in log_updated
+    ):
+        raise WriterError("'log_updated' must be a list of strings")
+
+    return articles, catalog_additions, log_created, log_updated
+
+
+def _write_articles(articles: list[CompiledArticle], kb_root: Path) -> None:
+    """Write validated articles to their confined paths under ``kb_root``."""
+    for article in articles:
+        write_article(article, kb_root)
+
+
+def _format_catalog_row(
+    addition: dict[str, Any], daily_filename: str, updated: str
+) -> str:
+    """Render one markdown table row from a catalog addition dict."""
+    slug = addition.get("slug", "")
+    category = addition.get("category", "")
+    if not is_valid_slug(slug):
+        raise WriterError(f"catalog addition has invalid slug: {slug}")
+    if category not in CATEGORIES:
+        raise WriterError(f"catalog addition has invalid category: {category}")
+    summary = str(addition.get("summary", "")).replace("|", " ").strip()
+    compiled_from = str(
+        addition.get("compiled_from") or f"daily/{daily_filename}"
+    ).strip()
+    updated = str(addition.get("updated") or updated).strip()
+    return f"| [[{category}/{slug}]] | {summary} | {compiled_from} | {updated} |"
+
+
+def _update_catalog(
+    kb_root: Path,
+    repo_name: str,
+    additions: list[dict[str, Any]],
+    daily_filename: str,
+    updated: str,
+) -> None:
+    """Merge ``catalog_additions`` into the per-repo catalog table."""
+    if not additions:
+        return
+
+    catalog_path = resolve_catalog(kb_root, repo_name)
+    if catalog_path.exists():
+        content = catalog_path.read_text(encoding="utf-8")
+    else:
+        content = _CATALOG_HEADER.format(repo_name=repo_name)
+
+    lines = content.splitlines()
+    updated_lines: list[str] = []
+    replaced: set[tuple[str, str]] = set()
+
+    for line in lines:
+        matched: dict[str, Any] | None = None
+        for addition in additions:
+            link = f"[[{addition.get('category')}/{addition.get('slug')}]]"
+            if link in line:
+                matched = addition
+                break
+        if matched is not None:
+            key = (matched.get("category", ""), matched.get("slug", ""))
+            updated_lines.append(_format_catalog_row(matched, daily_filename, updated))
+            replaced.add(key)
+        else:
+            updated_lines.append(line)
+
+    for addition in additions:
+        key = (addition.get("category", ""), addition.get("slug", ""))
+        if key not in replaced:
+            updated_lines.append(_format_catalog_row(addition, daily_filename, updated))
+
+    write_catalog(kb_root, repo_name, "\n".join(updated_lines) + "\n")
+
+
+def _append_compile_log(
+    kb_root: Path,
+    log_path: Path,
+    log_created: list[str],
+    log_updated: list[str],
+) -> None:
+    """Append a timestamped compile entry to ``kb_root/log.md``."""
+    created_refs = ", ".join(f"[[{ref}]]" for ref in log_created) or "(none)"
+    updated_refs = ", ".join(f"[[{ref}]]" for ref in log_updated) or "(none)"
+    entry = (
+        f"## [{_iso_timestamp()}] compile | daily/{log_path.name}\n"
+        f"- Source: daily/{log_path.name}\n"
+        f"- Articles created: {created_refs}\n"
+        f"- Articles updated: {updated_refs}\n\n"
     )
+    append_log(kb_root, entry)
 
 
 async def _compile_daily_log_async(
@@ -194,8 +346,10 @@ async def _compile_daily_log_async(
 ) -> float:
     """Ask the LLM to compile a single daily log into wiki articles.
 
-    The LLM is granted file-editing tools and writes articles directly into
-    ``kb_root``. Returns the API cost reported by the agent SDK.
+    The LLM is given only read/search tools and ``cwd=kb_root``. It returns a
+    structured JSON response; Python validates the response and performs all
+    writes atomically via the sandboxed writer. Returns the API cost reported
+    by the agent SDK.
     """
     try:
         claude_agent_sdk = importlib.import_module("claude_agent_sdk")
@@ -208,7 +362,6 @@ async def _compile_daily_log_async(
     AssistantMessage = claude_agent_sdk.AssistantMessage
     ClaudeAgentOptions = claude_agent_sdk.ClaudeAgentOptions
     ResultMessage = claude_agent_sdk.ResultMessage
-    TextBlock = claude_agent_sdk.TextBlock
     query = claude_agent_sdk.query
 
     log_content = log_path.read_text(encoding="utf-8")
@@ -226,13 +379,13 @@ async def _compile_daily_log_async(
         ]
         existing_context = "\n\n".join(parts)
 
-    prompt = f"""You are a knowledge compiler. Read the daily conversation log below and extract structured wiki articles.
+    prompt = f"""You are a knowledge compiler. Read the daily conversation log below and return a JSON object describing the wiki articles to create or replace.
 
 ## Schema
 
 {schema}
 
-## Current Wiki Index
+## Current Wiki Catalog
 
 {wiki_index}
 
@@ -248,32 +401,47 @@ async def _compile_daily_log_async(
 
 ## Your Task
 
-1. Extract 3-7 key concepts and create one article per concept in `{kb_root / "concepts"}`.
-2. Create connection articles in `{kb_root / "connections"}` when the log reveals non-obvious relationships between 2+ concepts.
-3. Update existing articles if the log adds new information.
-4. Update `{kb_root / f"{config.repo_name}.md"}` with a row for every new or updated article.
-5. Append a timestamped entry to `{kb_root / "log.md"}`.
+1. Extract 3-7 key concepts and emit one article per concept in the `"articles"` array with `category: "concepts"`.
+2. Emit connection articles (`category: "connections"`) when the log reveals non-obvious relationships between 2+ concepts.
+3. Include rows in `"catalog_additions"` for every article you created or updated.
+4. List created/updated article references in `"log_created"` / `"log_updated"`.
+
+Return ONLY the JSON object. Do not write files — the caller writes them from your JSON response.
 
 Every concept article must have YAML frontmatter, at least two wikilinks, 3-5 key points, and cite `daily/{log_path.name}` in its sources. Cite the daily log as **plain text** (`- daily/{log_path.name} - context`), never as a `[[wikilink]]` — daily logs live outside the vault, so a `[[daily/…]]` link is dead and collapses across repos (ADR-007).
 """
 
     cost = 0.0
+    response_text = ""
+    # ADR-012 fallback: chunk category-by-category here if a single response overflows.
     async for message in query(
         prompt=prompt,
         options=ClaudeAgentOptions(
-            cwd=str(repo_root),
+            cwd=str(kb_root),
             system_prompt={"type": "preset", "preset": "claude_code"},
-            allowed_tools=["Read", "Write", "Edit", "Glob", "Grep"],
-            permission_mode="acceptEdits",
+            allowed_tools=["Read", "Glob", "Grep"],
             max_turns=30,
         ),
     ):
         if isinstance(message, AssistantMessage):
             for block in message.content:
-                if isinstance(block, TextBlock):
-                    continue
+                block_text = getattr(block, "text", None)
+                if isinstance(block_text, str):
+                    response_text += block_text
         elif isinstance(message, ResultMessage):
             cost = message.total_cost_usd or 0.0
+
+    if not response_text.strip():
+        raise WriterError("LLM returned an empty response")
+
+    articles, catalog_additions, log_created, log_updated = _parse_compile_response(
+        response_text
+    )
+    _write_articles(articles, kb_root)
+    _update_catalog(
+        kb_root, config.repo_name, catalog_additions, log_path.name, log_path.stem
+    )
+    _append_compile_log(kb_root, log_path, log_created, log_updated)
 
     return cost
 
