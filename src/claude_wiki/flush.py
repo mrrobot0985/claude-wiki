@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import fcntl
 import json
 import logging
 import os
@@ -17,7 +18,8 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,43 @@ logger = logging.getLogger("claude_wiki.flush")
 DEFAULT_MAX_TURNS = 30
 DEFAULT_MAX_CONTEXT_CHARS = 15_000
 DEFAULT_MIN_TURNS_TO_FLUSH = 1
+
+# Non-blocking daily-log lock: bounded retries so a peer holding the lock
+# cannot block this process indefinitely.
+_DAILY_LOG_LOCK_RETRIES = 10
+_DAILY_LOG_LOCK_RETRY_INTERVAL = 0.1
+
+
+@contextmanager
+def _daily_log_lock(lock_path: Path) -> Iterator[None]:
+    """Advisory lock protecting daily-log read-modify-write cycles.
+
+    Uses a non-blocking acquire with bounded retries so a peer holding the
+    lock cannot block this process indefinitely; raises ``TimeoutError`` if
+    the lock cannot be acquired within the retry budget.
+
+    On Windows this is a no-op because ``fcntl`` is unavailable.
+    """
+    if sys.platform == "win32":
+        yield
+        return
+
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "w") as lock_file:
+        acquired = False
+        for _ in range(_DAILY_LOG_LOCK_RETRIES):
+            try:
+                fcntl.lockf(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+                break
+            except BlockingIOError:
+                time.sleep(_DAILY_LOG_LOCK_RETRY_INTERVAL)
+        if not acquired:
+            raise TimeoutError(f"timed out acquiring daily log lock at {lock_path}")
+        try:
+            yield
+        finally:
+            fcntl.lockf(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def configure_logging(log_path: Path) -> None:
@@ -217,6 +256,7 @@ def append_to_daily_log(
     config: ProjectConfig,
     *,
     section: str = "Session",
+    lock_path: Path | None = None,
 ) -> Path:
     """Append a flushed entry to today's daily log in the repository."""
     today = datetime.now(timezone.utc).astimezone()
@@ -224,17 +264,25 @@ def append_to_daily_log(
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if log_path.exists():
-        existing = log_path.read_text(encoding="utf-8")
-    else:
-        existing = (
-            f"# Daily Log: {today.strftime('%Y-%m-%d')}\n\n"
-            "## Sessions\n\n## Memory Maintenance\n\n"
-        )
+    def _append() -> None:
+        if log_path.exists():
+            existing = log_path.read_text(encoding="utf-8")
+        else:
+            existing = (
+                f"# Daily Log: {today.strftime('%Y-%m-%d')}\n\n"
+                "## Sessions\n\n## Memory Maintenance\n\n"
+            )
 
-    time_str = today.strftime("%H:%M")
-    entry = f"### {section} ({time_str})\n\n{content}\n\n"
-    _write_file_atomic(log_path, existing + entry)
+        time_str = today.strftime("%H:%M")
+        entry = f"### {section} ({time_str})\n\n{content}\n\n"
+        _write_file_atomic(log_path, existing + entry)
+
+    if lock_path is not None:
+        with _daily_log_lock(lock_path):
+            _append()
+    else:
+        _append()
+
     return log_path
 
 
@@ -333,6 +381,9 @@ def flush_main(
     manager = ConfigManager()
     config = manager.load(repo_root)
 
+    state_dir = manager.get_machine_state_dir(repo_root, config)
+    lock_path = state_dir / "daily.log.lock"
+
     logs_dir = get_logs_dir(config, repo_root)
     logs_dir.mkdir(parents=True, exist_ok=True)
     configure_logging(logs_dir / "flush.log")
@@ -372,13 +423,16 @@ def flush_main(
             repo_root,
             config,
             section="Memory Flush",
+            lock_path=lock_path,
         )
     elif "FLUSH_ERROR" in response:
         logger.error("Result: %s", response)
-        append_to_daily_log(response, repo_root, config, section="Memory Flush")
+        append_to_daily_log(
+            response, repo_root, config, section="Memory Flush", lock_path=lock_path
+        )
     else:
         logger.info("Result: saved to daily log (%d chars)", len(response))
-        append_to_daily_log(response, repo_root, config)
+        append_to_daily_log(response, repo_root, config, lock_path=lock_path)
 
     save_flush_state(state_file, {"session_id": session_id, "timestamp": time.time()})
     context_file.unlink(missing_ok=True)
