@@ -37,6 +37,15 @@ ______________________________________________________________________
 - [ADR-005](adr/005-kb-directory-redesign.md) — Knowledge Base Directory Redesign
 - [ADR-006](adr/006-vault-naming-and-obsidian-graph-hygiene.md) — Vault Naming and Obsidian Graph Hygiene
 - [ADR-007](adr/007-no-wikilinks-to-daily-logs.md) — No Wikilinks to Daily Logs
+- [ADR-008](adr/008-keep-dataclasses-dedupe-validation.md) — Keep Hand-Rolled Dataclasses; Deduplicate Validation
+- [ADR-009](adr/009-explicit-registries-replace-pkgutil.md) — Replace `pkgutil` Auto-Discovery with Explicit Registries
+- [ADR-010](adr/010-consolidate-paths-remove-lazy-migration.md) — Consolidate Path Helpers; Remove Lazy Migration from `load()`
+- [ADR-011](adr/011-compile-cost-control.md) — Compile Cost Control
+- [ADR-012](adr/012-constrained-write-schema.md) — Drop `acceptEdits` for a Constrained Write Schema
+- [ADR-013](adr/013-advisory-fcntl-locks.md) — Concurrency — Repo-Level Advisory Locks
+- [ADR-014](adr/014-freeze-layout-v2.md) — Freeze Layout v2
+- [ADR-015](adr/015-keep-argparse.md) — Keep `argparse`; Reject Typer/Click for v1
+- [ADR-016](adr/016-reject-mcp-server.md) — Reject MCP Server for In-Session KB Commands (Rejected)
 
 ## Project Planning
 
