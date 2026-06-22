@@ -10,9 +10,12 @@ import pytest
 from claude_wiki.errors import WriterError
 from claude_wiki.writer import (
     CompiledArticle,
+    append_log,
     is_valid_slug,
     resolve_article_path,
+    slugify,
     write_article,
+    write_catalog,
 )
 
 
@@ -350,3 +353,60 @@ def test_body_starting_with_three_dashes_is_allowed(tmp_path: Path) -> None:
     assert path.read_text(encoding="utf-8") == (
         '---\ntitle: "Body Dash"\n---\n---\n# section\n'
     )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Simple Title",
+        "  Spaced Out  ",
+        "a-b-c",
+        "With_Underscores",
+        "Multi---Hyphens",
+        " leading-",
+        "-trailing ",
+        "Unicode: café, 日本語",
+        "a " * 100,
+    ],
+)
+def test_slugify_produces_valid_slugs_or_empty(text: str) -> None:
+    result = slugify(text)
+    if result:
+        assert is_valid_slug(result)
+
+
+def test_slugify_matches_query_behavior_for_ascii() -> None:
+    """ASCII inputs stay identical to the old query._slugify implementation."""
+    from claude_wiki.commands.query import _slugify as query_slugify
+
+    ascii_inputs = [
+        "How do I handle auth?",
+        "simple title",
+        "with_underscores and spaces",
+        "a-b-c",
+        " leading-",
+        "-trailing ",
+        "Multi---Hyphens",
+    ]
+    for text in ascii_inputs:
+        assert slugify(text) == query_slugify(text)
+
+
+def test_write_catalog_confined_to_kb_root(tmp_path: Path) -> None:
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    path = write_catalog(kb, "my-repo", "# My Catalog\n")
+    assert path == kb / "my-repo.md"
+    assert path.read_text(encoding="utf-8") == "# My Catalog\n"
+
+
+def test_append_log_creates_and_appends_confined_to_kb_root(tmp_path: Path) -> None:
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    append_log(kb, "## Entry one\n")
+    append_log(kb, "## Entry two\n")
+    log_path = kb / "log.md"
+    assert log_path.exists()
+    content = log_path.read_text(encoding="utf-8")
+    assert "## Entry one" in content
+    assert "## Entry two" in content
