@@ -10,15 +10,22 @@ from typing import Any
 
 import pytest
 
+from claude_wiki.catalog_utils import resolve_catalog
 from claude_wiki.cli import main
 from claude_wiki.commands import compile as _compile_module  # noqa: F401
 from claude_wiki.commands.compile import (
     _DEFAULT_SCHEMA,
+    _append_compile_log,
     _compile_one,
+    _format_catalog_row,
     _list_existing_articles,
+    _parse_compile_response,
     _read_index,
     _read_schema,
+    _update_catalog,
+    _write_articles,
 )
+from claude_wiki.errors import WriterError
 from claude_wiki.models import ProjectConfig
 
 
@@ -504,10 +511,35 @@ class TestCompileGaps:
         assert _read_index(kb, "my-project") == "# Custom Index\n"
 
     def test_compile_one_mocks_sdk(self, tmp_path: Path, monkeypatch: Any) -> None:
-        """`_compile_one` drives the async LLM helper with a fake SDK."""
+        """`_compile_one` parses the LLM JSON response and writes via the writer."""
+        answer = json.dumps(
+            {
+                "articles": [
+                    {
+                        "title": "Asyncio Patterns",
+                        "slug": "asyncio-patterns",
+                        "category": "concepts",
+                        "frontmatter": 'title: "Asyncio Patterns"\nsources:\n  - "daily/2026-06-19.md"',
+                        "body": "# Asyncio Patterns\n\nCore explanation.",
+                    }
+                ],
+                "catalog_additions": [
+                    {
+                        "slug": "asyncio-patterns",
+                        "category": "concepts",
+                        "summary": "asyncio tips",
+                        "compiled_from": "daily/2026-06-19.md",
+                        "updated": "2026-06-19",
+                    }
+                ],
+                "log_created": ["concepts/asyncio-patterns"],
+                "log_updated": [],
+            }
+        )
+        captured: dict[str, Any] = {}
 
         class TextBlock:
-            pass
+            text = answer
 
         class AssistantMessage:
             content = [TextBlock()]
@@ -517,9 +549,11 @@ class TestCompileGaps:
 
         class ClaudeAgentOptions:
             def __init__(self, **kwargs: Any) -> None:
-                pass
+                self.kwargs = kwargs
 
-        async def query(**kwargs: Any) -> Any:
+        async def query(*, prompt: str, options: object) -> Any:
+            captured["prompt"] = prompt
+            captured["options"] = options
             yield AssistantMessage()
             yield ResultMessage()
 
@@ -553,6 +587,24 @@ class TestCompileGaps:
         cost = _compile_one(log, repo, kb, config)
 
         assert cost == 0.42
+        article = kb / "concepts" / "asyncio-patterns.md"
+        assert article.exists()
+        assert "Asyncio Patterns" in article.read_text(encoding="utf-8")
+        catalog = kb / "sdk-test.md"
+        assert catalog.exists()
+        catalog_text = catalog.read_text(encoding="utf-8")
+        assert "[[concepts/asyncio-patterns]]" in catalog_text
+        assert "daily/2026-06-19.md" in catalog_text
+        log_file = kb / "log.md"
+        assert log_file.exists()
+        assert "compile | daily/2026-06-19.md" in log_file.read_text(encoding="utf-8")
+
+        options = captured["options"]
+        assert options.kwargs["cwd"] == str(kb)
+        assert set(options.kwargs["allowed_tools"]) == {"Read", "Glob", "Grep"}
+        assert "Write" not in options.kwargs["allowed_tools"]
+        assert "Edit" not in options.kwargs["allowed_tools"]
+        assert options.kwargs.get("permission_mode") == "dontAsk"
 
     def test_schema_cites_daily_logs_as_plain_text(self) -> None:
         """Daily-log citations are plain text, never [[wikilinks]] (ADR-007)."""
@@ -562,10 +614,18 @@ class TestCompileGaps:
     def test_compile_prompt_cites_daily_as_plain_text(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        """The prompt sent to the compiler contains no [[daily/…]] wikilinks."""
+        """The prompt sent to the compiler contains no [[daily/…]] example wikilinks."""
+        answer = json.dumps(
+            {
+                "articles": [],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
 
         class TextBlock:
-            pass
+            text = answer
 
         class AssistantMessage:
             content = [TextBlock()]
@@ -575,12 +635,13 @@ class TestCompileGaps:
 
         class ClaudeAgentOptions:
             def __init__(self, **kwargs: Any) -> None:
-                pass
+                self.kwargs = kwargs
 
         captured: dict[str, Any] = {}
 
-        async def query(**kwargs: Any) -> Any:
-            captured["prompt"] = kwargs.get("prompt", "")
+        async def query(*, prompt: str, options: object) -> Any:
+            captured["prompt"] = prompt
+            captured["options"] = options
             yield AssistantMessage()
             yield ResultMessage()
 
@@ -614,10 +675,16 @@ class TestCompileGaps:
 
         prompt = captured["prompt"]
         # The example citation is plain text; no [[daily/YYYY-MM-DD.md]] example.
-        # (The prohibition text may mention [[daily/…]] with an ellipsis — that's fine.)
         assert "[[daily/YYYY-MM-DD.md]]" not in prompt
         assert "daily/2026-06-19.md" in prompt
         assert "- daily/YYYY-MM-DD.md" in prompt
+
+        options = captured["options"]
+        assert options.kwargs["cwd"] == str(kb)
+        assert set(options.kwargs["allowed_tools"]) == {"Read", "Glob", "Grep"}
+        assert "Write" not in options.kwargs["allowed_tools"]
+        assert "Edit" not in options.kwargs["allowed_tools"]
+        assert options.kwargs.get("permission_mode") == "dontAsk"
 
     def test_compile_file_absolute_path(
         self, monkeypatch: Any, tmp_path: Path, mocker: Any
@@ -794,3 +861,559 @@ class TestCompileStateAndFailureReporting:
         assert state_file.exists()
         json.loads(state_file.read_text())  # valid JSON
         assert not (state_dir / "state.json.tmp").exists()
+
+
+class TestCompileWriterIntegration:
+    """ADR-012: compile writes come from Python, not from the LLM's tools."""
+
+    @staticmethod
+    def _fake_sdk(
+        answer: str,
+        capture: dict[str, Any] | None = None,
+        cost: float = 0.0,
+    ) -> tuple[types.SimpleNamespace, Any]:
+        """Return a fake SDK namespace and an import shim."""
+
+        class TextBlock:
+            text = answer
+
+        class AssistantMessage:
+            content = [TextBlock()]
+
+        class ResultMessage:
+            total_cost_usd = cost
+
+        class ClaudeAgentOptions:
+            def __init__(self, **kwargs: Any) -> None:
+                self.kwargs = kwargs
+
+        async def query(*, prompt: str, options: object) -> Any:
+            if capture is not None:
+                capture["prompt"] = prompt
+                capture["options"] = options
+            yield AssistantMessage()
+            yield ResultMessage()
+
+        fake_sdk = types.SimpleNamespace(
+            AssistantMessage=AssistantMessage,
+            ClaudeAgentOptions=ClaudeAgentOptions,
+            ResultMessage=ResultMessage,
+            TextBlock=TextBlock,
+            query=query,
+        )
+
+        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "claude_agent_sdk":
+                return fake_sdk
+            raise ImportError(name)
+
+        return fake_sdk, fake_import
+
+    @pytest.fixture
+    def kb_repo(self, tmp_path: Path) -> tuple[Path, Path, Path, ProjectConfig]:
+        """Return (repo_root, daily_log_path, kb_root, config)."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        daily = repo / "daily"
+        daily.mkdir()
+        log = daily / "2026-06-19.md"
+        log.write_text("discussed asyncio patterns and concurrency")
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+        config = ProjectConfig(repo_name="sdk-test")
+        return repo, log, kb, config
+
+    def test_compile_writes_articles_and_updates_catalog_and_log(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """A valid JSON response writes articles, catalog rows, and a log entry."""
+        repo, log, kb, config = kb_repo
+        answer = json.dumps(
+            {
+                "articles": [
+                    {
+                        "title": "Asyncio Patterns",
+                        "slug": "asyncio-patterns",
+                        "category": "concepts",
+                        "frontmatter": 'title: "Asyncio Patterns"',
+                        "body": "# Asyncio Patterns\n\nCore idea.",
+                    },
+                    {
+                        "title": "Concurrency Primitives",
+                        "slug": "concurrency-primitives",
+                        "category": "concepts",
+                        "frontmatter": 'title: "Concurrency Primitives"',
+                        "body": "# Concurrency Primitives\n\nDetails.",
+                    },
+                ],
+                "catalog_additions": [
+                    {
+                        "slug": "asyncio-patterns",
+                        "category": "concepts",
+                        "summary": "asyncio overview",
+                        "compiled_from": "daily/2026-06-19.md",
+                        "updated": "2026-06-19",
+                    },
+                    {
+                        "slug": "concurrency-primitives",
+                        "category": "concepts",
+                        "summary": "concurrency tools",
+                        "compiled_from": "daily/2026-06-19.md",
+                        "updated": "2026-06-19",
+                    },
+                ],
+                "log_created": [
+                    "concepts/asyncio-patterns",
+                    "concepts/concurrency-primitives",
+                ],
+                "log_updated": [],
+            }
+        )
+        _fake_sdk, fake_import = self._fake_sdk(answer)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        cost = _compile_one(log, repo, kb, config)
+
+        assert cost == 0.0
+        assert (kb / "concepts" / "asyncio-patterns.md").exists()
+        assert (kb / "concepts" / "concurrency-primitives.md").exists()
+        catalog = kb / "sdk-test.md"
+        catalog_text = catalog.read_text(encoding="utf-8")
+        assert "[[concepts/asyncio-patterns]]" in catalog_text
+        assert "[[concepts/concurrency-primitives]]" in catalog_text
+        log_file = kb / "log.md"
+        assert log_file.exists()
+        assert "compile | daily/2026-06-19.md" in log_file.read_text(encoding="utf-8")
+
+    def test_compile_rejects_malformed_json(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """A response with no parseable JSON fails the log fast."""
+        repo, log, kb, config = kb_repo
+        _fake_sdk, fake_import = self._fake_sdk("{bad}")
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        with pytest.raises(WriterError, match="malformed JSON"):
+            _compile_one(log, repo, kb, config)
+
+        assert not list((kb / "concepts").glob("*.md"))
+        assert not (kb / "sdk-test.md").exists()
+        assert not (kb / "log.md").exists()
+
+    def test_compile_rejects_bad_slug(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """An article with an invalid slug fails before anything is written."""
+        repo, log, kb, config = kb_repo
+        answer = json.dumps(
+            {
+                "articles": [
+                    {
+                        "title": "Good",
+                        "slug": "good-article",
+                        "category": "concepts",
+                        "frontmatter": "title: Good",
+                        "body": "# Good\n\nBody.",
+                    },
+                    {
+                        "title": "Bad Slug",
+                        "slug": "bad slug!",
+                        "category": "concepts",
+                        "frontmatter": "title: Bad",
+                        "body": "# Bad\n\nBody.",
+                    },
+                ],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+        _fake_sdk, fake_import = self._fake_sdk(answer)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        with pytest.raises(WriterError, match="invalid"):
+            _compile_one(log, repo, kb, config)
+
+        assert not (kb / "concepts" / "good-article.md").exists()
+        assert not (kb / "concepts" / "bad-slug.md").exists()
+
+    def test_compile_rejects_bad_category(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """An article with a category outside the allowed set fails fast."""
+        repo, log, kb, config = kb_repo
+        answer = json.dumps(
+            {
+                "articles": [
+                    {
+                        "title": "Bad",
+                        "slug": "bad",
+                        "category": "misc",
+                        "frontmatter": "title: Bad",
+                        "body": "# Bad\n\nBody.",
+                    }
+                ],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+        _fake_sdk, fake_import = self._fake_sdk(answer)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        with pytest.raises(WriterError, match="category"):
+            _compile_one(log, repo, kb, config)
+
+        assert not (kb / "misc").exists()
+        assert not (kb / "concepts" / "bad.md").exists()
+
+    def test_compile_rejects_path_traversal_slug(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """A slug containing traversal sequences is rejected before writing."""
+        repo, log, kb, config = kb_repo
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        answer = json.dumps(
+            {
+                "articles": [
+                    {
+                        "title": "Evil",
+                        "slug": "../../outside/evil",
+                        "category": "concepts",
+                        "frontmatter": "title: Evil",
+                        "body": "# Evil\n\nBody.",
+                    }
+                ],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+        _fake_sdk, fake_import = self._fake_sdk(answer)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        with pytest.raises(WriterError):
+            _compile_one(log, repo, kb, config)
+
+        assert not list(outside.glob("*.md"))
+
+    def test_compile_rejects_invalid_catalog_addition(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """A valid article but an invalid catalog row must not write anything."""
+        repo, log, kb, config = kb_repo
+        answer = json.dumps(
+            {
+                "articles": [
+                    {
+                        "title": "Good",
+                        "slug": "good-article",
+                        "category": "concepts",
+                        "frontmatter": "title: Good",
+                        "body": "# Good\n\nBody.",
+                    }
+                ],
+                "catalog_additions": [
+                    {
+                        "slug": "good-article",
+                        "category": "bad-category",
+                        "summary": "summary",
+                    }
+                ],
+                "log_created": ["good-article"],
+                "log_updated": [],
+            }
+        )
+        _fake_sdk, fake_import = self._fake_sdk(answer)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        with pytest.raises(WriterError, match="category"):
+            _compile_one(log, repo, kb, config)
+
+        assert not (kb / "concepts" / "good-article.md").exists()
+        assert not (kb / "sdk-test.md").exists()
+        assert not (kb / "log.md").exists()
+
+    def test_compile_continue_on_error_records_failed_log(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        mocker: Any,
+    ) -> None:
+        """``--continue-on-error`` marks a log failed when the LLM JSON is bad."""
+        repo, _kb_root = _make_repo(str(tmp_path))
+        daily_dir = repo / "daily"
+        daily_dir.mkdir()
+        (daily_dir / "2026-06-18.md").write_text("a")
+        (daily_dir / "2026-06-19.md").write_text("b")
+
+        def side_effect(log_path: Path, *args: Any, **kwargs: Any) -> float:
+            if log_path.name == "2026-06-19.md":
+                raise WriterError("bad json")
+            return 0.0
+
+        monkeypatch.chdir(repo)
+        mocker.patch(
+            "claude_wiki.commands.compile._compile_one", side_effect=side_effect
+        )
+
+        exit_code = main(["compile", "--all", "--continue-on-error"])
+
+        assert exit_code == 1
+        state = json.loads((repo / ".claude" / "state" / "state.json").read_text())
+        assert "2026-06-18.md" in state["ingested"]
+        assert "2026-06-19.md" not in state["ingested"]
+
+    def test_compile_all_or_nothing_for_valid_articles(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """All articles are validated before any write; a bad article writes nothing."""
+        repo, log, kb, config = kb_repo
+        answer = json.dumps(
+            {
+                "articles": [
+                    {
+                        "title": "First",
+                        "slug": "first",
+                        "category": "concepts",
+                        "frontmatter": "title: First",
+                        "body": "# First\n\nBody.",
+                    },
+                    {
+                        "title": "",
+                        "slug": "",
+                        "category": "concepts",
+                        "frontmatter": "title: Second",
+                        "body": "# Second\n\nBody.",
+                    },
+                ],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+        _fake_sdk, fake_import = self._fake_sdk(answer)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        with pytest.raises(WriterError):
+            _compile_one(log, repo, kb, config)
+
+        assert not (kb / "concepts" / "first.md").exists()
+
+
+class TestCompileSecurity:
+    """Critic-identified integrity/escape defects in compile.py."""
+
+    def test_catalog_update_anchors_link_not_substring(self, tmp_path: Path) -> None:
+        """Only the row for the article column is replaced; citing rows stay."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        catalog = kb / "repo-name.md"
+        catalog.write_text(
+            "# repo-name Knowledge Base\n\n"
+            "| Article | Summary | Compiled From | Updated |\n"
+            "|---|---|---|---|\n"
+            "| [[concepts/foo]] | old summary | daily/2026-06-18.md | 2026-06-18 |\n"
+            "| [[concepts/bar]] | see [[concepts/foo]] for more | daily/2026-06-18.md | 2026-06-18 |"
+        )
+        addition = {
+            "slug": "foo",
+            "category": "concepts",
+            "summary": "new summary",
+            "compiled_from": "daily/2026-06-19.md",
+            "updated": "2026-06-19",
+        }
+
+        _update_catalog(kb, "repo-name", [addition], "2026-06-19.md", "2026-06-19")
+
+        lines = catalog.read_text(encoding="utf-8").splitlines()
+        assert any(
+            line
+            == "| [[concepts/foo]] | new summary | daily/2026-06-19.md | 2026-06-19 |"
+            for line in lines
+        )
+        assert any(
+            line
+            == "| [[concepts/bar]] | see [[concepts/foo]] for more | daily/2026-06-18.md | 2026-06-18 |"
+            for line in lines
+        )
+
+    def test_catalog_row_sanitizes_all_fields(self) -> None:
+        """Injection characters in any table field become a single safe row."""
+        addition = {
+            "slug": "foo",
+            "category": "concepts",
+            "summary": "one\nline\rsummary",
+            "compiled_from": "daily/2026-06-19.md|extra|column",
+            "updated": "2026-06-19\n",
+        }
+        row = _format_catalog_row(addition, "2026-06-19.md", "2026-06-19")
+        assert row.count("|") == 5  # 4 columns + outer table delimiters
+        assert "\n" not in row
+        assert "\r" not in row
+        assert "daily/2026-06-19.md|extra|column" not in row
+        assert "daily/2026-06-19.md extra column" in row
+
+    def test_compile_log_rejects_malicious_ref(self, tmp_path: Path) -> None:
+        """A crafted log ref is rejected before any write, leaving KB untouched."""
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        log_path = tmp_path / "daily" / "2026-06-19.md"
+        log_path.parent.mkdir(parents=True)
+        log_path.write_text("log content")
+
+        answer = json.dumps(
+            {
+                "articles": [
+                    {
+                        "title": "Good Article",
+                        "slug": "good-article",
+                        "category": "concepts",
+                        "frontmatter": "title: Good Article\ncreated: 2026-06-19\nupdated: 2026-06-19",
+                        "body": "# Good Article\n\nContent.",
+                    }
+                ],
+                "catalog_additions": [
+                    {
+                        "slug": "good-article",
+                        "category": "concepts",
+                        "summary": "summary",
+                        "compiled_from": "daily/2026-06-19.md",
+                        "updated": "2026-06-19",
+                    }
+                ],
+                "log_created": ["concepts/foo]]\n## injected\n- [[malicious"],
+                "log_updated": [],
+            }
+        )
+
+        with pytest.raises(WriterError, match="log_created"):
+            (
+                articles,
+                catalog_additions,
+                log_created,
+                log_updated,
+            ) = _parse_compile_response(answer)
+            _write_articles(articles, kb)
+            _update_catalog(
+                kb, "my-project", catalog_additions, log_path.name, log_path.stem
+            )
+            _append_compile_log(kb, log_path, log_created, log_updated)
+
+        assert not (kb / "log.md").exists()
+        assert not (kb / "concepts" / "good-article.md").exists()
+        assert not resolve_catalog(kb, "my-project").exists()
+
+    def test_parse_compile_response_rejects_non_string_catalog_fields(
+        self, tmp_path: Path
+    ) -> None:
+        """A catalog addition with non-string fields raises WriterError fast."""
+        answer = json.dumps(
+            {
+                "articles": [],
+                "catalog_additions": [
+                    {
+                        "slug": 123,
+                        "category": "concepts",
+                        "summary": "summary",
+                        "compiled_from": "daily/2026-06-19.md",
+                        "updated": "2026-06-19",
+                    }
+                ],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+
+        with pytest.raises(WriterError, match="must be strings"):
+            _parse_compile_response(answer)
+
+    def test_permission_mode_is_dontask_not_accept_edits(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+    ) -> None:
+        """Compile SDK options explicitly set permission_mode='dontAsk'."""
+        answer = json.dumps(
+            {
+                "articles": [],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+
+        class TextBlock:
+            text = answer
+
+        class AssistantMessage:
+            content = [TextBlock()]
+
+        class ResultMessage:
+            total_cost_usd = 0.0
+
+        class ClaudeAgentOptions:
+            def __init__(self, **kwargs: Any) -> None:
+                self.kwargs = kwargs
+
+        captured: dict[str, Any] = {}
+
+        async def query(*, prompt: str, options: object) -> Any:
+            captured["options"] = options
+            yield AssistantMessage()
+            yield ResultMessage()
+
+        fake_sdk = types.SimpleNamespace(
+            AssistantMessage=AssistantMessage,
+            ClaudeAgentOptions=ClaudeAgentOptions,
+            ResultMessage=ResultMessage,
+            TextBlock=TextBlock,
+            query=query,
+        )
+
+        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "claude_agent_sdk":
+                return fake_sdk
+            raise ImportError(name)
+
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        daily = repo / "daily"
+        daily.mkdir()
+        log = daily / "2026-06-19.md"
+        log.write_text("discussed asyncio patterns")
+        kb = tmp_path / "kb"
+        (kb / "concepts").mkdir(parents=True)
+        config = ProjectConfig(repo_name="sdk-test")
+
+        _compile_one(log, repo, kb, config)
+
+        options = captured["options"]
+        assert options.kwargs["permission_mode"] == "dontAsk"
+        assert options.kwargs["permission_mode"] != "acceptEdits"
