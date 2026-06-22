@@ -518,13 +518,14 @@ class TestAppendToDailyLog:
         lock_path = tmp_path / "daily.log.lock"
 
         calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-        original_lockf = flush.fcntl.lockf
+        if getattr(flush, "fcntl", None) is not None:
+            original_lockf = flush.fcntl.lockf
 
-        def capture_lockf(*args: Any, **kwargs: Any) -> None:
-            calls.append((args, kwargs))
-            return original_lockf(*args, **kwargs)
+            def capture_lockf(*args: Any, **kwargs: Any) -> None:
+                calls.append((args, kwargs))
+                return original_lockf(*args, **kwargs)
 
-        monkeypatch.setattr(flush.fcntl, "lockf", capture_lockf)
+            monkeypatch.setattr(flush.fcntl, "lockf", capture_lockf)
         monkeypatch.setattr(flush.sys, "platform", "win32")
 
         flush.append_to_daily_log("entry", repo, config, lock_path=lock_path)

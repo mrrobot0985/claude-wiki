@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import fcntl
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
 import json
 import logging
 import os
@@ -49,7 +53,7 @@ def _daily_log_lock(lock_path: Path) -> Iterator[None]:
 
     On Windows this is a no-op because ``fcntl`` is unavailable.
     """
-    if sys.platform == "win32":
+    if sys.platform == "win32" or fcntl is None:
         yield
         return
 
