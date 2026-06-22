@@ -48,9 +48,10 @@ _TOKEN_ESTIMATE_THRESHOLD = 8_000
 _CHEAP_MODEL = "claude-sonnet-4-6-20251001"
 
 # Advisory lock around state.json RMW: bounded retries so a peer holding the
-# lock cannot block this process indefinitely.
-_STATE_LOCK_RETRIES = 10
-_STATE_LOCK_RETRY_INTERVAL = 0.1
+# lock cannot block this process indefinitely. The budget is larger than the
+# flush/registry patterns because this lock spans LLM work, not just disk I/O.
+_STATE_LOCK_RETRIES = 600
+_STATE_LOCK_RETRY_INTERVAL = 1.0
 
 _CATALOG_HEADER = (
     "# {repo_name} Knowledge Base\n\n"
@@ -157,6 +158,10 @@ def _state_json_lock(lock_path: Path) -> Iterator[None]:
     Uses a non-blocking acquire with bounded retries so a peer holding the
     lock cannot block this process indefinitely; raises ``TimeoutError`` if
     the lock cannot be acquired within the retry budget.
+
+    The retry budget is intentionally generous (10 minutes) because the lock
+    spans LLM work, not just disk I/O, so a concurrent compile may need to
+    wait for an in-flight compilation to finish.
 
     On Windows this is a no-op because ``fcntl`` is unavailable.
     """
