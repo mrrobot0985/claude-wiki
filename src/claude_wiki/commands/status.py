@@ -9,6 +9,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
+
 from claude_wiki.catalog_utils import resolve_catalog
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import ConfigError, RepoNotFoundError
@@ -222,6 +227,20 @@ def _check_registry(config: ProjectConfig) -> tuple[str, str, int]:
     )
 
 
+def _check_concurrency() -> tuple[str, str, int]:
+    if sys.platform == "win32" or fcntl is None:
+        return (
+            "Concurrency",
+            f"{_StatusIcon['warn']} write serialization not available on this platform (concurrent writes may race)",
+            0,
+        )
+    return (
+        "Concurrency",
+        f"{_StatusIcon['ok']} write serialization active (fcntl advisory locks)",
+        0,
+    )
+
+
 def _row_status(message: str, errors: int) -> str:
     """Map a human row to a machine status label."""
     if errors > 0:
@@ -313,6 +332,10 @@ def _handle_status(args: argparse.Namespace) -> int:
         label, msg, err = _check_registry(config)
         rows.append((label, msg, err))
         total_errors += err
+
+        label, msg, err = _check_concurrency()
+        rows.append((label, msg, err))
+        total_errors += err
     else:
         rows.append(
             ("Daily logs", f"{_StatusIcon['warn']} skipped — config unavailable", 0)
@@ -324,6 +347,9 @@ def _handle_status(args: argparse.Namespace) -> int:
         rows.append(("Hooks", f"{_StatusIcon['warn']} skipped — config unavailable", 0))
         rows.append(
             ("Registry", f"{_StatusIcon['warn']} skipped — config unavailable", 0)
+        )
+        rows.append(
+            ("Concurrency", f"{_StatusIcon['warn']} skipped — config unavailable", 0)
         )
 
     if args.json:
