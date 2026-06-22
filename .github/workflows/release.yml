@@ -206,6 +206,12 @@ jobs:
       - name: Create or update GitHub Release with artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job is intentionally checkout-free (#153/#154), so there is no
+          # .git directory for `gh` to resolve the repo from. Setting GH_REPO
+          # explicitly prevents `gh release …` from falling back to `git remote`
+          # and failing with "fatal: not a git repository" (as the v0.13.1
+          # re-trigger did).
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           # Idempotent: if a release already exists (prior run or manual
