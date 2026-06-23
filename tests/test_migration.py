@@ -1,5 +1,6 @@
 """Tests for MigrationManager path-change detection and data movement."""
 
+import errno
 import os
 import shutil
 import tempfile
@@ -1041,3 +1042,141 @@ class TestMigrationManager:
         assert (new_kb / "kb.md").exists()
         assert old_daily.exists()
         assert (old_daily / "2024-01-01.md").exists()
+
+    def test_existing_destination_compares_parent_device(self, monkeypatch, tmp_path):
+        """When new_p already exists, pre-flight must stat new_p.parent, not new_p."""
+        import claude_wiki.migration as migration_mod
+
+        real_stat = os.stat
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        old_kb = repo / "knowledge"
+        old_kb.mkdir()
+        (old_kb / "note.md").write_text("note")
+        new_kb = repo / "wiki"
+        new_kb.mkdir()  # already exists
+
+        current = ProjectConfig(
+            repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+        )
+        previous = ProjectConfig(
+            repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+        )
+
+        def fake_stat(path: str | os.PathLike[str]) -> SimpleNamespace:
+            p = Path(path)
+            real = real_stat(path)
+            if p == old_kb or p == new_kb.parent:
+                return SimpleNamespace(st_dev=1, st_mode=real.st_mode)
+            if p == new_kb:
+                # A different device for the destination itself; parent must win.
+                return SimpleNamespace(st_dev=2, st_mode=real.st_mode)
+            return real_stat(path)
+
+        monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+        assert result.migrated
+        assert not result.errors
+        assert not result.warnings
+        assert not old_kb.exists()
+        assert (new_kb / "note.md").exists()
+
+    def test_exdev_runtime_falls_back_to_shutil_move(self, monkeypatch, tmp_path):
+        """If os.rename raises EXDEV at runtime, fall back to shutil.move."""
+        import claude_wiki.migration as migration_mod
+
+        real_stat = os.stat
+        real_rename = os.rename
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        old_kb = repo / "knowledge"
+        old_kb.mkdir()
+        (old_kb / "note.md").write_text("note")
+        new_kb = repo / "wiki"
+
+        current = ProjectConfig(
+            repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+        )
+        previous = ProjectConfig(
+            repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+        )
+
+        rename_calls: list[tuple[str, str]] = []
+        move_calls: list[tuple[str, str]] = []
+
+        def fake_rename(
+            src: str | os.PathLike[str], dst: str | os.PathLike[str]
+        ) -> None:
+            rename_calls.append((str(src), str(dst)))
+            if Path(src).resolve() == old_kb.resolve():
+                raise OSError(errno.EXDEV, "cross-device link not permitted")
+            real_rename(src, dst)
+
+        def fake_move(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> str:
+            move_calls.append((str(src), str(dst)))
+            real_rename(src, dst)
+            return str(dst)
+
+        def fake_stat(path: str | os.PathLike[str]) -> SimpleNamespace:
+            p = Path(path)
+            real = real_stat(path)
+            if p == old_kb or p == new_kb.parent:
+                return SimpleNamespace(st_dev=1, st_mode=real.st_mode)
+            return real_stat(path)
+
+        monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
+        monkeypatch.setattr(migration_mod.os, "rename", fake_rename)
+        monkeypatch.setattr(migration_mod.shutil, "move", fake_move)
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+        assert result.migrated
+        assert not result.errors
+        assert any("Cross-filesystem move" in w for w in result.warnings)
+        assert any(
+            src == str(old_kb) and dst == str(new_kb) for src, dst in rename_calls
+        )
+        assert any(src == str(old_kb) and dst == str(new_kb) for src, dst in move_calls)
+        assert not old_kb.exists()
+        assert (new_kb / "note.md").exists()
+
+    def test_preflight_stat_oserror_becomes_migration_error(
+        self, monkeypatch, tmp_path
+    ):
+        """An OSError during pre-flight stat is surfaced as a migration error."""
+        import claude_wiki.migration as migration_mod
+
+        real_stat = os.stat
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        old_kb = repo / "knowledge"
+        old_kb.mkdir()
+        (old_kb / "note.md").write_text("note")
+
+        current = ProjectConfig(
+            repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+        )
+        previous = ProjectConfig(
+            repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+        )
+
+        def failing_stat(path: str | os.PathLike[str]) -> SimpleNamespace:
+            if Path(path).resolve() == repo.resolve():
+                raise OSError(errno.EACCES, "permission denied")
+            return real_stat(path)
+
+        monkeypatch.setattr(migration_mod.os, "stat", failing_stat)
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+        assert not result.migrated
+        assert result.errors
+        assert any("kb_dir" in e and "stat" in e.lower() for e in result.errors)

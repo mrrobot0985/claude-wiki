@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 from pathlib import Path
@@ -113,10 +114,16 @@ class MigrationManager(Migrator):
             if not old_p.exists():
                 same_fs_flags[label] = True
                 continue
-            same_fs = (
-                os.stat(old_p).st_dev
-                == os.stat(self._nearest_existing_parent(new_p)).st_dev
-            )
+            try:
+                same_fs = (
+                    os.stat(old_p).st_dev
+                    == os.stat(self._nearest_existing_parent(new_p.parent)).st_dev
+                )
+            except OSError as exc:
+                cross_fs_errors.append(
+                    f"{label}: failed to stat source or destination parent: {exc}"
+                )
+                continue
             same_fs_flags[label] = same_fs
             if not same_fs:
                 if force:
@@ -272,7 +279,28 @@ class MigrationManager(Migrator):
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)
             if same_fs:
-                os.rename(str(src), str(dst))
+                try:
+                    os.rename(str(src), str(dst))
+                except OSError as exc:
+                    if exc.errno == errno.EXDEV or "cross-device" in str(exc).lower():
+                        warnings = [
+                            *result.warnings,
+                            f"Cross-filesystem move for {label} detected at runtime; rollback is best-effort only.",
+                        ]
+                        result = MigrationResult(
+                            migrated=result.migrated,
+                            old_kb_dir=result.old_kb_dir,
+                            new_kb_dir=result.new_kb_dir,
+                            old_daily_dir=result.old_daily_dir,
+                            new_daily_dir=result.new_daily_dir,
+                            old_state_dir=result.old_state_dir,
+                            new_state_dir=result.new_state_dir,
+                            errors=result.errors,
+                            warnings=warnings,
+                        )
+                        shutil.move(str(src), str(dst))
+                    else:
+                        raise
             else:
                 shutil.move(str(src), str(dst))
         except OSError as exc:
