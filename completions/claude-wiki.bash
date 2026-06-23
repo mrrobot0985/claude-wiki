@@ -33,7 +33,7 @@ _claude_wiki_completion() {
         return 0
     fi
     if [ "$cmd" = "migrate" ]; then
-        local migrate_opts=(--daily-dir --dry-run --help --kb-dir --path --reports-dir)
+        local migrate_opts=(--daily-dir --dry-run --force --help --kb-dir --path --reports-dir)
         COMPREPLY=( $(compgen -W "${migrate_opts[*]}" -- "$cur") )
         return 0
     fi

@@ -42,6 +42,7 @@ complete -c claude-wiki -n '__fish_seen_subcommand_from lint' -l threshold
 # migrate flags
 complete -c claude-wiki -n '__fish_seen_subcommand_from migrate' -l daily-dir
 complete -c claude-wiki -n '__fish_seen_subcommand_from migrate' -l dry-run
+complete -c claude-wiki -n '__fish_seen_subcommand_from migrate' -l force
 complete -c claude-wiki -n '__fish_seen_subcommand_from migrate' -l help
 complete -c claude-wiki -n '__fish_seen_subcommand_from migrate' -l kb-dir
 complete -c claude-wiki -n '__fish_seen_subcommand_from migrate' -l path

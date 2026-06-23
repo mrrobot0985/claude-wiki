@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import os
 import pkgutil
 import subprocess
 import sys
@@ -1008,7 +1009,7 @@ class TestMigrateCommand:
 
     def test_migrate_kb_dir_user_state_failure_rolls_back(self, tmp_path, monkeypatch):
         """A failed state move rolls back already-completed kb/daily moves."""
-        import shutil
+        import claude_wiki.migration as migration_mod
 
         home = tmp_path / "home"
         repo = tmp_path / "my-project"
@@ -1019,14 +1020,20 @@ class TestMigrateCommand:
         new_state = (
             home / ".local" / "state" / "claude-wiki" / "repos" / "local" / repo.name
         )
-        original_move = shutil.move
+        original_rename = migration_mod.os.rename
 
-        def _failing_move(src, dst, **kwargs):
+        def _failing_rename(
+            src: str | os.PathLike[str],
+            dst: str | os.PathLike[str],
+            *,
+            src_dir_fd: int | None = None,
+            dst_dir_fd: int | None = None,
+        ) -> None:
             if Path(dst).resolve() == new_state.resolve():
                 raise PermissionError(f"mock failure moving {src} -> {dst}")
-            return original_move(src, dst, **kwargs)
+            original_rename(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
 
-        monkeypatch.setattr(shutil, "move", _failing_move)
+        monkeypatch.setattr(migration_mod.os, "rename", _failing_rename)
 
         with patch("claude_wiki.cli.GlobalIndexManager"):
             exit_code = main(["migrate", "--path", str(repo), "--kb-dir", "user"])

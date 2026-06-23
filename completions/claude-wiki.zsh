@@ -64,6 +64,7 @@ _claude_wiki() {
             _arguments -C \
                 '--daily-dir[]' \
                 '--dry-run[]' \
+                '--force[]' \
                 '--help[]' \
                 '--kb-dir[]' \
                 '--path[]' \
