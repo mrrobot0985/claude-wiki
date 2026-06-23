@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from claude_wiki.config import ConfigManager, default_daily_dir
@@ -873,12 +874,14 @@ class TestMigrationManager:
             move_calls.append((str(src), str(dst)))
             return shutil.move(src, dst)
 
-        def fake_stat(path: str | os.PathLike[str]) -> os.stat_result:
+        def fake_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
             p = Path(path)
             if p == old_kb or p == new_kb.parent:
-                real = real_stat(path)
+                real = real_stat(path, *args, **kwargs)
                 return _fake_stat_result(real, st_dev=1)
-            return real_stat(path)
+            return real_stat(path, *args, **kwargs)
 
         monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
         monkeypatch.setattr(migration_mod.os, "rename", fake_rename)
@@ -915,15 +918,17 @@ class TestMigrationManager:
             repo_name="test", kb_dir=old_kb, daily_dir=Path("daily")
         )
 
-        def fake_stat(path: str | os.PathLike[str]) -> os.stat_result:
+        def fake_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
             p = Path(path)
             if p == old_kb:
-                real = real_stat(path)
+                real = real_stat(path, *args, **kwargs)
                 return _fake_stat_result(real, st_dev=1)
             if p == new_kb_parent:
-                real = real_stat(path)
+                real = real_stat(path, *args, **kwargs)
                 return _fake_stat_result(real, st_dev=2)
-            return real_stat(path)
+            return real_stat(path, *args, **kwargs)
 
         monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
 
@@ -963,15 +968,17 @@ class TestMigrationManager:
 
         move_calls: list[tuple[str, str]] = []
 
-        def fake_stat(path: str | os.PathLike[str]) -> os.stat_result:
+        def fake_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
             p = Path(path)
             if p == old_kb:
-                real = real_stat(path)
+                real = real_stat(path, *args, **kwargs)
                 return _fake_stat_result(real, st_dev=1)
             if p == new_kb_parent:
-                real = real_stat(path)
+                real = real_stat(path, *args, **kwargs)
                 return _fake_stat_result(real, st_dev=2)
-            return real_stat(path)
+            return real_stat(path, *args, **kwargs)
 
         def fake_move(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> str:
             move_calls.append((str(src), str(dst)))
@@ -1020,15 +1027,17 @@ class TestMigrationManager:
             repo_name="test", kb_dir=old_kb, daily_dir=Path("daily")
         )
 
-        def fake_stat(path: str | os.PathLike[str]) -> os.stat_result:
+        def fake_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
             p = Path(path)
             if p == old_kb:
-                real = real_stat(path)
+                real = real_stat(path, *args, **kwargs)
                 return _fake_stat_result(real, st_dev=1)
             if p == other:
-                real = real_stat(path)
+                real = real_stat(path, *args, **kwargs)
                 return _fake_stat_result(real, st_dev=2)
-            return real_stat(path)
+            return real_stat(path, *args, **kwargs)
 
         def fake_move(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> str:
             if Path(src).resolve() == old_kb.resolve():
@@ -1083,15 +1092,17 @@ class TestMigrationManager:
             repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
         )
 
-        def fake_stat(path: str | os.PathLike[str]) -> os.stat_result:
+        def fake_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
             p = Path(path)
-            real = real_stat(path)
+            real = real_stat(path, *args, **kwargs)
             if p == old_kb or p == new_kb.parent:
                 return _fake_stat_result(real, st_dev=1)
             if p == new_kb:
                 # A different device for the destination itself; parent must win.
                 return _fake_stat_result(real, st_dev=2)
-            return real_stat(path)
+            return real_stat(path, *args, **kwargs)
 
         monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
 
@@ -1141,12 +1152,14 @@ class TestMigrationManager:
             real_rename(src, dst)
             return str(dst)
 
-        def fake_stat(path: str | os.PathLike[str]) -> os.stat_result:
+        def fake_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
             p = Path(path)
-            real = real_stat(path)
+            real = real_stat(path, *args, **kwargs)
             if p == old_kb or p == new_kb.parent:
                 return _fake_stat_result(real, st_dev=1)
-            return real_stat(path)
+            return real_stat(path, *args, **kwargs)
 
         monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
         monkeypatch.setattr(migration_mod.os, "rename", fake_rename)
@@ -1186,10 +1199,12 @@ class TestMigrationManager:
             repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
         )
 
-        def failing_stat(path: str | os.PathLike[str]) -> os.stat_result:
+        def failing_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
             if Path(path).resolve() == repo.resolve():
                 raise OSError(errno.EACCES, "permission denied")
-            return real_stat(path)
+            return real_stat(path, *args, **kwargs)
 
         monkeypatch.setattr(migration_mod.os, "stat", failing_stat)
 
