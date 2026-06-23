@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import errno
+import logging
 import os
 import shutil
 from pathlib import Path
+
+from platformdirs import user_data_dir
 
 from claude_wiki.catalog_utils import rewrite_index_wikilinks
 from claude_wiki.config import ConfigManager
 from claude_wiki.interfaces import Migrator
 from claude_wiki.models import MigrationResult, ProjectConfig
+
+logger = logging.getLogger(__name__)
 
 
 class MigrationManager(Migrator):
@@ -224,6 +229,113 @@ class MigrationManager(Migrator):
             )
 
         return result
+
+    def migrate_legacy_layout(self, repo_root: Path, config: ProjectConfig) -> bool:
+        """Explicit layout_version 1 -> 2 migration.
+
+        Moves legacy user-mode vaults from the old "claude-wiki" namespace,
+        separates machine-state (state.json, logs/) and cache (reports/) out of
+        the KB root, and relocates repo-local daily logs for user mode.
+        Idempotent and atomic with respect to the lock file: any move failure
+        prevents the layout_version bump and rolls back completed moves.
+        """
+        if config.layout_version not in (None, "", "1"):
+            return False
+
+        errors: list[str] = []
+        warnings: list[str] = []
+        completed_moves: list[tuple[str, Path, Path]] = []
+
+        kb_mode = str(config.kb_dir.expanduser())
+        is_user_mode = kb_mode == "user"
+
+        if is_user_mode:
+            old_kb_root = (
+                Path(user_data_dir("claude-wiki", appauthor=False))
+                / config.repo_owner
+                / config.repo_name
+            ).resolve(strict=False)
+        else:
+            old_kb_root = self.config_manager.get_kb_root(repo_root, config)
+
+        kb_root = self.config_manager.get_kb_root(repo_root, config)
+        state_dir = self.config_manager.get_machine_state_dir(repo_root, config)
+        cache_dir = self.config_manager.get_cache_dir(repo_root, config)
+        daily_dir = self.config_manager.resolve_repo_path(config.daily_dir, repo_root)
+
+        def move_dir(src: Path, dst: Path, label: str) -> None:
+            nonlocal warnings
+            if not src.exists():
+                return
+            if dst.exists():
+                warnings.append(f"{label}: target {dst} already exists — skipping")
+                return
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dst))
+                completed_moves.append((label, src, dst))
+            except OSError as exc:
+                errors.append(f"{label}: failed to move {src} -> {dst}: {exc}")
+
+        def move_file(src: Path, dst: Path, label: str) -> None:
+            nonlocal warnings
+            if not src.exists():
+                return
+            if dst.exists():
+                warnings.append(f"{label}: target {dst} already exists — skipping")
+                return
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                temp = dst.with_suffix(".tmp")
+                temp.write_bytes(src.read_bytes())
+                os.replace(temp, dst)
+                src.unlink()
+                completed_moves.append((label, src, dst))
+            except OSError as exc:
+                errors.append(f"{label}: failed to move {src} -> {dst}: {exc}")
+
+        # Legacy user-mode vault used the "claude-wiki" namespace.
+        if is_user_mode and old_kb_root != kb_root:
+            move_dir(old_kb_root, kb_root, "vault")
+
+        # Separate machine-state and cache out of the KB root.
+        move_file(kb_root / "state.json", state_dir / "state.json", "state.json")
+        move_dir(kb_root / "logs", state_dir / "logs", "logs")
+        move_dir(kb_root / "reports", cache_dir / "reports", "reports")
+
+        # Legacy user-mode daily logs lived next to the repository root.
+        if is_user_mode:
+            move_dir(repo_root / "daily", daily_dir, "daily")
+
+        for warning in warnings:
+            logger.warning("Legacy migration: %s", warning)
+
+        if errors:
+            if completed_moves:
+                rollback_errors = self._rollback(completed_moves)
+                errors.extend(rollback_errors)
+            logger.error(
+                "Legacy migration failed for %s: %s",
+                repo_root,
+                "; ".join(errors),
+            )
+            return False
+
+        # Bump layout_version even when no files needed moving so that the
+        # next load() is a no-op.
+        new_config = ProjectConfig(
+            repo_name=config.repo_name,
+            repo_owner=config.repo_owner,
+            layout_version="2",
+            kb_dir=config.kb_dir,
+            daily_dir=config.daily_dir,
+            reports_dir=config.reports_dir,
+            timezone=config.timezone,
+            compile_after_hour=config.compile_after_hour,
+        )
+        self.config_manager.write(repo_root, new_config)
+        logger.info("Migrated legacy layout to version 2 for %s", repo_root)
+        return True
 
     def _migrate_dir(
         self,

@@ -163,7 +163,12 @@ class TestFlushMain:
         marker = repo / ".claude-wiki.lock"
         marker.write_text(
             json.dumps(
-                {"repo_name": "repo", "repo_owner": "owner", "daily_dir": "daily"}
+                {
+                    "repo_name": "repo",
+                    "repo_owner": "owner",
+                    "layout_version": "2",
+                    "daily_dir": "daily",
+                }
             )
         )
         return repo
@@ -247,7 +252,11 @@ class TestSessionEndHandler:
         repo.mkdir()
         (repo / ".git").mkdir()
         marker = repo / ".claude-wiki.lock"
-        marker.write_text(json.dumps({"repo_name": "repo", "repo_owner": "owner"}))
+        marker.write_text(
+            json.dumps(
+                {"repo_name": "repo", "repo_owner": "owner", "layout_version": "2"}
+            )
+        )
         return repo
 
     def test_recursion_guard_exits_immediately(
@@ -341,7 +350,11 @@ class TestSessionEndErrorPaths:
         repo.mkdir()
         (repo / ".git").mkdir()
         marker = repo / ".claude-wiki.lock"
-        marker.write_text(json.dumps({"repo_name": "repo", "repo_owner": "owner"}))
+        marker.write_text(
+            json.dumps(
+                {"repo_name": "repo", "repo_owner": "owner", "layout_version": "2"}
+            )
+        )
         return repo
 
     def test_config_load_error_is_handled(

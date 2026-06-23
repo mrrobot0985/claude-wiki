@@ -1,15 +1,34 @@
 """Tests for MigrationManager path-change detection and data movement."""
 
 import errno
+import json
 import os
 import shutil
 import tempfile
 from pathlib import Path
-from types import SimpleNamespace
+from unittest.mock import patch
 
 from claude_wiki.config import ConfigManager, default_daily_dir
 from claude_wiki.migration import MigrationManager
 from claude_wiki.models import ProjectConfig
+
+
+def _fake_stat_result(real: os.stat_result, *, st_dev: int) -> os.stat_result:
+    """Return a stat result with overridden st_dev."""
+    return os.stat_result(
+        (
+            real.st_mode,
+            real.st_ino,
+            st_dev,
+            real.st_nlink,
+            real.st_uid,
+            real.st_gid,
+            real.st_size,
+            real.st_atime,
+            real.st_mtime,
+            real.st_ctime,
+        )
+    )
 
 
 class FakeConfigManager:
@@ -854,11 +873,11 @@ class TestMigrationManager:
             move_calls.append((str(src), str(dst)))
             return shutil.move(src, dst)
 
-        def fake_stat(path: str | os.PathLike[str]) -> SimpleNamespace:
+        def fake_stat(path: str | os.PathLike[str]) -> os.stat_result:
             p = Path(path)
             if p == old_kb or p == new_kb.parent:
                 real = real_stat(path)
-                return SimpleNamespace(st_dev=1, st_mode=real.st_mode)
+                return _fake_stat_result(real, st_dev=1)
             return real_stat(path)
 
         monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
@@ -896,14 +915,14 @@ class TestMigrationManager:
             repo_name="test", kb_dir=old_kb, daily_dir=Path("daily")
         )
 
-        def fake_stat(path: str | os.PathLike[str]) -> SimpleNamespace:
+        def fake_stat(path: str | os.PathLike[str]) -> os.stat_result:
             p = Path(path)
             if p == old_kb:
                 real = real_stat(path)
-                return SimpleNamespace(st_dev=1, st_mode=real.st_mode)
+                return _fake_stat_result(real, st_dev=1)
             if p == new_kb_parent:
                 real = real_stat(path)
-                return SimpleNamespace(st_dev=2, st_mode=real.st_mode)
+                return _fake_stat_result(real, st_dev=2)
             return real_stat(path)
 
         monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
@@ -944,14 +963,14 @@ class TestMigrationManager:
 
         move_calls: list[tuple[str, str]] = []
 
-        def fake_stat(path: str | os.PathLike[str]) -> SimpleNamespace:
+        def fake_stat(path: str | os.PathLike[str]) -> os.stat_result:
             p = Path(path)
             if p == old_kb:
                 real = real_stat(path)
-                return SimpleNamespace(st_dev=1, st_mode=real.st_mode)
+                return _fake_stat_result(real, st_dev=1)
             if p == new_kb_parent:
                 real = real_stat(path)
-                return SimpleNamespace(st_dev=2, st_mode=real.st_mode)
+                return _fake_stat_result(real, st_dev=2)
             return real_stat(path)
 
         def fake_move(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> str:
@@ -1001,14 +1020,14 @@ class TestMigrationManager:
             repo_name="test", kb_dir=old_kb, daily_dir=Path("daily")
         )
 
-        def fake_stat(path: str | os.PathLike[str]) -> SimpleNamespace:
+        def fake_stat(path: str | os.PathLike[str]) -> os.stat_result:
             p = Path(path)
             if p == old_kb:
                 real = real_stat(path)
-                return SimpleNamespace(st_dev=1, st_mode=real.st_mode)
+                return _fake_stat_result(real, st_dev=1)
             if p == other:
                 real = real_stat(path)
-                return SimpleNamespace(st_dev=2, st_mode=real.st_mode)
+                return _fake_stat_result(real, st_dev=2)
             return real_stat(path)
 
         def fake_move(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> str:
@@ -1064,14 +1083,14 @@ class TestMigrationManager:
             repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
         )
 
-        def fake_stat(path: str | os.PathLike[str]) -> SimpleNamespace:
+        def fake_stat(path: str | os.PathLike[str]) -> os.stat_result:
             p = Path(path)
             real = real_stat(path)
             if p == old_kb or p == new_kb.parent:
-                return SimpleNamespace(st_dev=1, st_mode=real.st_mode)
+                return _fake_stat_result(real, st_dev=1)
             if p == new_kb:
                 # A different device for the destination itself; parent must win.
-                return SimpleNamespace(st_dev=2, st_mode=real.st_mode)
+                return _fake_stat_result(real, st_dev=2)
             return real_stat(path)
 
         monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
@@ -1122,11 +1141,11 @@ class TestMigrationManager:
             real_rename(src, dst)
             return str(dst)
 
-        def fake_stat(path: str | os.PathLike[str]) -> SimpleNamespace:
+        def fake_stat(path: str | os.PathLike[str]) -> os.stat_result:
             p = Path(path)
             real = real_stat(path)
             if p == old_kb or p == new_kb.parent:
-                return SimpleNamespace(st_dev=1, st_mode=real.st_mode)
+                return _fake_stat_result(real, st_dev=1)
             return real_stat(path)
 
         monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
@@ -1167,7 +1186,7 @@ class TestMigrationManager:
             repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
         )
 
-        def failing_stat(path: str | os.PathLike[str]) -> SimpleNamespace:
+        def failing_stat(path: str | os.PathLike[str]) -> os.stat_result:
             if Path(path).resolve() == repo.resolve():
                 raise OSError(errno.EACCES, "permission denied")
             return real_stat(path)
@@ -1180,3 +1199,303 @@ class TestMigrationManager:
         assert not result.migrated
         assert result.errors
         assert any("kb_dir" in e and "stat" in e.lower() for e in result.errors)
+
+
+class TestMigrateLegacyLayout:
+    """Explicit layout_version 1 -> 2 migration via MigrationManager."""
+
+    def test_migrate_legacy_vault_user_mode(self):
+        """User-mode vault moves from the old namespace to the new XDG path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            repo = tmpdir_path / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "1",
+                        "kb_dir": "user",
+                    }
+                )
+            )
+
+            env = {
+                "XDG_DATA_HOME": str(tmpdir_path / "data"),
+                "XDG_STATE_HOME": str(tmpdir_path / "state"),
+                "XDG_CACHE_HOME": str(tmpdir_path / "cache"),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                old_kb = tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
+                old_kb.mkdir(parents=True)
+                (old_kb / "article.md").write_text("knowledge")
+                (old_kb / "state.json").write_text("{}")
+                (old_kb / "logs").mkdir()
+                (old_kb / "logs" / "flush.log").write_text("log")
+                (old_kb / "reports").mkdir()
+                (old_kb / "reports" / "report.md").write_text("report")
+
+                manager = ConfigManager()
+                migrator = MigrationManager(manager)
+                config = manager._build_config(repo, json.loads(marker.read_text()))
+                migrated = migrator.migrate_legacy_layout(repo, config)
+
+                assert migrated is True
+                new_kb = (
+                    tmpdir_path / "data" / "claude-wiki-vault" / "owner" / "my-project"
+                )
+                assert (new_kb / "article.md").exists()
+                state_dir = (
+                    tmpdir_path
+                    / "state"
+                    / "claude-wiki"
+                    / "repos"
+                    / "owner"
+                    / "my-project"
+                )
+                assert (state_dir / "state.json").exists()
+                assert (state_dir / "logs" / "flush.log").exists()
+                cache_dir = (
+                    tmpdir_path
+                    / "cache"
+                    / "claude-wiki"
+                    / "repos"
+                    / "owner"
+                    / "my-project"
+                )
+                assert (cache_dir / "reports" / "report.md").exists()
+                assert not old_kb.exists()
+
+                data = json.loads(marker.read_text())
+                assert data["layout_version"] == "2"
+
+    def test_migrate_legacy_project_mode(self):
+        """Project-mode state.json moves from kb_root to .claude/state/."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            repo = tmpdir_path / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "1",
+                        "kb_dir": "project",
+                    }
+                )
+            )
+
+            manager = ConfigManager()
+            kb_root = manager.get_kb_root(
+                repo,
+                ProjectConfig(
+                    repo_name="my-project",
+                    repo_owner="owner",
+                    kb_dir=Path("project"),
+                ),
+            )
+            kb_root.mkdir(parents=True)
+            (kb_root / "state.json").write_text('{"hash": "abc"}')
+
+            migrator = MigrationManager(manager)
+            config = manager._build_config(repo, json.loads(marker.read_text()))
+            migrated = migrator.migrate_legacy_layout(repo, config)
+
+            assert migrated is True
+            state_dir = repo / ".claude" / "state"
+            assert (state_dir / "state.json").read_text() == '{"hash": "abc"}'
+            assert not (kb_root / "state.json").exists()
+
+            data = json.loads(marker.read_text())
+            assert data["layout_version"] == "2"
+
+    def test_migrate_legacy_idempotent(self):
+        """Second migrate_legacy_layout() is a no-op after files are migrated."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            repo = tmpdir_path / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "1",
+                        "kb_dir": "user",
+                    }
+                )
+            )
+
+            env = {
+                "XDG_DATA_HOME": str(tmpdir_path / "data"),
+                "XDG_STATE_HOME": str(tmpdir_path / "state"),
+                "XDG_CACHE_HOME": str(tmpdir_path / "cache"),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                old_kb = tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
+                old_kb.mkdir(parents=True)
+                (old_kb / "note.md").write_text("note")
+
+                manager = ConfigManager()
+                migrator = MigrationManager(manager)
+                config = manager._build_config(repo, json.loads(marker.read_text()))
+                assert migrator.migrate_legacy_layout(repo, config) is True
+
+                new_kb = (
+                    tmpdir_path / "data" / "claude-wiki-vault" / "owner" / "my-project"
+                )
+                assert (new_kb / "note.md").exists()
+
+                config2 = manager.load(repo)
+                assert config2.layout_version == "2"
+                assert (new_kb / "note.md").exists()
+                assert not old_kb.exists()
+
+                data = json.loads(marker.read_text())
+                assert data["layout_version"] == "2"
+
+    def test_migrate_legacy_partial_failure(self):
+        """Any move failure prevents the layout_version bump."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            repo = tmpdir_path / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "1",
+                        "kb_dir": "user",
+                    }
+                )
+            )
+
+            env = {
+                "XDG_DATA_HOME": str(tmpdir_path / "data"),
+                "XDG_STATE_HOME": str(tmpdir_path / "state"),
+                "XDG_CACHE_HOME": str(tmpdir_path / "cache"),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                old_kb = tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
+                old_kb.mkdir(parents=True)
+                (old_kb / "note.md").write_text("note")
+
+                manager = ConfigManager()
+                migrator = MigrationManager(manager)
+                config = manager._build_config(repo, json.loads(marker.read_text()))
+                with patch(
+                    "claude_wiki.migration.shutil.move",
+                    side_effect=OSError("locked"),
+                ):
+                    migrated = migrator.migrate_legacy_layout(repo, config)
+
+                assert migrated is False
+                assert (old_kb / "note.md").exists()
+                data = json.loads(marker.read_text())
+                assert data["layout_version"] == "1"
+
+    def test_migrate_legacy_partial_failure_rolls_back_completed_moves(
+        self, monkeypatch
+    ):
+        """A later move failure reverses earlier successful moves in LIFO order."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            repo = tmpdir_path / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "1",
+                        "kb_dir": "user",
+                    }
+                )
+            )
+
+            env = {
+                "XDG_DATA_HOME": str(tmpdir_path / "data"),
+                "XDG_STATE_HOME": str(tmpdir_path / "state"),
+                "XDG_CACHE_HOME": str(tmpdir_path / "cache"),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                old_kb = tmpdir_path / "data" / "claude-wiki" / "owner" / "my-project"
+                old_kb.mkdir(parents=True)
+                (old_kb / "article.md").write_text("knowledge")
+                (old_kb / "state.json").write_text('{"hash": "abc"}')
+                (old_kb / "logs").mkdir()
+                (old_kb / "logs" / "flush.log").write_text("log")
+
+                original_move = shutil.move
+
+                def _failing_move(src, dst, **kwargs):
+                    if Path(dst).name == "logs":
+                        raise PermissionError(f"mock failure moving {src} -> {dst}")
+                    return original_move(src, dst, **kwargs)
+
+                monkeypatch.setattr(shutil, "move", _failing_move)
+
+                manager = ConfigManager()
+                migrator = MigrationManager(manager)
+                config = manager._build_config(repo, json.loads(marker.read_text()))
+                migrated = migrator.migrate_legacy_layout(repo, config)
+
+                assert migrated is False
+
+                # All source locations restored
+                assert old_kb.exists()
+                assert (old_kb / "article.md").exists()
+                assert (old_kb / "state.json").read_text() == '{"hash": "abc"}'
+                assert (old_kb / "logs" / "flush.log").exists()
+
+                # Intermediate destinations gone
+                new_kb = (
+                    tmpdir_path / "data" / "claude-wiki-vault" / "owner" / "my-project"
+                )
+                state_dir = (
+                    tmpdir_path
+                    / "state"
+                    / "claude-wiki"
+                    / "repos"
+                    / "owner"
+                    / "my-project"
+                )
+                assert not new_kb.exists()
+                assert not (state_dir / "state.json").exists()
+
+                data = json.loads(marker.read_text())
+                assert data["layout_version"] == "1"
+
+    def test_migrate_legacy_no_op_for_version_2(self):
+        """migrate_legacy_layout() returns False for an already-migrated lock."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            repo = tmpdir_path / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "2",
+                        "kb_dir": "project",
+                    }
+                )
+            )
+
+            manager = ConfigManager()
+            migrator = MigrationManager(manager)
+            config = manager._build_config(repo, json.loads(marker.read_text()))
+            assert migrator.migrate_legacy_layout(repo, config) is False
+
+            data = json.loads(marker.read_text())
+            assert data["layout_version"] == "2"

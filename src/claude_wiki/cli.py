@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import importlib
+import json
 import logging
 import pkgutil
 import sys
@@ -14,7 +15,7 @@ from typing import Any
 
 from claude_wiki import interactive
 from claude_wiki.config import ConfigManager, default_daily_dir
-from claude_wiki.errors import RepoNotFoundError
+from claude_wiki.errors import ConfigError, RepoNotFoundError
 from claude_wiki.factories import DefaultConfigResolver
 from claude_wiki.global_index import GlobalIndexManager
 from claude_wiki.hook_detect import (
@@ -22,6 +23,7 @@ from claude_wiki.hook_detect import (
     settings_has_claude_wiki_hooks,
 )
 from claude_wiki.logging_setup import configure_stderr_logging
+from claude_wiki.migration import MigrationManager
 from claude_wiki.models import MigrationResult
 
 logger = logging.getLogger(__name__)
@@ -197,7 +199,11 @@ def _init(args: argparse.Namespace) -> int:
         return 1
 
     marker = repo_root / ".claude-wiki.lock"
-    defaults = loader.load(repo_root)
+    try:
+        defaults = loader.load(repo_root)
+    except ConfigError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     inferred_owner = owner_resolver.infer_repo_owner(repo_root)
 
     needs_update = inferred_owner != "local" or args.force or not marker.exists()
@@ -301,14 +307,43 @@ def _migrate(args: argparse.Namespace) -> int:
         print("Error: Not in a git repository.", file=sys.stderr)
         return 1
 
-    if not (repo_root / ".claude-wiki.lock").exists():
+    marker = repo_root / ".claude-wiki.lock"
+    if not marker.exists():
         print(
             "Error: No .claude-wiki.lock found. Run 'claude-wiki init' first.",
             file=sys.stderr,
         )
         return 1
 
-    previous = loader.load(repo_root)
+    try:
+        raw_data = json.loads(marker.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"Error: Corrupt lock file {marker}: {exc}", file=sys.stderr)
+        return 1
+
+    if raw_data.get("layout_version") in (None, "", "1"):
+        if isinstance(detector, ConfigManager) and isinstance(
+            migrator, MigrationManager
+        ):
+            temp_config = detector._build_config(repo_root, raw_data)
+            if not migrator.migrate_legacy_layout(repo_root, temp_config):
+                print(
+                    "Error: Legacy layout migration failed. Fix the issue and retry.",
+                    file=sys.stderr,
+                )
+                return 1
+        else:
+            print(
+                "Error: Legacy layout version detected. Run 'claude-wiki migrate' to upgrade.",
+                file=sys.stderr,
+            )
+            return 1
+
+    try:
+        previous = loader.load(repo_root)
+    except ConfigError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     if args.reports_dir:
         print("Warning: --reports-dir is deprecated and ignored.", file=sys.stderr)
 

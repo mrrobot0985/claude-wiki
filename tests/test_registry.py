@@ -19,6 +19,7 @@ def _make_repo(tmpdir: Path, name: str, *, kb_mode: str = "project") -> Path:
     repo = tmpdir / name
     repo.mkdir()
     lock = {
+        "layout_version": "2",
         "repo_name": name,
         "repo_owner": "local",
         "kb_dir": kb_mode,

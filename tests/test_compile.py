@@ -45,6 +45,7 @@ def _make_repo(tmpdir: str) -> tuple[Path, Path]:
     marker.write_text(
         json.dumps(
             {
+                "layout_version": "2",
                 "repo_name": "my-project",
                 "repo_owner": "owner",
                 "kb_dir": "project",
