@@ -7,7 +7,6 @@ import dataclasses
 import importlib
 import json
 import logging
-import pkgutil
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -169,18 +168,12 @@ def _register_commands(
     subparsers: Any,
     handlers: dict[str, _Handler],
 ) -> None:
-    """Auto-discover and register command modules from commands/."""
+    """Register command modules from the explicit commands registry."""
     from claude_wiki import commands as commands_pkg
 
-    for _finder, name, _ispkg in pkgutil.iter_modules(
-        commands_pkg.__path__, commands_pkg.__name__ + "."
-    ):
-        try:
-            mod = importlib.import_module(name)
-            if hasattr(mod, "register"):
-                mod.register(subparsers, handlers)
-        except Exception as exc:
-            logger.error("Failed to load command module %s: %s", name, exc)
+    for name in commands_pkg.get_command_modules():
+        mod = importlib.import_module(name)
+        mod.register(subparsers, handlers)
 
 
 def _init(args: argparse.Namespace) -> int:
