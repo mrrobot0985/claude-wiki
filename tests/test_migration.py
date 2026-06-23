@@ -1202,7 +1202,9 @@ class TestMigrationManager:
         def failing_stat(
             path: str | os.PathLike[str], *args: Any, **kwargs: Any
         ) -> os.stat_result:
-            if Path(path).resolve() == repo.resolve():
+            # Use path comparison without resolve() to avoid recursive os.stat
+            # calls through pathlib internals on Python < 3.14.
+            if Path(path) == repo:
                 raise OSError(errno.EACCES, "permission denied")
             return real_stat(path, *args, **kwargs)
 
