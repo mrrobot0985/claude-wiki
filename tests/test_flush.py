@@ -254,7 +254,12 @@ class TestFlushMainErrors:
         marker = repo / ".claude-wiki.lock"
         marker.write_text(
             json.dumps(
-                {"repo_name": "repo", "repo_owner": "owner", "daily_dir": "daily"}
+                {
+                    "layout_version": "2",
+                    "repo_name": "repo",
+                    "repo_owner": "owner",
+                    "daily_dir": "daily",
+                }
             )
         )
         return repo

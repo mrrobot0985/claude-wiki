@@ -18,6 +18,7 @@ class TestRegisterCommand:
         repo.mkdir()
         (repo / ".git").mkdir()
         lock = {
+            "layout_version": "2",
             "repo_name": "my-project",
             "repo_owner": "local",
             "kb_dir": "project",
@@ -53,6 +54,7 @@ class TestRegisterCommand:
         repo.mkdir()
         (repo / ".git").mkdir()
         lock = {
+            "layout_version": "2",
             "repo_name": "claude-wiki",
             "repo_owner": "mrrobot0985",
             "kb_dir": "user",
@@ -119,6 +121,7 @@ class TestRegisterCommand:
         (repo / ".git").mkdir()
         (repo / "src").mkdir()
         lock = {
+            "layout_version": "2",
             "repo_name": "cwd-project",
             "repo_owner": "local",
             "kb_dir": "project",
@@ -153,6 +156,7 @@ class TestRegisterCommand:
         repo.mkdir()
         (repo / ".git").mkdir()
         lock = {
+            "layout_version": "2",
             "repo_name": "regen-project",
             "repo_owner": "local",
             "kb_dir": "project",
@@ -188,6 +192,7 @@ class TestRegisterCommand:
         first_core = (mgr.base_dir / "core.md").read_text()
 
         lock = {
+            "layout_version": "2",
             "repo_name": "upsert-project",
             "repo_owner": "local",
             "kb_dir": "project",

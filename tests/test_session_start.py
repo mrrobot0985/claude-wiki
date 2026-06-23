@@ -55,6 +55,7 @@ class TestSessionStart:
                     {
                         "repo_name": "repo",
                         "repo_owner": "owner",
+                        "layout_version": "2",
                         "kb_dir": str(kb),
                         "daily_dir": "daily",
                         "timezone": "UTC",
@@ -87,7 +88,11 @@ class TestSessionStart:
             )
 
             marker = repo / ".claude-wiki.lock"
-            marker.write_text(json.dumps({"repo_name": "repo", "repo_owner": "owner"}))
+            marker.write_text(
+                json.dumps(
+                    {"repo_name": "repo", "repo_owner": "owner", "layout_version": "2"}
+                )
+            )
 
             monkeypatch.chdir(repo)
             _session_start([])
@@ -116,6 +121,7 @@ class TestSessionStart:
                     {
                         "repo_name": "repo",
                         "repo_owner": "owner",
+                        "layout_version": "2",
                         "kb_dir": str(kb),
                     }
                 )
@@ -137,7 +143,11 @@ class TestSessionStart:
             repo.mkdir()
             (repo / ".git").mkdir()
             marker = repo / ".claude-wiki.lock"
-            marker.write_text(json.dumps({"repo_name": "repo", "repo_owner": "owner"}))
+            marker.write_text(
+                json.dumps(
+                    {"repo_name": "repo", "repo_owner": "owner", "layout_version": "2"}
+                )
+            )
 
             monkeypatch.chdir(repo)
             exit_code = _session_start([])
@@ -178,7 +188,7 @@ class TestSessionStartEdgeCases:
 
     def _repo_with_lock(self, repo: Path, extra: dict | None = None) -> None:
         """Write a minimal .claude-wiki.lock in the repo."""
-        data = {"repo_name": "repo", "repo_owner": "owner"}
+        data = {"layout_version": "2", "repo_name": "repo", "repo_owner": "owner"}
         if extra:
             data.update(extra)
         (repo / ".claude-wiki.lock").write_text(json.dumps(data))
