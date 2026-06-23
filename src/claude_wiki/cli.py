@@ -321,9 +321,24 @@ def _migrate(args: argparse.Namespace) -> int:
             migrator, MigrationManager
         ):
             temp_config = detector._build_config(repo_root, raw_data)
-            migrator.migrate_legacy_layout(repo_root, temp_config)
+            if not migrator.migrate_legacy_layout(repo_root, temp_config):
+                print(
+                    "Error: Legacy layout migration failed. Fix the issue and retry.",
+                    file=sys.stderr,
+                )
+                return 1
+        else:
+            print(
+                "Error: Legacy layout version detected. Run 'claude-wiki migrate' to upgrade.",
+                file=sys.stderr,
+            )
+            return 1
 
-    previous = loader.load(repo_root)
+    try:
+        previous = loader.load(repo_root)
+    except ConfigError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     if args.reports_dir:
         print("Warning: --reports-dir is deprecated and ignored.", file=sys.stderr)
 

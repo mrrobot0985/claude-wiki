@@ -1147,6 +1147,37 @@ class TestMigrateLegacyHandling:
         assert lock["layout_version"] == "2"
         assert (state_dir / "state.json").read_text() == '{"hash": "abc"}'
 
+    def test_migrate_legacy_returns_one_when_migration_fails(self, capsys, tmp_path):
+        """If migrate_legacy_layout() fails, _migrate() exits 1 cleanly."""
+        repo = tmp_path / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / ".claude-wiki.lock").write_text(
+            json.dumps(
+                {
+                    "repo_name": repo.name,
+                    "repo_owner": "local",
+                    "layout_version": "1",
+                    "kb_dir": "project",
+                    "daily_dir": ".claude/daily",
+                    "reports_dir": "reports",
+                    "timezone": "UTC",
+                    "compile_after_hour": 18,
+                }
+            )
+        )
+
+        with patch("claude_wiki.cli.GlobalIndexManager"):
+            with patch(
+                "claude_wiki.migration.MigrationManager.migrate_legacy_layout",
+                return_value=False,
+            ):
+                exit_code = main(["migrate", "--path", str(repo)])
+
+        captured = capsys.readouterr()
+        assert exit_code == 1
+        assert "Legacy layout migration failed" in captured.err
+
 
 class TestCliEdgeCases:
     """Tests covering uncovered paths in cli.py."""
