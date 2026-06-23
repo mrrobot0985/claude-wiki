@@ -66,11 +66,7 @@ def _check_config(repo_root: Path) -> tuple[str, str, int]:
 
 
 def _check_daily(repo_root: Path, config: ProjectConfig) -> tuple[str, str, int]:
-    daily = (
-        config.daily_dir
-        if config.daily_dir.is_absolute()
-        else (repo_root / config.daily_dir).resolve(strict=False)
-    )
+    daily = ConfigManager.resolve_repo_path(config.daily_dir, repo_root)
     if not daily.exists():
         return (
             "Daily logs",
