@@ -488,6 +488,7 @@ class TestGlobalIndexManager:
             (repo / ".claude-wiki.lock").write_text(
                 json.dumps(
                     {
+                        "layout_version": "2",
                         "repo_name": "repo",
                         "repo_owner": "local",
                         "kb_dir": "user",
@@ -566,6 +567,7 @@ class TestGlobalIndexManager:
             (repo / ".claude-wiki.lock").write_text(
                 json.dumps(
                     {
+                        "layout_version": "2",
                         "repo_name": "repo",
                         "repo_owner": "local",
                         "kb_dir": "project",
@@ -592,6 +594,7 @@ class TestGlobalIndexManager:
             (repo / ".claude-wiki.lock").write_text(
                 json.dumps(
                     {
+                        "layout_version": "2",
                         "repo_name": "repo",
                         "repo_owner": "local",
                         "kb_dir": "project",
@@ -616,6 +619,7 @@ class TestGlobalIndexManager:
             (repo / ".claude-wiki.lock").write_text(
                 json.dumps(
                     {
+                        "layout_version": "2",
                         "repo_name": "repo",
                         "repo_owner": "local",
                         "kb_dir": "user",
@@ -640,6 +644,7 @@ class TestGlobalIndexManager:
             (repo / ".claude-wiki.lock").write_text(
                 json.dumps(
                     {
+                        "layout_version": "2",
                         "repo_name": "repo",
                         "repo_owner": "local",
                         "kb_dir": "custom/path",

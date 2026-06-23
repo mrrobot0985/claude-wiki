@@ -125,6 +125,7 @@ class TestTagsCommand:
         marker.write_text(
             json.dumps(
                 {
+                    "layout_version": "2",
                     "repo_name": "repo",
                     "repo_owner": "local",
                     "kb_dir": "project",

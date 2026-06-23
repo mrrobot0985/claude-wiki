@@ -564,7 +564,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
 
             elsewhere = Path(tmpdir) / "elsewhere"
             elsewhere.mkdir()
@@ -581,7 +583,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
 
             old_cwd = os.getcwd()
             try:
@@ -596,7 +600,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
 
             old_cwd = os.getcwd()
             try:
@@ -616,7 +622,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "repo.md").write_text("# Index")
@@ -645,7 +653,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "repo.md").write_text("# Index")
@@ -679,7 +689,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "repo.md").write_text("# Index")
@@ -715,7 +727,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "repo.md").write_text("# Index")
@@ -756,7 +770,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "repo.md").write_text("# Index")
@@ -791,7 +807,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
 
             old_cwd = os.getcwd()
             try:
@@ -809,7 +827,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "repo.md").write_text("# Index")
@@ -836,7 +856,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "repo.md").write_text("# Index")
@@ -872,7 +894,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "repo.md").write_text("# Index")
@@ -908,7 +932,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "repo.md").write_text("# Index")
@@ -944,7 +970,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "repo.md").write_text("# Index")
@@ -977,7 +1005,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "repo.md").write_text("# Index")
@@ -1014,7 +1044,9 @@ class TestQueryCommand:
             repo = Path(tmpdir) / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(json.dumps({"repo_name": "repo"}))
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps({"layout_version": "2", "repo_name": "repo"})
+            )
             kb = repo / "knowledge"
             kb.mkdir()
             (kb / "repo.md").write_text("# Index")

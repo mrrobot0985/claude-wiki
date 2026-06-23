@@ -62,6 +62,7 @@ class TestLintStructural:
         marker.write_text(
             json.dumps(
                 {
+                    "layout_version": "2",
                     "repo_name": "repo",
                     "repo_owner": "local",
                     "kb_dir": "project",
@@ -339,6 +340,7 @@ class TestLintLLM:
         marker.write_text(
             json.dumps(
                 {
+                    "layout_version": "2",
                     "repo_name": "repo",
                     "repo_owner": "local",
                     "kb_dir": "project",
@@ -467,6 +469,7 @@ class TestLintJsonAndExitCodes:
         marker.write_text(
             json.dumps(
                 {
+                    "layout_version": "2",
                     "repo_name": "repo",
                     "repo_owner": "local",
                     "kb_dir": "project",
@@ -596,6 +599,7 @@ class TestLintStructuralEdgeCases:
         marker.write_text(
             json.dumps(
                 {
+                    "layout_version": "2",
                     "repo_name": "repo",
                     "repo_owner": "local",
                     "kb_dir": "project",
@@ -796,6 +800,7 @@ class TestContradictionDetection:
         marker.write_text(
             json.dumps(
                 {
+                    "layout_version": "2",
                     "repo_name": "repo",
                     "repo_owner": "local",
                     "kb_dir": str(kb_root),
@@ -849,6 +854,7 @@ class TestLintFrontmatter:
         marker.write_text(
             json.dumps(
                 {
+                    "layout_version": "2",
                     "repo_name": "repo",
                     "repo_owner": "local",
                     "kb_dir": "project",
@@ -1028,6 +1034,7 @@ class TestLintTags:
         marker.write_text(
             json.dumps(
                 {
+                    "layout_version": "2",
                     "repo_name": "repo",
                     "repo_owner": "local",
                     "kb_dir": "project",
@@ -1140,6 +1147,7 @@ class TestLintCatalogCompleteness:
                 {
                     "repo_name": "repo",
                     "repo_owner": "local",
+                    "layout_version": "2",
                     "kb_dir": "project",
                     "daily_dir": "daily",
                     "timezone": "UTC",
@@ -1311,6 +1319,7 @@ class TestLintFix:
                 {
                     "repo_name": "repo",
                     "repo_owner": "local",
+                    "layout_version": "2",
                     "kb_dir": "project",
                     "daily_dir": "daily",
                     "timezone": "UTC",
