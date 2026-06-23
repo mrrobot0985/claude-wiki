@@ -51,4 +51,5 @@ class Migrator(Protocol):
         previous: ProjectConfig | None,
         *,
         dry_run: bool = False,
+        force: bool = False,
     ) -> MigrationResult: ...

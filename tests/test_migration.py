@@ -1,15 +1,35 @@
 """Tests for MigrationManager path-change detection and data movement."""
 
+import errno
 import json
 import os
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from claude_wiki.config import ConfigManager, default_daily_dir
 from claude_wiki.migration import MigrationManager
 from claude_wiki.models import ProjectConfig
+
+
+def _fake_stat_result(real: os.stat_result, *, st_dev: int) -> os.stat_result:
+    """Return a stat result with overridden st_dev."""
+    return os.stat_result(
+        (
+            real.st_mode,
+            real.st_ino,
+            st_dev,
+            real.st_nlink,
+            real.st_uid,
+            real.st_gid,
+            real.st_size,
+            real.st_atime,
+            real.st_mtime,
+            real.st_ctime,
+        )
+    )
 
 
 class FakeConfigManager:
@@ -491,8 +511,6 @@ class TestMigrationManager:
 
     def test_rollback_on_partial_failure(self, monkeypatch):
         """A failed second move rolls back an already-completed first move."""
-        import shutil as _shutil
-
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)
             old_kb = repo / "knowledge"
@@ -506,14 +524,20 @@ class TestMigrationManager:
             new_daily = repo / "logs"
             new_daily.mkdir()
 
-            original_move = _shutil.move
+            original_rename = os.rename
 
-            def _failing_move(src, dst, **kwargs):
+            def _failing_rename(
+                src: str | os.PathLike[str],
+                dst: str | os.PathLike[str],
+                *,
+                src_dir_fd: int | None = None,
+                dst_dir_fd: int | None = None,
+            ) -> None:
                 if Path(dst).name == "logs":
                     raise PermissionError(f"mock failure moving {src} -> {dst}")
-                return original_move(src, dst, **kwargs)
+                original_rename(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
 
-            monkeypatch.setattr(_shutil, "move", _failing_move)
+            monkeypatch.setattr(os, "rename", _failing_rename)
 
             current = ProjectConfig(
                 repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("logs")
@@ -538,15 +562,14 @@ class TestMigrationManager:
 
     def test_rollback_reports_its_own_errors(self, monkeypatch):
         """A rollback failure appends an error to the result."""
-        import shutil as _shutil
-
-        original_move = _shutil.move
+        import claude_wiki.migration as migration_mod
 
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)
             old_kb = repo / "knowledge"
             old_kb.mkdir()
             (old_kb / "kb.md").write_text("kb content")
+            new_kb = repo / "wiki"
 
             old_daily = repo / "daily"
             old_daily.mkdir()
@@ -554,15 +577,29 @@ class TestMigrationManager:
             new_daily = repo / "logs"
             new_daily.mkdir()
 
-            def _failing_move(src, dst, **kwargs):
+            original_rename = migration_mod.os.rename
+            original_move = migration_mod.shutil.move
+
+            def _failing_rename(
+                src: str | os.PathLike[str],
+                dst: str | os.PathLike[str],
+                *,
+                src_dir_fd: int | None = None,
+                dst_dir_fd: int | None = None,
+            ) -> None:
                 if Path(dst).name == "logs":
                     raise PermissionError(f"mock failure moving {src} -> {dst}")
-                # Let the first move succeed, but make rollback fail.
-                if Path(dst).name == "knowledge":
-                    raise OSError("rollback blocked")
-                return original_move(src, dst, **kwargs)
+                original_rename(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
 
-            monkeypatch.setattr(_shutil, "move", _failing_move)
+            def _failing_move(
+                src: str | os.PathLike[str], dst: str | os.PathLike[str]
+            ) -> str:
+                if Path(src).resolve() == new_kb.resolve():
+                    raise OSError("rollback blocked")
+                return original_move(src, dst)
+
+            monkeypatch.setattr(migration_mod.os, "rename", _failing_rename)
+            monkeypatch.setattr(migration_mod.shutil, "move", _failing_move)
 
             current = ProjectConfig(
                 repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("logs")
@@ -670,8 +707,6 @@ class TestMigrationManager:
 
     def test_state_dir_rollback_on_failure(self, monkeypatch, tmp_path):
         """A failed state move rolls back already-completed kb/daily moves."""
-        import shutil as _shutil
-
         repo = tmp_path / "repo"
         repo.mkdir()
         xdg_data = tmp_path / "xdg-data"
@@ -717,14 +752,20 @@ class TestMigrationManager:
             daily_dir=Path(".claude/daily"),
         )
 
-        original_move = _shutil.move
+        original_rename = os.rename
 
-        def _failing_move(src, dst, **kwargs):
+        def _failing_rename(
+            src: str | os.PathLike[str],
+            dst: str | os.PathLike[str],
+            *,
+            src_dir_fd: int | None = None,
+            dst_dir_fd: int | None = None,
+        ) -> None:
             if Path(dst).resolve() == new_state.resolve():
                 raise PermissionError(f"mock failure moving {src} -> {dst}")
-            return original_move(src, dst, **kwargs)
+            original_rename(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
 
-        monkeypatch.setattr(_shutil, "move", _failing_move)
+        monkeypatch.setattr(os, "rename", _failing_rename)
 
         mgr = MigrationManager()
         result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
@@ -794,6 +835,387 @@ class TestMigrationManager:
         assert old_state.exists()
         captured = capsys.readouterr()
         assert "Would move state_dir" in captured.out
+
+    # ------------------------------------------------------------------
+    # ADR-002: cross-filesystem pre-flight
+    # ------------------------------------------------------------------
+
+    def test_same_filesystem_uses_rename(self, monkeypatch, tmp_path):
+        """Same-filesystem moves use os.rename and avoid shutil.move."""
+        import claude_wiki.migration as migration_mod
+
+        real_rename = os.rename
+        real_stat = os.stat
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        old_kb = repo / "knowledge"
+        old_kb.mkdir()
+        (old_kb / "note.md").write_text("note")
+        new_kb = repo / "wiki"
+
+        rename_calls: list[tuple[str, str]] = []
+        move_calls: list[tuple[str, str]] = []
+
+        current = ProjectConfig(
+            repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+        )
+        previous = ProjectConfig(
+            repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+        )
+
+        def fake_rename(
+            src: str | os.PathLike[str], dst: str | os.PathLike[str]
+        ) -> None:
+            rename_calls.append((str(src), str(dst)))
+            real_rename(src, dst)
+
+        def fake_move(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> str:
+            move_calls.append((str(src), str(dst)))
+            return shutil.move(src, dst)
+
+        def fake_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
+            p = Path(path)
+            if p == old_kb or p == new_kb.parent:
+                real = real_stat(path, *args, **kwargs)
+                return _fake_stat_result(real, st_dev=1)
+            return real_stat(path, *args, **kwargs)
+
+        monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
+        monkeypatch.setattr(migration_mod.os, "rename", fake_rename)
+        monkeypatch.setattr(migration_mod.shutil, "move", fake_move)
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+        assert result.migrated
+        assert not result.errors
+        assert any(
+            src == str(old_kb) and dst == str(new_kb) for src, dst in rename_calls
+        )
+        assert not any(src == str(old_kb) for src, _ in move_calls)
+
+    def test_cross_filesystem_without_force_is_refused(self, monkeypatch, tmp_path):
+        """Cross-filesystem moves are refused unless --force is set."""
+        import claude_wiki.migration as migration_mod
+
+        real_stat = os.stat
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        old_kb = repo / "knowledge"
+        old_kb.mkdir()
+        new_kb_parent = tmp_path / "other"
+        new_kb_parent.mkdir()
+        new_kb = new_kb_parent / "wiki"
+
+        current = ProjectConfig(
+            repo_name="test", kb_dir=new_kb, daily_dir=Path("daily")
+        )
+        previous = ProjectConfig(
+            repo_name="test", kb_dir=old_kb, daily_dir=Path("daily")
+        )
+
+        def fake_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
+            p = Path(path)
+            if p == old_kb:
+                real = real_stat(path, *args, **kwargs)
+                return _fake_stat_result(real, st_dev=1)
+            if p == new_kb_parent:
+                real = real_stat(path, *args, **kwargs)
+                return _fake_stat_result(real, st_dev=2)
+            return real_stat(path, *args, **kwargs)
+
+        monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+        assert not result.migrated
+        assert result.errors
+        assert any("Cross-filesystem" in e for e in result.errors)
+        assert old_kb.exists()
+        assert not new_kb.exists()
+
+    def test_cross_filesystem_with_force_proceeds_with_warning(
+        self, monkeypatch, tmp_path
+    ):
+        """Cross-filesystem moves with --force proceed with a best-effort warning."""
+        import claude_wiki.migration as migration_mod
+
+        real_stat = os.stat
+        real_rename = os.rename
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        old_kb = repo / "knowledge"
+        old_kb.mkdir()
+        (old_kb / "note.md").write_text("note")
+        new_kb_parent = tmp_path / "other"
+        new_kb_parent.mkdir()
+        new_kb = new_kb_parent / "wiki"
+
+        current = ProjectConfig(
+            repo_name="test", kb_dir=new_kb, daily_dir=Path("daily")
+        )
+        previous = ProjectConfig(
+            repo_name="test", kb_dir=old_kb, daily_dir=Path("daily")
+        )
+
+        move_calls: list[tuple[str, str]] = []
+
+        def fake_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
+            p = Path(path)
+            if p == old_kb:
+                real = real_stat(path, *args, **kwargs)
+                return _fake_stat_result(real, st_dev=1)
+            if p == new_kb_parent:
+                real = real_stat(path, *args, **kwargs)
+                return _fake_stat_result(real, st_dev=2)
+            return real_stat(path, *args, **kwargs)
+
+        def fake_move(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> str:
+            move_calls.append((str(src), str(dst)))
+            real_rename(src, dst)
+            return str(dst)
+
+        monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
+        monkeypatch.setattr(migration_mod.shutil, "move", fake_move)
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(
+            repo, current, previous, dry_run=False, force=True
+        )
+
+        assert result.migrated
+        assert not result.errors
+        assert any("best-effort" in w.lower() for w in result.warnings)
+        assert any(src == str(old_kb) and dst == str(new_kb) for src, dst in move_calls)
+        assert not old_kb.exists()
+        assert new_kb.exists()
+        assert (new_kb / "note.md").exists()
+
+    def test_cross_filesystem_rollback_not_attempted(self, monkeypatch, tmp_path):
+        """When force=True and a later move fails, do not roll back a cross-fs move."""
+        import claude_wiki.migration as migration_mod
+
+        real_rename = os.rename
+        real_stat = os.stat
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
+
+        old_kb = repo / "knowledge"
+        old_kb.mkdir()
+        (old_kb / "kb.md").write_text("kb")
+        new_kb = other / "wiki"
+
+        old_daily = repo / "daily"
+        old_daily.mkdir()
+        (old_daily / "2024-01-01.md").write_text("daily")
+
+        current = ProjectConfig(repo_name="test", kb_dir=new_kb, daily_dir=Path("logs"))
+        previous = ProjectConfig(
+            repo_name="test", kb_dir=old_kb, daily_dir=Path("daily")
+        )
+
+        def fake_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
+            p = Path(path)
+            if p == old_kb:
+                real = real_stat(path, *args, **kwargs)
+                return _fake_stat_result(real, st_dev=1)
+            if p == other:
+                real = real_stat(path, *args, **kwargs)
+                return _fake_stat_result(real, st_dev=2)
+            return real_stat(path, *args, **kwargs)
+
+        def fake_move(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> str:
+            if Path(src).resolve() == old_kb.resolve():
+                real_rename(src, dst)
+                return str(dst)
+            raise AssertionError(f"Unexpected shutil.move call: {src} -> {dst}")
+
+        def fake_rename(
+            src: str | os.PathLike[str], dst: str | os.PathLike[str]
+        ) -> None:
+            if Path(src).resolve() == old_daily.resolve():
+                raise PermissionError(f"mock failure moving {src} -> {dst}")
+            return real_rename(src, dst)
+
+        monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
+        monkeypatch.setattr(migration_mod.shutil, "move", fake_move)
+        monkeypatch.setattr(migration_mod.os, "rename", fake_rename)
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(
+            repo, current, previous, dry_run=False, force=True
+        )
+
+        assert not result.migrated
+        assert result.errors
+        assert not result.rolled_back
+        # cross-fs kb move stays at its new location; same-fs daily move never happened
+        assert not old_kb.exists()
+        assert new_kb.exists()
+        assert (new_kb / "kb.md").exists()
+        assert old_daily.exists()
+        assert (old_daily / "2024-01-01.md").exists()
+
+    def test_existing_destination_compares_parent_device(self, monkeypatch, tmp_path):
+        """When new_p already exists, pre-flight must stat new_p.parent, not new_p."""
+        import claude_wiki.migration as migration_mod
+
+        real_stat = os.stat
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        old_kb = repo / "knowledge"
+        old_kb.mkdir()
+        (old_kb / "note.md").write_text("note")
+        new_kb = repo / "wiki"
+        new_kb.mkdir()  # already exists
+
+        current = ProjectConfig(
+            repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+        )
+        previous = ProjectConfig(
+            repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+        )
+
+        def fake_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
+            p = Path(path)
+            real = real_stat(path, *args, **kwargs)
+            if p == old_kb or p == new_kb.parent:
+                return _fake_stat_result(real, st_dev=1)
+            if p == new_kb:
+                # A different device for the destination itself; parent must win.
+                return _fake_stat_result(real, st_dev=2)
+            return real_stat(path, *args, **kwargs)
+
+        monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+        assert result.migrated
+        assert not result.errors
+        assert not result.warnings
+        assert not old_kb.exists()
+        assert (new_kb / "note.md").exists()
+
+    def test_exdev_runtime_falls_back_to_shutil_move(self, monkeypatch, tmp_path):
+        """If os.rename raises EXDEV at runtime, fall back to shutil.move."""
+        import claude_wiki.migration as migration_mod
+
+        real_stat = os.stat
+        real_rename = os.rename
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        old_kb = repo / "knowledge"
+        old_kb.mkdir()
+        (old_kb / "note.md").write_text("note")
+        new_kb = repo / "wiki"
+
+        current = ProjectConfig(
+            repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+        )
+        previous = ProjectConfig(
+            repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+        )
+
+        rename_calls: list[tuple[str, str]] = []
+        move_calls: list[tuple[str, str]] = []
+
+        def fake_rename(
+            src: str | os.PathLike[str], dst: str | os.PathLike[str]
+        ) -> None:
+            rename_calls.append((str(src), str(dst)))
+            if Path(src).resolve() == old_kb.resolve():
+                raise OSError(errno.EXDEV, "cross-device link not permitted")
+            real_rename(src, dst)
+
+        def fake_move(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> str:
+            move_calls.append((str(src), str(dst)))
+            real_rename(src, dst)
+            return str(dst)
+
+        def fake_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
+            p = Path(path)
+            real = real_stat(path, *args, **kwargs)
+            if p == old_kb or p == new_kb.parent:
+                return _fake_stat_result(real, st_dev=1)
+            return real_stat(path, *args, **kwargs)
+
+        monkeypatch.setattr(migration_mod.os, "stat", fake_stat)
+        monkeypatch.setattr(migration_mod.os, "rename", fake_rename)
+        monkeypatch.setattr(migration_mod.shutil, "move", fake_move)
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+        assert result.migrated
+        assert not result.errors
+        assert any("Cross-filesystem move" in w for w in result.warnings)
+        assert any(
+            src == str(old_kb) and dst == str(new_kb) for src, dst in rename_calls
+        )
+        assert any(src == str(old_kb) and dst == str(new_kb) for src, dst in move_calls)
+        assert not old_kb.exists()
+        assert (new_kb / "note.md").exists()
+
+    def test_preflight_stat_oserror_becomes_migration_error(
+        self, monkeypatch, tmp_path
+    ):
+        """An OSError during pre-flight stat is surfaced as a migration error."""
+        import claude_wiki.migration as migration_mod
+
+        real_stat = os.stat
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        old_kb = repo / "knowledge"
+        old_kb.mkdir()
+        (old_kb / "note.md").write_text("note")
+
+        current = ProjectConfig(
+            repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+        )
+        previous = ProjectConfig(
+            repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+        )
+
+        def failing_stat(
+            path: str | os.PathLike[str], *args: Any, **kwargs: Any
+        ) -> os.stat_result:
+            # Use path comparison without resolve() to avoid recursive os.stat
+            # calls through pathlib internals on Python < 3.14.
+            if Path(path) == repo:
+                raise OSError(errno.EACCES, "permission denied")
+            return real_stat(path, *args, **kwargs)
+
+        monkeypatch.setattr(migration_mod.os, "stat", failing_stat)
+
+        mgr = MigrationManager()
+        result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+        assert not result.migrated
+        assert result.errors
+        assert any("kb_dir" in e and "stat" in e.lower() for e in result.errors)
 
 
 class TestMigrateLegacyLayout:

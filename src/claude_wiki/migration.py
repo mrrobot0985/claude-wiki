@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 import shutil
@@ -32,6 +33,7 @@ class MigrationManager(Migrator):
         previous: ProjectConfig | None,
         *,
         dry_run: bool = False,
+        force: bool = False,
     ) -> MigrationResult:
         """Compare configs and move data if kb_dir or daily_dir changed.
 
@@ -40,6 +42,7 @@ class MigrationManager(Migrator):
             current: The freshly loaded/current config.
             previous: The last known config (from the lock file), or None.
             dry_run: When True, report what would move without touching disk.
+            force: When True, allow cross-filesystem moves with a best-effort warning.
         """
         if previous is None:
             return MigrationResult(migrated=False)
@@ -108,32 +111,109 @@ class MigrationManager(Migrator):
                         ],
                     )
 
+        # Pre-flight: same-filesystem moves are atomic and fully reversible;
+        # cross-filesystem moves are best-effort and require explicit --force.
+        cross_fs_errors: list[str] = []
+        same_fs_flags: dict[str, bool] = {}
+        for label, old_p, new_p in changed_specs:
+            if not old_p.exists():
+                same_fs_flags[label] = True
+                continue
+            try:
+                same_fs = (
+                    os.stat(old_p).st_dev
+                    == os.stat(self._nearest_existing_parent(new_p.parent)).st_dev
+                )
+            except OSError as exc:
+                cross_fs_errors.append(
+                    f"{label}: failed to stat source or destination parent: {exc}"
+                )
+                continue
+            same_fs_flags[label] = same_fs
+            if not same_fs:
+                if force:
+                    warnings = [
+                        *result.warnings,
+                        f"Cross-filesystem move for {label}; rollback is best-effort only.",
+                    ]
+                    result = MigrationResult(
+                        migrated=True,
+                        old_kb_dir=result.old_kb_dir,
+                        new_kb_dir=result.new_kb_dir,
+                        old_daily_dir=result.old_daily_dir,
+                        new_daily_dir=result.new_daily_dir,
+                        old_state_dir=result.old_state_dir,
+                        new_state_dir=result.new_state_dir,
+                        errors=result.errors,
+                        warnings=warnings,
+                    )
+                else:
+                    cross_fs_errors.append(
+                        f"Cross-filesystem move detected for {label}: {old_p} -> {new_p}. "
+                        "Use --force to proceed (rollback is best-effort only)."
+                    )
+
+        if cross_fs_errors:
+            return MigrationResult(
+                migrated=False,
+                old_kb_dir=result.old_kb_dir,
+                new_kb_dir=result.new_kb_dir,
+                old_daily_dir=result.old_daily_dir,
+                new_daily_dir=result.new_daily_dir,
+                old_state_dir=result.old_state_dir,
+                new_state_dir=result.new_state_dir,
+                errors=cross_fs_errors,
+                warnings=result.warnings,
+            )
+
         completed_moves: list[tuple[str, Path, Path]] = []
+        cross_fs_labels: set[str] = set()
 
         if kb_changed:
             result, moved = self._migrate_dir(
-                old_kb, new_kb, result, label="kb_dir", dry_run=dry_run
+                old_kb,
+                new_kb,
+                result,
+                label="kb_dir",
+                dry_run=dry_run,
+                same_fs=same_fs_flags["kb_dir"],
             )
             if moved:
                 completed_moves.append(("kb_dir", old_kb, new_kb))
+                if not same_fs_flags["kb_dir"]:
+                    cross_fs_labels.add("kb_dir")
                 if not dry_run and not result.errors:
                     self._post_process_kb_rename(new_kb, current.repo_name)
 
         if daily_changed and not result.errors:
             result, moved = self._migrate_dir(
-                old_daily, new_daily, result, label="daily_dir", dry_run=dry_run
+                old_daily,
+                new_daily,
+                result,
+                label="daily_dir",
+                dry_run=dry_run,
+                same_fs=same_fs_flags["daily_dir"],
             )
             if moved:
                 completed_moves.append(("daily_dir", old_daily, new_daily))
+                if not same_fs_flags["daily_dir"]:
+                    cross_fs_labels.add("daily_dir")
 
         if state_changed and not result.errors:
             result, moved = self._migrate_dir(
-                old_state, new_state, result, label="state_dir", dry_run=dry_run
+                old_state,
+                new_state,
+                result,
+                label="state_dir",
+                dry_run=dry_run,
+                same_fs=same_fs_flags["state_dir"],
             )
             if moved:
                 completed_moves.append(("state_dir", old_state, new_state))
+                if not same_fs_flags["state_dir"]:
+                    cross_fs_labels.add("state_dir")
 
-        if result.errors and completed_moves and not dry_run:
+        if result.errors and completed_moves and not dry_run and not cross_fs_labels:
             rollback_errors = self._rollback(completed_moves)
             result = MigrationResult(
                 migrated=False,
@@ -265,8 +345,12 @@ class MigrationManager(Migrator):
         *,
         label: str,
         dry_run: bool,
+        same_fs: bool,
     ) -> tuple[MigrationResult, bool]:
         """Move contents from src to dst, collecting warnings/errors.
+
+        Args:
+            same_fs: When True, use os.rename (atomic). When False, use shutil.move.
 
         Returns:
             A tuple of (updated result, bool indicating whether a move happened or would happen).
@@ -306,7 +390,31 @@ class MigrationManager(Migrator):
 
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(src), str(dst))
+            if same_fs:
+                try:
+                    os.rename(str(src), str(dst))
+                except OSError as exc:
+                    if exc.errno == errno.EXDEV or "cross-device" in str(exc).lower():
+                        warnings = [
+                            *result.warnings,
+                            f"Cross-filesystem move for {label} detected at runtime; rollback is best-effort only.",
+                        ]
+                        result = MigrationResult(
+                            migrated=result.migrated,
+                            old_kb_dir=result.old_kb_dir,
+                            new_kb_dir=result.new_kb_dir,
+                            old_daily_dir=result.old_daily_dir,
+                            new_daily_dir=result.new_daily_dir,
+                            old_state_dir=result.old_state_dir,
+                            new_state_dir=result.new_state_dir,
+                            errors=result.errors,
+                            warnings=warnings,
+                        )
+                        shutil.move(str(src), str(dst))
+                    else:
+                        raise
+            else:
+                shutil.move(str(src), str(dst))
         except OSError as exc:
             errors = [*result.errors, f"{label}: failed to move {src} -> {dst}: {exc}"]
             return (
@@ -389,3 +497,20 @@ class MigrationManager(Migrator):
         if path.is_absolute():
             return path
         return repo_root / path
+
+    @staticmethod
+    def _nearest_existing_parent(path: Path) -> Path:
+        """Return the closest ancestor of ``path`` that exists on disk.
+
+        ``path`` itself is tried first, then its parents, until the filesystem
+        root is reached. This lets the cross-filesystem pre-flight determine
+        the target device even when the destination directory has not been
+        created yet.
+        """
+        current = path
+        while not current.exists():
+            parent = current.parent
+            if parent == current:
+                raise OSError(f"Cannot determine filesystem for {path}")
+            current = parent
+        return current

@@ -113,6 +113,11 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, _Handler]]:
     migrate_parser.add_argument(
         "--reports-dir", type=Path, help="Override lint reports directory"
     )
+    migrate_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow cross-filesystem moves (rollback is best-effort)",
+    )
 
     # Dynamically register subcommands from commands/ modules
     handlers: dict[str, _Handler] = {}
@@ -366,7 +371,7 @@ def _migrate(args: argparse.Namespace) -> int:
         return 0
 
     result = migrator.check_and_migrate(
-        repo_root, config, previous, dry_run=args.dry_run
+        repo_root, config, previous, dry_run=args.dry_run, force=args.force
     )
 
     if not result.migrated and not result.errors:
