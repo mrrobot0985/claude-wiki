@@ -104,7 +104,23 @@ class TestProjectConfigValidation:
     def test_from_dict_requires_compile_after_hour(self):
         """Missing compile_after_hour in dict raises ConfigError."""
         with pytest.raises(ConfigError):
-            ProjectConfig.from_dict({"repo_name": "test"})
+            ProjectConfig.from_dict({"repo_name": "test", "repo_owner": "local"})
+
+    def test_from_dict_requires_repo_owner(self):
+        """Missing repo_owner in dict raises ConfigError."""
+        with pytest.raises(ConfigError, match="repo_owner"):
+            ProjectConfig.from_dict({"repo_name": "test", "compile_after_hour": 18})
+
+    def test_from_dict_rejects_compile_hour_at_upper_boundary(self):
+        """compile_after_hour == 24 from dict raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "test",
+                    "repo_owner": "local",
+                    "compile_after_hour": 24,
+                }
+            )
 
     def test_from_dict_rejects_invalid_compile_hour(self):
         """Out-of-range compile_after_hour from dict raises ConfigError."""
