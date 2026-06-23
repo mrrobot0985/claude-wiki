@@ -57,10 +57,10 @@ SessionStart hook → injects {repo_name}.md catalog + recent daily log into nex
 
 Handlers do only fast local I/O and offload LLM work to a backgrounded `flush.py` process, so hooks stay within their timeout. A `CLAUDE_INVOKED_BY` env recursion guard prevents nested hook triggers.
 
-### Plugin-style auto-discovery (two of them)
+### Explicit registries (two of them)
 
-- **CLI subcommands**: `cli._register_commands()` walks `commands/` via `pkgutil`; any module exporting `register(subparsers, handlers)` is auto-loaded. `init` and `migrate` are hard-coded in `cli.py`; the rest (`compile`, `query`, `lint`, `graph`, `status`, `tags`, `register`, `registry`, `rename-catalog`) are discovered. Add a command by dropping a module in `commands/` — no central registry to edit.
-- **Hook handlers**: `hooks._load_handlers()` walks `hook_handlers/`; each module exports `register(handlers: dict[event, handler])`.
+- **CLI subcommands**: `cli._register_commands()` loads modules from an explicit `_COMMAND_MODULES` list in `commands/__init__.py`; any module exporting `register(subparsers, handlers)` is loaded. `init` and `migrate` are hard-coded in `cli.py`; the rest (`compile`, `query`, `lint`, `graph`, `status`, `tags`, `register`, `registry`, `rename-catalog`) are registered explicitly. Add a command by dropping a module in `commands/` and adding it to `_COMMAND_MODULES`.
+- **Hook handlers**: `hooks._load_handlers()` loads modules from an explicit `_HANDLER_MODULES` list in `hook_handlers/__init__.py`; each module exports `register(handlers: dict[event, handler])`. Add a handler by dropping a module in `hook_handlers/` and adding it to `_HANDLER_MODULES`.
 
 ### Configuration & path resolution
 

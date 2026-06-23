@@ -131,5 +131,5 @@ def _session_start(argv: list[str]) -> int:
 
 
 def register(handlers: dict[str, object]) -> None:
-    """Register the SessionStart handler for auto-discovery."""
+    """Register the SessionStart handler."""
     handlers["SessionStart"] = _session_start

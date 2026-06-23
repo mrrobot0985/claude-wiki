@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import importlib
-import logging
-import pkgutil
 import sys
 from collections.abc import Callable
 
 from claude_wiki.logging_setup import configure_stderr_logging
 
 _Handler = Callable[[list[str]], int]
-
-logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -46,15 +42,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _load_handlers(handlers: dict[str, _Handler]) -> None:
-    """Auto-discover handler modules from hook_handlers/."""
+    """Register handler modules from the explicit hook handlers registry."""
     from claude_wiki import hook_handlers as handlers_pkg
 
-    for _finder, name, _ispkg in pkgutil.iter_modules(
-        handlers_pkg.__path__, handlers_pkg.__name__ + "."
-    ):
-        try:
-            mod = importlib.import_module(name)
-            if hasattr(mod, "register"):
-                mod.register(handlers)
-        except Exception as exc:
-            logger.error("Failed to load hook handler %s: %s", name, exc)
+    for name in handlers_pkg.get_handler_modules():
+        mod = importlib.import_module(name)
+        mod.register(handlers)
