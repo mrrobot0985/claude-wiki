@@ -1,4 +1,4 @@
-"""CLI-level integration tests — orchestration of ConfigManager + HookRegistrar."""
+"""CLI-level integration tests — orchestration of ConfigManager + DefaultHookRegistrar."""
 
 import argparse
 import json

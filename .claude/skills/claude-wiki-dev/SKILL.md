@@ -21,7 +21,6 @@ src/claude_wiki/
   flush.py            # Shared context extraction + background flush logic
   global_index.py     # ~/.local/share/claude-wiki registry
   hooks.py            # Hook dispatcher (SessionStart, SessionEnd, PreCompact)
-  interfaces.py       # Protocol definitions (RepoDetector, ConfigLoader, etc.)
   migration.py        # MigrationManager (path change detection + data move)
   models.py           # Immutable dataclasses (ProjectConfig, MigrationResult, etc.)
   commands/           # Dynamically loaded subcommands
@@ -62,7 +61,7 @@ make all        # format + lint + typecheck + test + precommit (full CI gate)
 1. Implement `register(subparsers, handlers)` function
 1. Optionally create `tests/test_<command>.py`
 1. Optionally create `.claude/skills/claude-wiki-<command>/SKILL.md`
-1. Register is auto-discovered by `cli._register_commands()` via `pkgutil`
+1. Register in `commands/__init__.py` (`_COMMAND_MODULES`) so `cli._register_commands()` loads it
 
 ## Hook Architecture
 

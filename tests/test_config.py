@@ -1,4 +1,4 @@
-"""Pure unit tests for ConfigManager (RepoDetector + ConfigLoader)."""
+"""Pure unit tests for ConfigManager path/config resolution."""
 
 import json
 import os

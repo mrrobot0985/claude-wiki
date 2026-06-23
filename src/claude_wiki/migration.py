@@ -12,13 +12,12 @@ from platformdirs import user_data_dir
 
 from claude_wiki.catalog_utils import rewrite_index_wikilinks
 from claude_wiki.config import ConfigManager
-from claude_wiki.interfaces import Migrator
 from claude_wiki.models import MigrationResult, ProjectConfig
 
 logger = logging.getLogger(__name__)
 
 
-class MigrationManager(Migrator):
+class MigrationManager:
     """Detects path changes between config versions and migrates data."""
 
     def __init__(self, config_manager: ConfigManager | None = None) -> None:

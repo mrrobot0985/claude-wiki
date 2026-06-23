@@ -8,7 +8,7 @@ from claude_wiki.factories import DefaultHookRegistrar
 from claude_wiki.models import ProjectConfig
 
 
-class TestHookRegistrar:
+class TestDefaultHookRegistrar:
     """Tests for idempotent global settings installation."""
 
     def test_install_creates_settings(self):

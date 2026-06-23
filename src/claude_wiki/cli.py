@@ -177,7 +177,7 @@ def _register_commands(
 
 
 def _init(args: argparse.Namespace) -> int:
-    """Orchestrate ConfigManager + HookRegistrar to bootstrap a repo."""
+    """Orchestrate ConfigManager + DefaultHookRegistrar to bootstrap a repo."""
     detector, loader, registrar, migrator, owner_resolver = (
         DefaultConfigResolver.build()
     )
