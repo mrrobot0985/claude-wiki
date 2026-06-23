@@ -1,9 +1,8 @@
-"""Tests for claude_wiki.hooks entry point and handler auto-discovery."""
+"""Tests for claude_wiki.hooks entry point and handler registry."""
 
 from __future__ import annotations
 
 import sys
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -87,88 +86,26 @@ class TestHooksMain:
 
 
 class TestLoadHandlers:
-    """Tests for _load_handlers auto-discovery."""
+    """Tests for _load_handlers explicit registry."""
 
-    def test_load_handlers_imports_modules_with_register(self, mocker) -> None:
-        """Modules exposing register() are imported and invoked."""
+    def test_load_handlers_registers_all_handlers(self) -> None:
+        """All handler modules from the explicit registry are registered."""
         handlers: dict[str, hooks._Handler] = {}
-        fake_module = MagicMock()
-
-        mocker.patch(
-            "pkgutil.iter_modules",
-            return_value=[("finder", "claude_wiki.hook_handlers.fake", False)],
-        )
-        mocker.patch(
-            "importlib.import_module",
-            return_value=fake_module,
-        )
 
         hooks._load_handlers(handlers)
 
-        fake_module.register.assert_called_once_with(handlers)
+        assert set(handlers.keys()) == {"SessionStart", "SessionEnd", "PreCompact"}
 
-    def test_load_handlers_skips_modules_without_register(self, mocker) -> None:
-        """Modules without a register attribute are ignored."""
-        handlers: dict[str, hooks._Handler] = {}
-        fake_module = MagicMock(spec=[])
+    def test_load_handlers_propagates_import_failure(self, monkeypatch) -> None:
+        """A broken handler module import raises instead of being swallowed."""
+        from claude_wiki import hook_handlers as handlers_pkg
 
-        mocker.patch(
-            "pkgutil.iter_modules",
-            return_value=[("finder", "claude_wiki.hook_handlers.no_register", False)],
-        )
-        mocker.patch(
-            "importlib.import_module",
-            return_value=fake_module,
+        def fake_get_handler_modules() -> list[str]:
+            return ["claude_wiki.hook_handlers.nonexistent_broken_module_xyz"]
+
+        monkeypatch.setattr(
+            handlers_pkg, "get_handler_modules", fake_get_handler_modules
         )
 
-        hooks._load_handlers(handlers)
-
-        assert handlers == {}
-
-    def test_load_handlers_continues_on_import_error(self, mocker, caplog) -> None:
-        """A failing module import is logged and does not stop discovery."""
-        handlers: dict[str, hooks._Handler] = {}
-
-        mocker.patch(
-            "pkgutil.iter_modules",
-            return_value=[
-                ("finder", "claude_wiki.hook_handlers.broken", False),
-                ("finder", "claude_wiki.hook_handlers.also_broken", False),
-            ],
-        )
-        mocker.patch(
-            "importlib.import_module",
-            side_effect=ImportError("module load failed"),
-        )
-
-        with caplog.at_level("ERROR", logger="claude_wiki.hooks"):
-            hooks._load_handlers(handlers)
-
-        assert handlers == {}
-        assert "claude_wiki.hook_handlers.broken" in caplog.text
-        assert "module load failed" in caplog.text
-
-    def test_load_handlers_continues_on_registration_error(
-        self, mocker, caplog
-    ) -> None:
-        """A register() that raises is logged and discovery continues."""
-        handlers: dict[str, hooks._Handler] = {}
-        fake_module = MagicMock()
-        fake_module.register.side_effect = RuntimeError("registration failed")
-
-        mocker.patch(
-            "pkgutil.iter_modules",
-            return_value=[("finder", "claude_wiki.hook_handlers.bad_register", False)],
-        )
-        mocker.patch(
-            "importlib.import_module",
-            return_value=fake_module,
-        )
-
-        with caplog.at_level("ERROR", logger="claude_wiki.hooks"):
-            hooks._load_handlers(handlers)
-
-        fake_module.register.assert_called_once_with(handlers)
-        assert handlers == {}
-        assert "claude_wiki.hook_handlers.bad_register" in caplog.text
-        assert "registration failed" in caplog.text
+        with pytest.raises(ImportError):
+            hooks._load_handlers({})

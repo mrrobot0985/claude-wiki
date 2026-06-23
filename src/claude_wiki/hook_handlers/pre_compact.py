@@ -137,5 +137,5 @@ def handler(_args: list[str]) -> int:
 
 
 def register(handlers: dict[str, Any]) -> None:
-    """Register the PreCompact handler for auto-discovery."""
+    """Register the PreCompact handler."""
     handlers["PreCompact"] = handler
