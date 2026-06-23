@@ -63,6 +63,5 @@ ______________________________________________________________________
 - [CLI Commands](reference/cli.md) — `claude-wiki` and `claude-wiki-hook`
 - [Configuration File](reference/config-file.md) — `.claude-wiki.lock` schema
 - [Data Models](reference/data-models.md) — `ProjectConfig` and results
-- [Protocols](reference/protocols.md) — `RepoDetector`, `ConfigLoader`, etc.
 - [Contributors Guide](reference/contributors.md) — development workflow
 - [CI/CD Reference](reference/ci-cd.md) — GitHub Actions, SHA pinning, and PyPI trusted publishing

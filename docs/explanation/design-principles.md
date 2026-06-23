@@ -6,18 +6,17 @@ ______________________________________________________________________
 
 ## 1. Dependency Inversion
 
-Core logic depends on Protocols, not concrete implementations. `ConfigManager` implements `RepoDetector` and `ConfigLoader`. `DefaultHookRegistrar` implements `HookRegistrar`. The CLI coordinates them but never imports their internals directly.
+Core logic coordinates concrete collaborators wired in `factories.py`. The CLI imports `ConfigManager`, `DefaultHookRegistrar`, and `MigrationManager` through `DefaultConfigResolver.build()` but never touches their internals directly.
 
 ## 2. Single Responsibility
 
-| Module          | Concern                        |
-| --------------- | ------------------------------ |
-| `interfaces.py` | Boundary contracts only        |
-| `models.py`     | Immutable data, no behaviour   |
-| `config.py`     | Path resolution and marker I/O |
-| `factories.py`  | Single wiring point            |
-| `cli.py`        | argparse UI                    |
-| `hooks.py`      | Hook entry and dispatch        |
+| Module         | Concern                        |
+| -------------- | ------------------------------ |
+| `models.py`    | Immutable data, no behaviour   |
+| `config.py`    | Path resolution and marker I/O |
+| `factories.py` | Single wiring point            |
+| `cli.py`       | argparse UI                    |
+| `hooks.py`     | Hook entry and dispatch        |
 
 ## 3. Stdlib First
 
@@ -27,7 +26,7 @@ Core logic depends on Protocols, not concrete implementations. `ConfigManager` i
 
 ## 4. Testability
 
-Protocols enable fakes. Tests for `ConfigManager` run in temp directories. Tests for `DefaultHookRegistrar` patch `HOME`. Integration tests inject fake command modules to verify the full lifecycle.
+Concrete classes are tested directly. Tests for `ConfigManager` run in temp directories. Tests for `DefaultHookRegistrar` patch `HOME`. Integration tests inject fake command modules to verify the full lifecycle.
 
 ## 5. No Hardcoded Paths
 

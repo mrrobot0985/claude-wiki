@@ -11,7 +11,6 @@ from platformdirs import user_cache_dir, user_data_dir, user_state_dir
 
 from claude_wiki.errors import ConfigError, RepoNotFoundError
 from claude_wiki.git_utils import infer_repo_owner
-from claude_wiki.interfaces import ConfigLoader, RepoDetector
 from claude_wiki.models import ProjectConfig
 
 
@@ -30,7 +29,7 @@ def default_daily_dir(kb_mode: str, repo_owner: str, repo_name: str) -> Path:
     return Path(".claude/daily")
 
 
-class ConfigManager(RepoDetector, ConfigLoader):
+class ConfigManager:
     """Concrete implementation: walks filesystem, resolves XDG paths."""
 
     @staticmethod

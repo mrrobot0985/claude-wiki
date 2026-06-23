@@ -37,7 +37,7 @@ CI gate (`.github/workflows/ci.yml` + `.pre-commit-config.yaml`, all SHA-pinned)
 
 ## Architecture
 
-The package follows a ports-and-adapters split: core logic depends on Protocols in `interfaces.py`, concrete implementations are wired in `factories.py` (`DefaultConfigResolver.build()` returns the five collaborators).
+The package wires concrete collaborators in `factories.py` (`DefaultConfigResolver.build()` returns the five collaborators: `ConfigManager`, `DefaultHookRegistrar`, `MigrationManager`, `GitRemoteOwnerResolver`).
 
 ### Data flow
 
