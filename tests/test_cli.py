@@ -1,9 +1,8 @@
 """CLI-level integration tests — orchestration of ConfigManager + HookRegistrar."""
 
-import importlib
+import argparse
 import json
 import os
-import pkgutil
 import subprocess
 import sys
 import tempfile
@@ -1209,26 +1208,44 @@ class TestCliEdgeCases:
         assert exit_code == 1
         assert "not yet implemented" in captured.err
 
-    def test_register_commands_skips_broken_modules(self, monkeypatch, caplog):
-        """Broken command modules are logged and skipped during discovery."""
-        fake_subparsers = type("Subparsers", (), {"add_parser": lambda *a, **k: None})()
+    def test_register_commands_populates_all_known_commands(self):
+        """Explicit registry registers handlers for every known subcommand."""
+        parser = argparse.ArgumentParser(prog="claude-wiki")
+        subparsers = parser.add_subparsers(dest="command")
         handlers: dict[str, Any] = {}
 
-        def fake_iter_modules(*_args, **_kwargs):
-            yield (None, "claude_wiki.commands.broken", False)
+        _register_commands(subparsers, handlers)
 
-        def fake_import_module(_name):
-            raise ImportError("boom")
+        expected_commands = {
+            "compile",
+            "graph",
+            "lint",
+            "query",
+            "register",
+            "registry",
+            "rename-catalog",
+            "status",
+            "tags",
+        }
+        assert expected_commands.issubset(set(handlers.keys()))
 
-        monkeypatch.setattr(pkgutil, "iter_modules", fake_iter_modules)
-        monkeypatch.setattr(importlib, "import_module", fake_import_module)
+    def test_register_commands_propagates_import_failure(self, monkeypatch):
+        """A broken command module raises the import error instead of being swallowed."""
+        from claude_wiki import commands as commands_pkg
 
-        with caplog.at_level("ERROR", logger="claude_wiki.cli"):
-            _register_commands(fake_subparsers, handlers)
+        parser = argparse.ArgumentParser(prog="claude-wiki")
+        subparsers = parser.add_subparsers(dest="command")
+        handlers: dict[str, Any] = {}
 
-        assert handlers == {}
-        assert "claude_wiki.commands.broken" in caplog.text
-        assert "boom" in caplog.text
+        def fake_get_command_modules() -> list[str]:
+            return ["claude_wiki.commands.nonexistent_broken_module_xyz"]
+
+        monkeypatch.setattr(
+            commands_pkg, "get_command_modules", fake_get_command_modules
+        )
+
+        with pytest.raises(ImportError):
+            _register_commands(subparsers, handlers)
 
     def test_init_not_git_repo(self, capsys, tmp_path):
         """init outside a git repo prints an error and exits 1."""
