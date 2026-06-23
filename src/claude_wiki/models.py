@@ -68,7 +68,12 @@ class ProjectConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ProjectConfig:
-        """Hydrate from a JSON-compatible dict with strict validation."""
+        """Hydrate from a JSON-compatible dict.
+
+        Presence, null, and minimal str->Path coercion are handled here;
+        all substantive validation lives in __post_init__ so there is a
+        single source of truth.
+        """
         required_from_dict = {"repo_name", "repo_owner", "compile_after_hour"}
         kwargs: dict[str, Any] = {}
 
@@ -82,19 +87,8 @@ class ProjectConfig:
             else:
                 val = _field_default(f)
 
-            if f.name in ("repo_name", "repo_owner", "layout_version", "timezone"):
-                if not isinstance(val, str) or not val.strip():
-                    raise ConfigError(f"{f.name} must be a non-empty string")
-            elif f.name == "compile_after_hour":
-                if not isinstance(val, int) or not 0 <= val <= 23:
-                    raise ConfigError(
-                        "compile_after_hour must be an integer between 0 and 23"
-                    )
-            elif f.name in ("kb_dir", "daily_dir", "reports_dir"):
-                if isinstance(val, str):
-                    val = Path(val)
-                elif not isinstance(val, Path):
-                    raise ConfigError(f"{f.name} must be a string or Path")
+            if f.name in _PATH_FIELDS and isinstance(val, str):
+                val = Path(val)
 
             kwargs[f.name] = val
 

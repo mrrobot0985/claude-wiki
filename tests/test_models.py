@@ -113,6 +113,28 @@ class TestProjectConfigValidation:
                 {"repo_name": "test", "repo_owner": "local", "compile_after_hour": 99}
             )
 
+    def test_from_dict_rejects_empty_repo_name(self):
+        """Empty repo_name from dict raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "  ",
+                    "repo_owner": "local",
+                    "compile_after_hour": 18,
+                }
+            )
+
+    def test_from_dict_rejects_non_string_repo_owner(self):
+        """A non-string repo_owner from dict raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "test",
+                    "repo_owner": 123,
+                    "compile_after_hour": 18,
+                }
+            )
+
     def test_from_dict_rejects_empty_repo_owner(self):
         """Empty repo_owner from dict raises ConfigError."""
         with pytest.raises(ConfigError):
@@ -121,6 +143,18 @@ class TestProjectConfigValidation:
                     "repo_name": "test",
                     "repo_owner": "  ",
                     "compile_after_hour": 18,
+                }
+            )
+
+    def test_from_dict_rejects_non_string_layout_version(self):
+        """A non-string layout_version from dict raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "test",
+                    "repo_owner": "local",
+                    "compile_after_hour": 18,
+                    "layout_version": 123,
                 }
             )
 
@@ -147,6 +181,64 @@ class TestProjectConfigValidation:
             }
         )
         assert config.layout_version == "2"
+
+    def test_from_dict_rejects_empty_timezone(self):
+        """Empty timezone from dict raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "test",
+                    "repo_owner": "local",
+                    "compile_after_hour": 18,
+                    "timezone": "  ",
+                }
+            )
+
+    def test_from_dict_rejects_invalid_timezone(self):
+        """A timezone that is not a real IANA zone from dict raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "test",
+                    "repo_owner": "local",
+                    "compile_after_hour": 18,
+                    "timezone": "Mars/Phobos",
+                }
+            )
+
+    def test_from_dict_rejects_compile_hour_below_range(self):
+        """compile_after_hour below 0 from dict raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "test",
+                    "repo_owner": "local",
+                    "compile_after_hour": -1,
+                }
+            )
+
+    def test_from_dict_rejects_non_int_compile_hour(self):
+        """A non-integer compile_after_hour from dict raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "test",
+                    "repo_owner": "local",
+                    "compile_after_hour": "18",
+                }
+            )
+
+    def test_from_dict_rejects_invalid_path_type(self):
+        """A kb_dir that is neither str nor Path from dict raises ConfigError."""
+        with pytest.raises(ConfigError):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "test",
+                    "repo_owner": "local",
+                    "compile_after_hour": 18,
+                    "kb_dir": 123,
+                }
+            )
 
     def test_default_layout_version_is_two(self):
         """Default layout_version for a fresh ProjectConfig is '2'."""

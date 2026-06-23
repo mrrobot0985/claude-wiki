@@ -425,27 +425,57 @@ class TestProjectConfig:
     def test_from_dict_empty_repo_name_raises_config_error(self):
         """Empty repo_name raises ConfigError."""
         with pytest.raises(ConfigError, match="repo_name"):
-            ProjectConfig.from_dict({"repo_name": ""})
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "",
+                    "repo_owner": "local",
+                    "compile_after_hour": 18,
+                }
+            )
 
     def test_from_dict_whitespace_repo_name_raises_config_error(self):
         """Whitespace-only repo_name is treated as empty."""
         with pytest.raises(ConfigError, match="repo_name"):
-            ProjectConfig.from_dict({"repo_name": "   "})
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "   ",
+                    "repo_owner": "local",
+                    "compile_after_hour": 18,
+                }
+            )
 
     def test_from_dict_non_string_repo_name_raises_config_error(self):
         """Non-string repo_name raises ConfigError."""
         with pytest.raises(ConfigError, match="repo_name"):
-            ProjectConfig.from_dict({"repo_name": 123})
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": 123,
+                    "repo_owner": "local",
+                    "compile_after_hour": 18,
+                }
+            )
 
     def test_from_dict_empty_repo_owner_raises_config_error(self):
         """Empty repo_owner raises ConfigError."""
         with pytest.raises(ConfigError, match="repo_owner"):
-            ProjectConfig.from_dict({"repo_name": "x", "repo_owner": ""})
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "x",
+                    "repo_owner": "",
+                    "compile_after_hour": 18,
+                }
+            )
 
     def test_from_dict_non_string_repo_owner_raises_config_error(self):
         """Non-string repo_owner raises ConfigError."""
         with pytest.raises(ConfigError, match="repo_owner"):
-            ProjectConfig.from_dict({"repo_name": "x", "repo_owner": 123})
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "x",
+                    "repo_owner": 123,
+                    "compile_after_hour": 18,
+                }
+            )
 
     def test_from_dict_missing_compile_after_hour_raises_config_error(self):
         """Missing compile_after_hour raises ConfigError."""
