@@ -2002,6 +2002,12 @@ class TestCompileJsonExtraction:
         with pytest.raises(WriterError, match="unclosed JSON object"):
             _extract_json('{"articles": [')
 
+    def test_extract_json_handles_triple_backticks_inside_string(self) -> None:
+        """Triple backticks inside a JSON string value do not truncate extraction."""
+        raw = '```json\n{"body": "Use ```python``` blocks for code"}\n```\n'
+        result = _extract_json(raw)
+        assert result == '{"body": "Use ```python``` blocks for code"}'
+
 
 class TestCompilePromptEscaping:
     """ADR-012: existing article content must not break prompt code fences."""
@@ -2040,6 +2046,42 @@ class TestCompilePromptEscaping:
         )
         # The longest backtick run in the section belongs to the outer fence.
         assert fence_runs[0] > 3
+
+    def test_triple_backticks_in_daily_log_use_longer_fence(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """Daily log content containing ``` is wrapped in a fence longer than that run."""
+        repo, log, kb, config = kb_repo
+        log.write_text("User pasted:\n```python\nprint('hello')\n```")
+        answer = json.dumps(
+            {
+                "articles": [],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+        captured: dict[str, Any] = {}
+        fake_sdk, fake_import = _make_fake_sdk(answer, capture=captured)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        _compile_one(log, repo, kb, config)
+
+        prompt = captured["prompt"]
+        start = prompt.find("## Daily Log to Compile")
+        end = prompt.find("## Your Task")
+        assert start != -1 and end != -1
+        log_section = prompt[start:end]
+        fence_runs = sorted(
+            {len(m) for m in re.findall(r"`+", log_section)}, reverse=True
+        )
+        # The longest backtick run in the log section belongs to the outer fence.
+        assert fence_runs[0] > 3
+        # The task section must appear after the log content, not inside it.
+        assert "## Your Task" in prompt[end:]
 
 
 class TestCompileStateLock:

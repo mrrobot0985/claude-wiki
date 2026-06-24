@@ -29,6 +29,7 @@ from claude_wiki.factories import DefaultConfigResolver
 from claude_wiki import graph_utils
 from claude_wiki.global_index import GlobalIndexManager
 from claude_wiki.models import ProjectConfig
+from claude_wiki.prompt_utils import _wrap_for_prompt
 from claude_wiki.writer import (
     CATEGORIES,
     CompiledArticle,
@@ -100,10 +101,6 @@ _LOG_REF_RE = re.compile(r"^[a-z0-9-]+/[a-z0-9-]+$")
 # Valid compile-time model names. The agent SDK default is accepted by leaving
 # ``model`` unset; an explicit override must be a known Anthropic model name.
 _MODEL_RE = re.compile(r"^claude-[a-z0-9-]+$")
-
-# Extract JSON from a fenced code block (``` or ```json) if present.
-_FENCE_RE = re.compile(r"```(?:json)?\s*\n(.*?)```", re.DOTALL)
-
 
 # Cache populated once per ``compile`` run so the index and existing articles are
 # not re-read for every daily log.
@@ -298,6 +295,38 @@ def _read_index(kb_root: Path, repo_name: str) -> str:
     return _CATALOG_HEADER.format(repo_name=repo_name)
 
 
+def _extract_fenced_json(raw_text: str) -> str | None:
+    """Extract JSON from the first markdown fenced code block, if any.
+
+    Fence-length aware: finds the opening backtick run length ``N``, accepts an
+    optional info string such as ``json``, and scans lines until a closing run of
+    length ``>= N`` is found. This prevents triple backticks inside JSON string
+    values from terminating extraction early.
+    """
+    lines = raw_text.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if not stripped.startswith("`"):
+            continue
+        match = re.match(r"`+", stripped)
+        if not match:
+            continue
+        fence_len = len(match.group(0))
+        after = stripped[fence_len:].strip()
+        # An info string must not itself begin with a backtick.
+        if after.startswith("`"):
+            continue
+        for j in range(i + 1, len(lines)):
+            close_stripped = lines[j].lstrip()
+            if not close_stripped.startswith("`"):
+                continue
+            close_match = re.match(r"`+", close_stripped)
+            if close_match and len(close_match.group(0)) >= fence_len:
+                content = "\n".join(lines[i + 1 : j]).strip()
+                return content
+    return None
+
+
 def _extract_json(raw_text: str) -> str:
     """Locate the outermost JSON object in ``raw_text``.
 
@@ -305,9 +334,9 @@ def _extract_json(raw_text: str) -> str:
     falls back to brace-depth parsing so braces inside string values do not
     confuse extraction.
     """
-    fence_match = _FENCE_RE.search(raw_text)
-    if fence_match:
-        return fence_match.group(1).strip()
+    fenced = _extract_fenced_json(raw_text)
+    if fenced is not None:
+        return fenced
 
     start = raw_text.find("{")
     if start == -1:
@@ -523,22 +552,6 @@ def _append_compile_log(
     append_log(kb_root, entry)
 
 
-def _max_backtick_run(text: str) -> int:
-    """Return the length of the longest run of consecutive backticks in ``text``."""
-    return max((len(m) for m in re.findall(r"`+", text)), default=0)
-
-
-def _wrap_article_for_prompt(content: str) -> str:
-    """Wrap article content in a markdown fence longer than any backtick run inside it.
-
-    This prevents article content containing triple backticks from closing the
-    prompt's code fence early and leaking into the rest of the instructions.
-    """
-    fence_len = max(3, _max_backtick_run(content) + 1)
-    fence = "`" * fence_len
-    return f"{fence}markdown\n{content}\n{fence}"
-
-
 async def _compile_daily_log_async(
     log_path: Path,
     repo_root: Path,
@@ -589,7 +602,7 @@ async def _compile_daily_log_async(
     existing_context = "(No existing articles yet)"
     if budgeted_articles:
         parts = [
-            f"### {rel_path}\n{_wrap_article_for_prompt(content)}"
+            f"### {rel_path}\n{_wrap_for_prompt(content, info='markdown')}"
             for rel_path, content in budgeted_articles.items()
         ]
         existing_context = "\n\n".join(parts)
@@ -612,7 +625,7 @@ async def _compile_daily_log_async(
 
 **File:** {log_path.name}
 
-{log_content}
+{_wrap_for_prompt(log_content, info="markdown")}
 
 ## Your Task
 

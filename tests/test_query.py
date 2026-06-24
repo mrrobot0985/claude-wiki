@@ -336,6 +336,29 @@ class TestReadKbContentScope:
             assert "## concepts/new.md" in content
             assert "## concepts/old.md" not in content
 
+    def test_triple_backticks_in_article_use_longer_fence(self) -> None:
+        """Article content containing ``` is wrapped in a fence longer than that run."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(
+                kb,
+                "concepts",
+                "code",
+                "```python\nprint('hello')\n```",
+                updated="2026-06-20",
+            )
+            content, count = _read_kb_content(kb, repo_name="repo")
+            assert count == 1
+            section_start = content.find("## concepts/code.md")
+            assert section_start != -1
+            section = content[section_start:]
+            # The outer fence must be longer than the three backticks inside the article.
+            assert "````markdown" in section
+            # The raw triple backticks should still be present inside the fence.
+            assert "```python" in section
+
 
 class TestRunQuery:
     """Tests for the core query logic."""
