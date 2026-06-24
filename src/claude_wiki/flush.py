@@ -106,6 +106,8 @@ def _sanitize_for_log(value: Any) -> str:
     Paths are reduced to their basename; other values are stringified unchanged.
     Full paths and tracebacks are emitted only in debug mode.
     """
+    if _debug_logging_enabled():
+        return str(value)
     text = str(value)
     if os.path.sep in text or (os.path.altsep and os.path.altsep in text):
         return Path(text).name

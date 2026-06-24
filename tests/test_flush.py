@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import json
 import subprocess
 import sys
@@ -679,11 +680,15 @@ class TestLoggingSanitization:
         return repo
 
     def test_missing_context_file_error_logs_basename_only(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """The error for a missing context file must not contain its full path."""
         monkeypatch.setenv("CLAUDE_INVOKED_BY", "")
         monkeypatch.setattr(flush, "configure_logging", lambda _path: None)
+        monkeypatch.delenv("CLAUDE_WIKI_DEBUG", raising=False)
         repo = self._repo_with_config(tmp_path)
         kb_root = tmp_path / "kb-root"
         monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
@@ -691,22 +696,37 @@ class TestLoggingSanitization:
         missing_ctx = tmp_path / "secret" / "ctx.md"
         missing_ctx.parent.mkdir()
 
-        import logging
+        with caplog.at_level(logging.ERROR, logger=flush.logger.name):
+            flush.flush_main([str(missing_ctx), "session", str(repo)])
 
-        records: list[str] = []
-
-        def capture(record: logging.LogRecord) -> None:
-            records.append(record.getMessage())
-
-        flush.logger.addHandler(logging.Handler())
-        flush.logger.handlers[-1].emit = capture  # type: ignore[method-assign]
-
-        flush.flush_main([str(missing_ctx), "session", str(repo)])
-
-        error_msgs = [m for m in records if "Context file not found" in m]
+        error_msgs = [m for m in caplog.messages if "Context file not found" in m]
         assert error_msgs
         assert str(missing_ctx) not in error_msgs[0]
         assert missing_ctx.name in error_msgs[0]
+
+    def test_debug_mode_preserves_full_path_in_logs(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """When CLAUDE_WIKI_DEBUG is set, ERROR logs include the full path."""
+        monkeypatch.setenv("CLAUDE_INVOKED_BY", "")
+        monkeypatch.setattr(flush, "configure_logging", lambda _path: None)
+        monkeypatch.setenv("CLAUDE_WIKI_DEBUG", "1")
+        repo = self._repo_with_config(tmp_path)
+        kb_root = tmp_path / "kb-root"
+        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
+
+        missing_ctx = tmp_path / "secret" / "ctx.md"
+        missing_ctx.parent.mkdir()
+
+        with caplog.at_level(logging.ERROR, logger=flush.logger.name):
+            flush.flush_main([str(missing_ctx), "session", str(repo)])
+
+        error_msgs = [m for m in caplog.messages if "Context file not found" in m]
+        assert error_msgs
+        assert str(missing_ctx) in error_msgs[0]
 
     def test_sdk_error_without_debug_logs_type_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
