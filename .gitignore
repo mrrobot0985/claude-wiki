@@ -21,5 +21,4 @@ bin/
 .coverage
 htmlcov/
 .claude-wiki.lock
-!examples/minimal-walkthrough/.claude-wiki.lock
 coverage.json
