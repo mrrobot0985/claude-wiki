@@ -87,6 +87,12 @@ def handler(_args: list[str]) -> int:
         return 0
 
     transcript_path = Path(transcript_path_str)
+    try:
+        flush.validate_transcript_path(transcript_path, repo_root)
+    except ValueError as exc:
+        logger.error("Rejected transcript path: %s", exc)
+        return 0
+
     if not transcript_path.exists():
         logger.info("SKIP: transcript missing: %s", transcript_path_str)
         return 0

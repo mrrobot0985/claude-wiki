@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,21 +19,27 @@ MAX_CONTEXT_CHARS = 20_000
 MAX_LOG_LINES = 30
 
 # Lightweight guard against prompt-injection phrases in retrieved daily logs.
+# Patterns are anchored to the start of a line (after optional leading whitespace)
+# so benign mid-sentence matches are not touched.
 _INSTRUCTION_MARKERS = (
-    "ignore previous",
-    "ignore all previous",
-    "you are now",
+    re.compile(r"^\s*ignore\s+(?:all\s+)?previous\b", re.IGNORECASE),
+    re.compile(r"^\s*you\s+are\s+now\b", re.IGNORECASE),
 )
 
 
 def _sanitize_injected_content(content: str) -> str:
-    """Drop lines that contain common prompt-injection markers."""
+    """Quote lines that begin with common prompt-injection markers.
+
+    Rather than deleting suspicious lines (which can drop useful context), the
+    line is prefixed with a markdown blockquote so it is preserved but clearly
+    marked as historical content rather than a live instruction.
+    """
     cleaned: list[str] = []
     for line in content.splitlines():
-        lowered = line.lower()
-        if any(marker in lowered for marker in _INSTRUCTION_MARKERS):
-            continue
-        cleaned.append(line)
+        if any(pattern.search(line) for pattern in _INSTRUCTION_MARKERS):
+            cleaned.append(f"> {line}")
+        else:
+            cleaned.append(line)
     return "\n".join(cleaned)
 
 

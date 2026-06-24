@@ -149,6 +149,20 @@ class TestValidateTranscriptPath:
             transcript, tmp_path / "repo", claude_dir=claude_dir
         )
 
+    def test_accepts_path_inside_default_claude_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A transcript under the default ~/.claude directory is allowed."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        transcript = claude_dir / "transcript.jsonl"
+        transcript.write_text("{}", encoding="utf-8")
+
+        flush.validate_transcript_path(transcript, repo)
+
     def test_rejects_absolute_path_outside_allowed_roots(self, tmp_path: Path) -> None:
         """An absolute transcript outside repo or ~/.claude is rejected."""
         repo = tmp_path / "repo"
@@ -171,6 +185,29 @@ class TestValidateTranscriptPath:
             flush.validate_transcript_path(
                 transcript, repo, claude_dir=tmp_path / "claude"
             )
+
+
+class TestSanitizeSessionId:
+    """Tests for the session identifier sanitizer."""
+
+    def test_empty_session_id_is_unknown(self) -> None:
+        """An empty session id falls back to unknown."""
+        assert flush.sanitize_session_id("") == "unknown"
+
+    def test_sixty_four_char_session_id_is_allowed(self) -> None:
+        """Exactly 64 safe characters are accepted."""
+        sid = "a" * 64
+        assert flush.sanitize_session_id(sid) == sid
+
+    def test_sixty_five_char_session_id_is_unknown(self) -> None:
+        """Anything longer than 64 safe characters falls back to unknown."""
+        sid = "a" * 65
+        assert flush.sanitize_session_id(sid) == "unknown"
+
+    def test_non_string_session_id_is_unknown(self) -> None:
+        """Non-string values are rejected as unsafe."""
+        assert flush.sanitize_session_id(None) == "unknown"  # type: ignore[arg-type]
+        assert flush.sanitize_session_id(123) == "unknown"  # type: ignore[arg-type]
 
 
 class TestWriteContextFile:
