@@ -5,12 +5,18 @@ from __future__ import annotations
 import errno
 import os
 import shutil
+import sys
 from pathlib import Path
 
 
 from claude_wiki.catalog_utils import rewrite_index_wikilinks
 from claude_wiki.config import ConfigManager
 from claude_wiki.models import MigrationResult, ProjectConfig
+
+
+def _case_insensitive_paths() -> bool:
+    """Return True on platforms with case-insensitive default filesystems."""
+    return sys.platform in ("win32", "darwin")
 
 
 class MigrationManager:
@@ -163,6 +169,7 @@ class MigrationManager:
 
         completed_moves: list[tuple[str, Path, Path]] = []
         cross_fs_labels: set[str] = set()
+        completed_any_move = False
 
         if kb_changed:
             result, moved = self._migrate_dir(
@@ -174,6 +181,7 @@ class MigrationManager:
                 same_fs=same_fs_flags["kb_dir"],
             )
             if moved:
+                completed_any_move = True
                 completed_moves.append(("kb_dir", old_kb, new_kb))
                 if not same_fs_flags["kb_dir"]:
                     cross_fs_labels.add("kb_dir")
@@ -190,6 +198,7 @@ class MigrationManager:
                 same_fs=same_fs_flags["daily_dir"],
             )
             if moved:
+                completed_any_move = True
                 completed_moves.append(("daily_dir", old_daily, new_daily))
                 if not same_fs_flags["daily_dir"]:
                     cross_fs_labels.add("daily_dir")
@@ -204,6 +213,7 @@ class MigrationManager:
                 same_fs=same_fs_flags["state_dir"],
             )
             if moved:
+                completed_any_move = True
                 completed_moves.append(("state_dir", old_state, new_state))
                 if not same_fs_flags["state_dir"]:
                     cross_fs_labels.add("state_dir")
@@ -221,6 +231,19 @@ class MigrationManager:
                 errors=[*result.errors, *rollback_errors],
                 warnings=result.warnings,
                 rolled_back=[(label, src, dst) for label, src, dst in completed_moves],
+            )
+
+        if not dry_run and not completed_any_move and not result.errors:
+            result = MigrationResult(
+                migrated=False,
+                old_kb_dir=result.old_kb_dir,
+                new_kb_dir=result.new_kb_dir,
+                old_daily_dir=result.old_daily_dir,
+                new_daily_dir=result.new_daily_dir,
+                old_state_dir=result.old_state_dir,
+                new_state_dir=result.new_state_dir,
+                errors=result.errors,
+                warnings=result.warnings,
             )
 
         return result
@@ -362,6 +385,22 @@ class MigrationManager:
     @staticmethod
     def _paths_overlap(a: Path, b: Path) -> bool:
         """Return True if a and b are the same path or one is inside the other."""
+        if _case_insensitive_paths():
+            a_str = str(a).lower()
+            b_str = str(b).lower()
+            if a_str == b_str:
+                return True
+            try:
+                Path(a_str).relative_to(Path(b_str))
+                return True
+            except ValueError:
+                pass
+            try:
+                Path(b_str).relative_to(Path(a_str))
+                return True
+            except ValueError:
+                return False
+
         if a == b:
             return True
         try:

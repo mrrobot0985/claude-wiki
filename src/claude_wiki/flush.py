@@ -95,6 +95,23 @@ def configure_logging(log_path: Path) -> None:
     )
 
 
+def _debug_logging_enabled() -> bool:
+    """Return True when CLAUDE_WIKI_DEBUG requests verbose, path-rich logs."""
+    return os.environ.get("CLAUDE_WIKI_DEBUG", "").lower() in ("1", "true", "yes")
+
+
+def _sanitize_for_log(value: Any) -> str:
+    """Return a privacy-safe string for WARNING/ERROR logs.
+
+    Paths are reduced to their basename; other values are stringified unchanged.
+    Full paths and tracebacks are emitted only in debug mode.
+    """
+    text = str(value)
+    if os.path.sep in text or (os.path.altsep and os.path.altsep in text):
+        return Path(text).name
+    return text
+
+
 def read_hook_input(raw: str) -> dict[str, Any]:
     """Parse the JSON payload Claude Code sends to a hook on stdin.
 
@@ -402,9 +419,16 @@ respond with exactly: FLUSH_OK
             elif isinstance(message, ResultMessage):
                 pass
     except Exception as e:
-        import traceback
+        if _debug_logging_enabled():
+            import traceback
 
-        logger.error("Agent SDK error: %s\n%s", e, traceback.format_exc())
+            logger.error(
+                "Agent SDK error: %s\n%s",
+                _sanitize_for_log(e),
+                traceback.format_exc(),
+            )
+        else:
+            logger.error("Agent SDK error: %s", type(e).__name__)
         response = f"FLUSH_ERROR: {type(e).__name__}: {e}"
 
     return response
@@ -450,7 +474,7 @@ def flush_main(
     )
 
     if not context_file.exists():
-        logger.error("Context file not found: %s", context_file)
+        logger.error("Context file not found: %s", _sanitize_for_log(context_file))
         return 1
 
     state_file = logs_dir / "last-flush.json"
@@ -483,7 +507,7 @@ def flush_main(
             lock_path=lock_path,
         )
     elif "FLUSH_ERROR" in response:
-        logger.error("Result: %s", response)
+        logger.error("Result: %s", _sanitize_for_log(response))
         append_to_daily_log(
             response, repo_root, config, section="Memory Flush", lock_path=lock_path
         )

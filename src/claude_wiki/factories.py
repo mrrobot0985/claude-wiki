@@ -88,7 +88,7 @@ class DefaultHookRegistrar:
         for event, hook_list in our_hooks.items():
             settings["hooks"][event] = hook_list
 
-        settings_path.write_text(json.dumps(settings, indent=2))
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
 
 class DefaultConfigResolver:

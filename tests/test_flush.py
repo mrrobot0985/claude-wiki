@@ -656,3 +656,123 @@ class TestAppendToDailyLog:
         log_path = repo / "daily" / f"{date.today().strftime('%Y-%m-%d')}.md"
         assert "entry" in log_path.read_text(encoding="utf-8")
         assert not calls
+
+
+class TestLoggingSanitization:
+    """WARNING/ERROR logs must not leak full paths unless debug is on."""
+
+    def _repo_with_config(self, tmp_path: Path) -> Path:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {
+                    "layout_version": "2",
+                    "repo_name": "repo",
+                    "repo_owner": "owner",
+                    "daily_dir": "daily",
+                }
+            )
+        )
+        return repo
+
+    def test_missing_context_file_error_logs_basename_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The error for a missing context file must not contain its full path."""
+        monkeypatch.setenv("CLAUDE_INVOKED_BY", "")
+        monkeypatch.setattr(flush, "configure_logging", lambda _path: None)
+        repo = self._repo_with_config(tmp_path)
+        kb_root = tmp_path / "kb-root"
+        monkeypatch.setenv("CLAUDE_WIKI_PROJECT_DIR", str(kb_root))
+
+        missing_ctx = tmp_path / "secret" / "ctx.md"
+        missing_ctx.parent.mkdir()
+
+        import logging
+
+        records: list[str] = []
+
+        def capture(record: logging.LogRecord) -> None:
+            records.append(record.getMessage())
+
+        flush.logger.addHandler(logging.Handler())
+        flush.logger.handlers[-1].emit = capture  # type: ignore[method-assign]
+
+        flush.flush_main([str(missing_ctx), "session", str(repo)])
+
+        error_msgs = [m for m in records if "Context file not found" in m]
+        assert error_msgs
+        assert str(missing_ctx) not in error_msgs[0]
+        assert missing_ctx.name in error_msgs[0]
+
+    def test_sdk_error_without_debug_logs_type_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Tracebacks are omitted from ERROR logs unless CLAUDE_WIKI_DEBUG is set."""
+        import logging
+
+        monkeypatch.delenv("CLAUDE_WIKI_DEBUG", raising=False)
+
+        repo = tmp_path / "repo"
+
+        async def failing_query(*_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("sdk failure")
+            yield  # type: ignore[unreachable]
+
+        fake_module = types.ModuleType("claude_agent_sdk")
+        fake_module.query = failing_query
+        fake_module.ClaudeAgentOptions = MagicMock()
+        fake_module.AssistantMessage = MagicMock()
+        fake_module.ResultMessage = MagicMock()
+        fake_module.TextBlock = MagicMock()
+        monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake_module)
+
+        records: list[logging.LogRecord] = []
+
+        def capture_error(msg: str, *args: Any, **kwargs: Any) -> None:
+            records.append(logging.LogRecord("", logging.ERROR, "", 0, msg, args, None))
+
+        monkeypatch.setattr(flush.logger, "error", capture_error)
+
+        asyncio.run(flush._run_flush_with_sdk("context", repo))
+
+        assert records
+        assert "Traceback" not in records[0].getMessage()
+        assert "RuntimeError" in records[0].getMessage()
+
+    def test_sdk_error_with_debug_includes_traceback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Tracebacks are included in ERROR logs when CLAUDE_WIKI_DEBUG is set."""
+        import logging
+
+        monkeypatch.setenv("CLAUDE_WIKI_DEBUG", "1")
+
+        repo = tmp_path / "repo"
+
+        async def failing_query(*_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("sdk failure")
+            yield  # type: ignore[unreachable]
+
+        fake_module = types.ModuleType("claude_agent_sdk")
+        fake_module.query = failing_query
+        fake_module.ClaudeAgentOptions = MagicMock()
+        fake_module.AssistantMessage = MagicMock()
+        fake_module.ResultMessage = MagicMock()
+        fake_module.TextBlock = MagicMock()
+        monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake_module)
+
+        records: list[logging.LogRecord] = []
+
+        def capture_error(msg: str, *args: Any, **kwargs: Any) -> None:
+            records.append(logging.LogRecord("", logging.ERROR, "", 0, msg, args, None))
+
+        monkeypatch.setattr(flush.logger, "error", capture_error)
+
+        asyncio.run(flush._run_flush_with_sdk("context", repo))
+
+        assert records
+        assert "Traceback" in records[0].getMessage()
