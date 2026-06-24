@@ -233,7 +233,7 @@ class MigrationManager:
                 rolled_back=[(label, src, dst) for label, src, dst in completed_moves],
             )
 
-        if not dry_run and not completed_any_move and not result.errors:
+        if not completed_any_move and not result.errors:
             result = MigrationResult(
                 migrated=False,
                 old_kb_dir=result.old_kb_dir,
