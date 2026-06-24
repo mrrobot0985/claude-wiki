@@ -2,7 +2,9 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [1.0.0] - 2026-06-24
+
+This release completes the v1.0 hardening roadmap: ADR-012 constrained write schema (sandboxed writer, path containment, schema validation), ADR-011 compile cost control (context budget, per-log USD cap, token guard), ADR-013 concurrency locks (daily-log and state.json advisory fcntl locks), ADR-008/010 config consolidation (deduped validation, path helpers, cross-filesystem pre-flight), ADR-009 explicit registries and abstraction removal (explicit command/hook registries, dropped unused Protocols/factories, dead-code removal), ADR-014 layout freeze (v2 layout frozen, legacy v1 migration removed), and post-audit security hardening (writer sandbox, hook input sanitization, config validation, compile/query hardening, migration polish). Public documentation debloated for v1.0 stability.
 
 ### Added
 
