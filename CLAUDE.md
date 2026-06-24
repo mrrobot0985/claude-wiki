@@ -100,7 +100,7 @@ Per-repo catalog is `{repo_name}.md`, **not** `index.md`. `catalog_utils.resolve
 ## Docs & decisions
 
 - `docs/` is a Diátaxis-style site (tutorials / how-to / reference / explanation) with `docs/index.md` as the hub.
-- `docs/adr/` holds numbered Architecture Decision Records (ADR-005 directory redesign, ADR-006 vault naming + Obsidian graph hygiene). New cross-cutting decisions get a new ADR; in-flight work is tracked in `docs/plan.md`.
+- `docs/adr/` holds numbered Architecture Decision Records (ADR-008 through ADR-016). New cross-cutting decisions get a new ADR.
 - `src/claude_wiki/AGENTS.md` is the KB article schema reference (concept/connection/qa/frontmatter format, build log).
 - `.claude/skills/` holds repo-local Claude Code skills: `claude-wiki-dev` (this package's dev reference, model-invocation disabled) plus per-command skills.
 

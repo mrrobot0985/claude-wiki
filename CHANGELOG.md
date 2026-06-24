@@ -56,9 +56,8 @@ All notable changes to this project are documented in this file.
   safe to rerun. Only `verify-main` and `build` still check out the source
   ([#153](https://github.com/mrrobot0985/claude-wiki/pull/153),
   [#154](https://github.com/mrrobot0985/claude-wiki/pull/154))
-- `docs/plan.md` is now the active road-to-v1.0 plan (status, done, remaining),
-  replacing the completed v0.4.0 ADR-006 execution plan (preserved in ADR-006
-  and git history)
+- The road-to-v1.0 plan (status, done, remaining) replaced the completed v0.4.0
+  ADR-006 execution plan (preserved in git history)
   ([#155](https://github.com/mrrobot0985/claude-wiki/pull/155))
 
 ## [0.13.0] - 2026-06-21
