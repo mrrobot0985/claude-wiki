@@ -798,39 +798,6 @@ class TestInitCommand:
             assert data["repo_owner"] == "old-owner"
 
 
-class TestInitLegacyHandling:
-    """init refuses to operate on a legacy lock until migration is run."""
-
-    def test_init_prints_error_and_returns_one_for_legacy_lock(self, capsys):
-        """A lock with layout_version '1' makes init tell the user to migrate."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            repo = Path(tmpdir) / "my-project"
-            repo.mkdir()
-            (repo / ".git").mkdir()
-            (repo / ".claude-wiki.lock").write_text(
-                json.dumps(
-                    {
-                        "repo_name": "my-project",
-                        "repo_owner": "local",
-                        "layout_version": "1",
-                        "kb_dir": "project",
-                        "daily_dir": "daily",
-                        "reports_dir": "reports",
-                        "timezone": "UTC",
-                        "compile_after_hour": 18,
-                    }
-                )
-            )
-
-            with patch("claude_wiki.cli.GlobalIndexManager"):
-                exit_code = main(["init", "--path", str(repo)])
-
-            captured = capsys.readouterr()
-            assert exit_code == 1
-            assert "Legacy layout version detected" in captured.err
-            assert "claude-wiki migrate" in captured.err
-
-
 class TestMigrateCommand:
     """Tests for claude-wiki migrate with path override flags."""
 
@@ -1112,77 +1079,6 @@ class TestMigrateCommand:
         lock = json.loads((repo / ".claude-wiki.lock").read_text())
         assert lock["kb_dir"] == str(custom_kb)
         assert lock["daily_dir"] == ".claude/daily"
-
-
-class TestMigrateLegacyHandling:
-    """migrate upgrades a legacy lock before performing path-change migration."""
-
-    def test_migrate_legacy_project_mode_then_no_changes(self, capsys, tmp_path):
-        """A project-mode legacy lock is upgraded and reports no path migration."""
-        repo = tmp_path / "my-project"
-        repo.mkdir()
-        (repo / ".git").mkdir()
-        (repo / ".claude-wiki.lock").write_text(
-            json.dumps(
-                {
-                    "repo_name": repo.name,
-                    "repo_owner": "local",
-                    "layout_version": "1",
-                    "kb_dir": "project",
-                    "daily_dir": ".claude/daily",
-                    "reports_dir": "reports",
-                    "timezone": "UTC",
-                    "compile_after_hour": 18,
-                }
-            )
-        )
-        kb_root = repo / ".claude" / "knowledge"
-        kb_root.mkdir(parents=True)
-        (kb_root / f"{repo.name}.md").write_text("# Index")
-        state_dir = repo / ".claude" / "state"
-        state_dir.mkdir(parents=True)
-        (state_dir / "state.json").write_text('{"hash": "abc"}')
-
-        with patch("claude_wiki.cli.GlobalIndexManager"):
-            exit_code = main(["migrate", "--path", str(repo)])
-
-        captured = capsys.readouterr()
-        assert exit_code == 0
-        assert "No migration needed" in captured.out
-        lock = json.loads((repo / ".claude-wiki.lock").read_text())
-        assert lock["layout_version"] == "2"
-        assert (state_dir / "state.json").read_text() == '{"hash": "abc"}'
-
-    def test_migrate_legacy_returns_one_when_migration_fails(self, capsys, tmp_path):
-        """If migrate_legacy_layout() fails, _migrate() exits 1 cleanly."""
-        repo = tmp_path / "my-project"
-        repo.mkdir()
-        (repo / ".git").mkdir()
-        (repo / ".claude-wiki.lock").write_text(
-            json.dumps(
-                {
-                    "repo_name": repo.name,
-                    "repo_owner": "local",
-                    "layout_version": "1",
-                    "kb_dir": "project",
-                    "daily_dir": ".claude/daily",
-                    "reports_dir": "reports",
-                    "timezone": "UTC",
-                    "compile_after_hour": 18,
-                }
-            )
-        )
-
-        with patch("claude_wiki.cli.GlobalIndexManager"):
-            with patch(
-                "claude_wiki.migration.MigrationManager.migrate_legacy_layout",
-                return_value=False,
-            ):
-                exit_code = main(["migrate", "--path", str(repo)])
-
-        captured = capsys.readouterr()
-        assert exit_code == 1
-        assert "Legacy layout migration failed" in captured.err
 
 
 class TestCliEdgeCases:

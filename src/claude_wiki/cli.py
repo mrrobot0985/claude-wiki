@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import importlib
-import json
 import logging
 import sys
 from collections.abc import Callable
@@ -22,7 +21,6 @@ from claude_wiki.hook_detect import (
     settings_has_claude_wiki_hooks,
 )
 from claude_wiki.logging_setup import configure_stderr_logging
-from claude_wiki.migration import MigrationManager
 from claude_wiki.models import MigrationResult
 
 logger = logging.getLogger(__name__)
@@ -307,30 +305,6 @@ def _migrate(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-
-    try:
-        raw_data = json.loads(marker.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        print(f"Error: Corrupt lock file {marker}: {exc}", file=sys.stderr)
-        return 1
-
-    if raw_data.get("layout_version") in (None, "", "1"):
-        if isinstance(detector, ConfigManager) and isinstance(
-            migrator, MigrationManager
-        ):
-            temp_config = detector._build_config(repo_root, raw_data)
-            if not migrator.migrate_legacy_layout(repo_root, temp_config):
-                print(
-                    "Error: Legacy layout migration failed. Fix the issue and retry.",
-                    file=sys.stderr,
-                )
-                return 1
-        else:
-            print(
-                "Error: Legacy layout version detected. Run 'claude-wiki migrate' to upgrade.",
-                file=sys.stderr,
-            )
-            return 1
 
     try:
         previous = loader.load(repo_root)

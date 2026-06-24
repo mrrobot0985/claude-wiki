@@ -31,7 +31,9 @@ Per [ADR-006](../adr/006-vault-naming-and-obsidian-graph-hygiene.md), the per-re
 
 ### Directory-layout migration is explicit
 
-[ADR-005](../adr/005-kb-directory-redesign.md) introduced `layout_version: "2"` and separated vault, machine-state, and cache directories. Lazy auto-migration was removed in v0.13.x; the only migration path is explicit `claude-wiki migrate`. If you are on v0.8 or newer with `layout_version: "2"`, no action is needed. If you have an older `layout_version`, run `claude-wiki migrate` to upgrade.
+[ADR-005](../adr/005-kb-directory-redesign.md) introduced `layout_version: "2"` and separated vault, machine-state, and cache directories. Lazy auto-migration was removed in v0.13.x; the only migration path is explicit `claude-wiki migrate`. If you are on v0.8 or newer with `layout_version: "2"`, no action is needed.
+
+Layout version 1 is no longer supported as of v1.0.0. If you are still on a 0.x release with an older `layout_version`, run `claude-wiki migrate` before upgrading to v1.0.0.
 
 If `claude-wiki status` passes, your repository is already on layout version 2.
 

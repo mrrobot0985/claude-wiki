@@ -96,7 +96,7 @@ graph view before starting Phase 2 (Honest).
 | #   | Item                                                | Failure solved              | Files                            | Status                  |
 | --- | --------------------------------------------------- | --------------------------- | -------------------------------- | ----------------------- |
 | 5.1 | ADR-014: freeze layout v2                           | users fear another redesign | `docs/adr/014`                   | clear-cut               |
-| 5.2 | Remove legacy v1 migration code (post grace period) | dead weight after freeze    | `config.py`, `migration.py`      | clear-cut               |
+| 5.2 | Remove legacy v1 migration code (post grace period) | dead weight after freeze    | `config.py`, `migration.py`      | in progress             |
 | 5.3 | v1.0.0 tag + CHANGELOG                              | no stable baseline          | `pyproject.toml`, `CHANGELOG.md` | **needs user sign-off** |
 
 ### Testing & verification requirements (Honest)
