@@ -37,6 +37,14 @@ DEFAULT_MAX_TURNS = 30
 DEFAULT_MAX_CONTEXT_CHARS = 15_000
 DEFAULT_MIN_TURNS_TO_FLUSH = 1
 
+# Default cap for transcript files (bytes) to avoid reading huge payloads.
+DEFAULT_MAX_TRANSCRIPT_BYTES = 10_000_000
+
+# Only printable ASCII alphanumerics, hyphen, and underscore are safe in
+# session-derived filenames.
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_MAX_SESSION_ID_LENGTH = 64
+
 # Non-blocking daily-log lock: bounded retries so a peer holding the lock
 # cannot block this process indefinitely.
 _DAILY_LOG_LOCK_RETRIES = 10
@@ -104,16 +112,60 @@ def read_hook_input(raw: str) -> dict[str, Any]:
     return data
 
 
+def sanitize_session_id(value: str, max_length: int = _MAX_SESSION_ID_LENGTH) -> str:
+    """Return *value* if it is a safe session identifier, otherwise ``"unknown"``.
+
+    Safe identifiers contain only ``[A-Za-z0-9_-]`` and are at most
+    *max_length* characters long.
+    """
+    if (
+        isinstance(value, str)
+        and len(value) <= max_length
+        and _SESSION_ID_RE.match(value) is not None
+    ):
+        return value
+    return "unknown"
+
+
+def validate_transcript_path(
+    transcript_path: Path,
+    repo_root: Path,
+    *,
+    claude_dir: Path | None = None,
+) -> None:
+    """Raise ``ValueError`` when *transcript_path* resolves outside allowed roots.
+
+    Allowed roots are the repository root and Claude Code's default transcript
+    directory (``~/.claude/``). Resolving follows symlinks, so a symlink pointing
+    outside an allowed root is also rejected.
+    """
+    resolved = transcript_path.resolve()
+    allowed_roots = [repo_root.resolve()]
+    if claude_dir is None:
+        claude_dir = Path.home() / ".claude"
+    allowed_roots.append(claude_dir.resolve())
+
+    if not any(resolved.is_relative_to(root) for root in allowed_roots):
+        raise ValueError(f"transcript path outside allowed roots: {resolved}")
+
+
 def extract_conversation_context(
     transcript_path: Path,
     *,
     max_turns: int = DEFAULT_MAX_TURNS,
     max_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
+    max_size_bytes: int = DEFAULT_MAX_TRANSCRIPT_BYTES,
 ) -> tuple[str, int]:
     """Read a JSONL transcript and extract the last *N* user/assistant turns.
 
     Returns a tuple of ``(markdown_context, turn_count)``.
     """
+    transcript_size = transcript_path.stat().st_size
+    if transcript_size > max_size_bytes:
+        raise ValueError(
+            f"transcript too large: {transcript_size} bytes (max {max_size_bytes})"
+        )
+
     turns: list[str] = []
 
     with transcript_path.open(encoding="utf-8") as f:
@@ -171,8 +223,9 @@ def write_context_file(
 ) -> Path:
     """Persist extracted context for the background flush process."""
     cache_dir.mkdir(parents=True, exist_ok=True)
+    safe_session_id = sanitize_session_id(session_id)
     timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d-%H%M%S")
-    context_file = cache_dir / f"{prefix}-{session_id}-{timestamp}.md"
+    context_file = cache_dir / f"{prefix}-{safe_session_id}-{timestamp}.md"
     context_file.write_text(context, encoding="utf-8")
     return context_file
 

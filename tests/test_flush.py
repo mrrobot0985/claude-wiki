@@ -116,6 +116,124 @@ class TestExtractConversationContext:
         assert "plain string" in context
         assert "ignored" not in context
 
+    def test_rejects_transcript_exceeding_size_cap(self, tmp_path: Path) -> None:
+        """Files larger than the configured byte cap are rejected."""
+        transcript = tmp_path / "transcript.jsonl"
+        transcript.write_bytes(b"x" * 11)
+
+        with pytest.raises(ValueError, match="transcript too large"):
+            flush.extract_conversation_context(transcript, max_size_bytes=10)
+
+
+class TestValidateTranscriptPath:
+    """Tests for the transcript path security guard."""
+
+    def test_accepts_path_inside_repo_root(self, tmp_path: Path) -> None:
+        """A transcript under the repo root is allowed."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        transcript = repo / "transcript.jsonl"
+        transcript.write_text("{}", encoding="utf-8")
+
+        # Should not raise.
+        flush.validate_transcript_path(transcript, repo)
+
+    def test_accepts_path_inside_claude_dir(self, tmp_path: Path) -> None:
+        """A transcript under Claude Code's default dir is allowed."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        transcript = claude_dir / "transcript.jsonl"
+        transcript.write_text("{}", encoding="utf-8")
+
+        flush.validate_transcript_path(
+            transcript, tmp_path / "repo", claude_dir=claude_dir
+        )
+
+    def test_accepts_path_inside_default_claude_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A transcript under the default ~/.claude directory is allowed."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        transcript = claude_dir / "transcript.jsonl"
+        transcript.write_text("{}", encoding="utf-8")
+
+        flush.validate_transcript_path(transcript, repo)
+
+    def test_rejects_absolute_path_outside_allowed_roots(self, tmp_path: Path) -> None:
+        """An absolute transcript outside repo or ~/.claude is rejected."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        transcript = tmp_path / "evil.jsonl"
+        transcript.write_text("{}", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="outside allowed roots"):
+            flush.validate_transcript_path(
+                transcript, repo, claude_dir=tmp_path / "claude"
+            )
+
+    def test_rejects_traversal_relative_to_repo(self, tmp_path: Path) -> None:
+        """A relative path that resolves above the repo root is rejected."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        transcript = repo / ".." / "evil.jsonl"
+
+        with pytest.raises(ValueError, match="outside allowed roots"):
+            flush.validate_transcript_path(
+                transcript, repo, claude_dir=tmp_path / "claude"
+            )
+
+
+class TestSanitizeSessionId:
+    """Tests for the session identifier sanitizer."""
+
+    def test_empty_session_id_is_unknown(self) -> None:
+        """An empty session id falls back to unknown."""
+        assert flush.sanitize_session_id("") == "unknown"
+
+    def test_sixty_four_char_session_id_is_allowed(self) -> None:
+        """Exactly 64 safe characters are accepted."""
+        sid = "a" * 64
+        assert flush.sanitize_session_id(sid) == sid
+
+    def test_sixty_five_char_session_id_is_unknown(self) -> None:
+        """Anything longer than 64 safe characters falls back to unknown."""
+        sid = "a" * 65
+        assert flush.sanitize_session_id(sid) == "unknown"
+
+    def test_non_string_session_id_is_unknown(self) -> None:
+        """Non-string values are rejected as unsafe."""
+        assert flush.sanitize_session_id(None) == "unknown"  # type: ignore[arg-type]
+        assert flush.sanitize_session_id(123) == "unknown"  # type: ignore[arg-type]
+
+
+class TestWriteContextFile:
+    """Tests for persisting extracted context."""
+
+    def test_creates_timestamped_context_file(self, tmp_path: Path) -> None:
+        """Write context to a file under the state directory."""
+        state_dir = tmp_path / "state"
+        context_file = flush.write_context_file(
+            state_dir, "session-1", "some context", prefix="session-flush"
+        )
+        assert context_file.parent == state_dir
+        assert context_file.name.startswith("session-flush-session-1-")
+        assert context_file.read_text(encoding="utf-8") == "some context"
+
+    def test_bad_session_id_is_sanitized_to_unknown(self, tmp_path: Path) -> None:
+        """Path-traversal characters in session_id are rejected."""
+        state_dir = tmp_path / "state"
+        context_file = flush.write_context_file(
+            state_dir, "../../../tmp/pwn", "some context", prefix="session-flush"
+        )
+        assert context_file.parent == state_dir
+        assert "pwn" not in context_file.name
+        assert context_file.name.startswith("session-flush-unknown-")
+        assert context_file.read_text(encoding="utf-8") == "some context"
+
 
 class TestSpawnFlush:
     """Tests for spawning the background flush process."""

@@ -377,6 +377,21 @@ class TestPreCompactEdgeCases:
         assert "SKIP: empty context" in caplog.text
         pre_compact._spawn_flush.assert_not_called()
 
+    def test_outside_repo_transcript_path_is_rejected(
+        self, pre_compact, repo, monkeypatch, caplog
+    ):
+        """A transcript path outside the allowed roots is rejected and logged."""
+        caplog.set_level(logging.ERROR)
+        outside = repo.parent / "evil.jsonl"
+        outside.write_text("{}", encoding="utf-8")
+        _stdin(monkeypatch, {"session_id": "outside", "transcript_path": str(outside)})
+
+        result = pre_compact.handler([])
+
+        assert result == 0
+        assert "Rejected transcript path" in caplog.text
+        pre_compact._spawn_flush.assert_not_called()
+
 
 class TestPreCompactDelegation:
     """Ensure PreCompact delegates to shared flush helpers instead of duplicating."""

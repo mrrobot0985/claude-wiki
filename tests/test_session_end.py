@@ -379,6 +379,26 @@ class TestSessionEndErrorPaths:
 
         assert session_end._handle_session_end([]) == 0
 
+    def test_outside_repo_transcript_path_is_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A transcript path outside the allowed roots is rejected and logged."""
+        monkeypatch.delenv("CLAUDE_INVOKED_BY", raising=False)
+        repo = self._repo_with_config(tmp_path)
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+
+        outside = tmp_path / "evil.jsonl"
+        outside.write_text("{}", encoding="utf-8")
+        payload = json.dumps({"session_id": "outside", "transcript_path": str(outside)})
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+
+        assert session_end._handle_session_end([]) == 0
+
+        log_path = repo / ".claude" / "state" / "logs" / "flush.log"
+        assert log_path.exists()
+        assert "Rejected transcript path" in log_path.read_text(encoding="utf-8")
+
     def test_missing_transcript_file_is_logged(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

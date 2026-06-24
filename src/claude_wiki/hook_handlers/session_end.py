@@ -61,6 +61,12 @@ def _handle_session_end(argv: list[str]) -> int:
     logger.info("SessionEnd fired: session=%s source=%s", session_id, source)
 
     transcript_path = Path(transcript_path_str)
+    try:
+        flush.validate_transcript_path(transcript_path, repo_root)
+    except ValueError as e:
+        logger.error("Rejected transcript path: %s", e)
+        return 0
+
     if not transcript_path.exists():
         logger.info("SKIP: transcript missing: %s", transcript_path_str)
         return 0
