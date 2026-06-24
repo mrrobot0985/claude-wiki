@@ -10,6 +10,7 @@ import pytest
 from claude_wiki.errors import WriterError
 from claude_wiki.writer import (
     CompiledArticle,
+    apply_fix,
     append_log,
     is_valid_slug,
     resolve_article_path,
@@ -410,6 +411,32 @@ def test_append_log_creates_and_appends_confined_to_kb_root(tmp_path: Path) -> N
     content = log_path.read_text(encoding="utf-8")
     assert "## Entry one" in content
     assert "## Entry two" in content
+
+
+def test_apply_fix_writes_relative_path(tmp_path: Path) -> None:
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    path = apply_fix(kb, "concepts/note.md", "# Note\n")
+    assert path == kb / "concepts" / "note.md"
+    assert path.read_text(encoding="utf-8") == "# Note\n"
+
+
+def test_apply_fix_blocked_by_symlinked_article(tmp_path: Path) -> None:
+    """A symlinked article pointing outside kb_root must not be fixed."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_file = outside / "stolen.md"
+    outside_file.write_text("# Stolen\n")
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    concepts = kb / "concepts"
+    concepts.mkdir()
+    os.symlink(outside_file, concepts / "stolen.md")
+
+    with pytest.raises(WriterError):
+        apply_fix(kb, "concepts/stolen.md", "# Replaced\n")
+
+    assert outside_file.read_text(encoding="utf-8") == "# Stolen\n"
 
 
 def test_symlinked_catalog_blocked_from_escape(tmp_path: Path) -> None:

@@ -6,6 +6,8 @@ import builtins
 import json
 import os
 import tempfile
+
+from claude_wiki.errors import WriterError
 from collections.abc import AsyncIterator, Callable
 from datetime import date
 from pathlib import Path
@@ -501,6 +503,23 @@ class TestFileBack:
             assert len(qa_files) == 1
             assert qa_files[0].name != ".md"
 
+    def test_file_back_symlinked_qa_dir_is_rejected(self) -> None:
+        """A symlinked qa/ directory pointing outside the vault must not be written."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outside = Path(tmpdir) / "outside"
+            outside.mkdir()
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            os.symlink(outside, kb / "qa")
+            (kb / "test.md").write_text("# Index")
+            (kb / "log.md").write_text("# Build Log")
+
+            result = QueryResult(answer="Answer", citations=[])
+            with pytest.raises(WriterError):
+                _file_back(kb, "Question?", result, repo_name="test")
+
+            assert not list(outside.glob("*.md"))
+
 
 class TestUpdateIndexEdgeCases:
     """Tests for index update edge cases."""
@@ -525,12 +544,17 @@ class TestUpdateIndexEdgeCases:
 class TestAppendLogEdgeCases:
     """Tests for log append edge cases."""
 
-    def test_append_log_skips_missing_log(self) -> None:
+    def test_append_log_creates_missing_log(self) -> None:
+        """A missing log.md is created and the entry appended."""
         with tempfile.TemporaryDirectory() as tmpdir:
             kb = Path(tmpdir) / "kb"
             kb.mkdir()
             _append_log(kb, "2026-06-19T12:00:00", "question", [], "slug")
-            assert not (kb / "log.md").exists()
+            log_file = kb / "log.md"
+            assert log_file.exists()
+            content = log_file.read_text(encoding="utf-8")
+            assert "query | question" in content
+            assert "[[qa/slug]]" in content
 
 
 class TestQueryCommand:

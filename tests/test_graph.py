@@ -283,3 +283,35 @@ class TestGraphCommand:
 
         assert exc_info.value.code == 2
         assert "positive integer" in captured.err.lower()
+
+    def test_traversal_wikilink_is_ignored_and_not_probed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """[[../../../etc/passwd]] is not counted as outbound and never probed."""
+        repo = self._repo(tmp_path)
+        self._lock(repo)
+        kb = self._kb(repo)
+        self._article(kb, "concepts/a.md", "[[../../../etc/passwd]]")
+        monkeypatch.chdir(repo)
+
+        real_exists = Path.exists
+        probed: list[Path] = []
+
+        def guarded_exists(self: Path) -> bool:
+            if "etc/passwd" in str(self):
+                raise AssertionError(f"probed escaped path: {self}")
+            probed.append(self)
+            return real_exists(self)
+
+        monkeypatch.setattr(Path, "exists", guarded_exists)
+
+        exit_code = main(["graph"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        assert "Articles: 1" in captured.out
+        assert "Links:    0" in captured.out
+        assert "etc/passwd" not in str(probed)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import json
+import os
 import sys
 from collections.abc import AsyncIterator
 from contextlib import contextmanager
@@ -14,6 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from claude_wiki.cli import main
+from claude_wiki.errors import WriterError
 from claude_wiki.commands.lint import (
     _Issue,
     _check_contradictions,
@@ -1459,6 +1461,33 @@ class TestLintFix:
         fixable = [i for i in payload["issues"] if i.get("auto_fixable")]
         assert len(fixable) >= 1
         assert any(i["check"] == "daily_wikilink" for i in fixable)
+
+    def test_fix_rejects_symlinked_article(
+        self,
+        monkeypatch,
+        tmp_path: Path,
+    ) -> None:
+        """--fix must not write through a symlinked article that escapes kb_root."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        outside_article = outside / "stolen.md"
+        outside_article.write_text(
+            "---\ntitle: A\ntags: [shared]\n---\n\n[[daily/2026-06-18]]",
+            encoding="utf-8",
+        )
+        concepts = kb_root / "concepts"
+        concepts.mkdir()
+        os.symlink(outside_article, concepts / "a.md")
+
+        monkeypatch.chdir(repo)
+
+        with pytest.raises(WriterError):
+            main(["lint", "--fix", "--structural-only"])
+
+        assert outside_article.read_text(encoding="utf-8") == (
+            "---\ntitle: A\ntags: [shared]\n---\n\n[[daily/2026-06-18]]"
+        )
 
 
 class TestLintStateRobustness:

@@ -1416,6 +1416,32 @@ class TestCompileSecurity:
         with pytest.raises(WriterError, match="must be strings"):
             _parse_compile_response(answer)
 
+    def test_update_catalog_rejects_symlinked_catalog(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """A catalog file symlinked outside kb_root is rejected before reading."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        outside_catalog = outside / "stolen.md"
+        outside_catalog.write_text("# Stolen Catalog\n")
+        kb = tmp_path / "kb"
+        kb.mkdir()
+        os.symlink(outside_catalog, kb / "repo-name.md")
+
+        addition = {
+            "slug": "foo",
+            "category": "concepts",
+            "summary": "summary",
+            "compiled_from": "daily/2026-06-19.md",
+            "updated": "2026-06-19",
+        }
+
+        with pytest.raises(WriterError):
+            _update_catalog(kb, "repo-name", [addition], "2026-06-19.md", "2026-06-19")
+
+        assert outside_catalog.read_text(encoding="utf-8") == "# Stolen Catalog\n"
+
     def test_permission_mode_is_dontask_not_accept_edits(
         self,
         tmp_path: Path,

@@ -32,6 +32,7 @@ from claude_wiki.models import ProjectConfig
 from claude_wiki.writer import (
     CATEGORIES,
     CompiledArticle,
+    _ensure_confined,
     append_log,
     is_valid_slug,
     slugify,
@@ -425,6 +426,7 @@ def _update_catalog(
         return
 
     catalog_path = resolve_catalog(kb_root, repo_name)
+    _ensure_confined(catalog_path, kb_root)
     if catalog_path.exists():
         content = catalog_path.read_text(encoding="utf-8")
     else:
