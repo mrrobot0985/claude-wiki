@@ -44,4 +44,6 @@ def register(handlers: dict[str, Any]) -> None:
     handlers["MyEvent"] = my_handler
 ```
 
-Handlers are auto-discovered at runtime by `hooks.py`.
+Add your module name to `_HANDLER_MODULES` in `hook_handlers/__init__.py`.
+
+Handlers are loaded from the explicit `_HANDLER_MODULES` list in `hook_handlers/__init__.py`. Add your module name to that list after creating the file.
