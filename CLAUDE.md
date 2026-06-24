@@ -70,7 +70,7 @@ Handlers do only fast local I/O and offload LLM work to a backgrounded `flush.py
 - **machine state** (`get_machine_state_dir`): logs, hashes, compile state — XDG `~/.local/state/...` in user mode, `.claude/state/` in project mode. `CLAUDE_WIKI_STATE_DIR` overrides.
 - **cache** (`get_cache_dir`): ephemeral reports — XDG `~/.cache/...` in user mode, `.claude/` in project mode. `CLAUDE_WIKI_CACHE_DIR` overrides.
 
-ADR-005 drove this split: machine files must never land in the Obsidian vault (they pollute Graph view), and daily logs must stay out of `git add .`. `layout_version` in the lock tracks schema; `ConfigManager._maybe_migrate_legacy()` lazily relocates v1→v2 data idempotently.
+ADR-005 drove this split: machine files must never land in the Obsidian vault (they pollute Graph view), and daily logs must stay out of `git add .`. `layout_version` in the lock is schema metadata only; v1 layouts are rejected with a clear error (use `claude-wiki migrate` on a 0.x release before upgrading to v1.0.0).
 
 ### Migration
 

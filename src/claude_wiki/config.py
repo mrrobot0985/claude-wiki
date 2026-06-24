@@ -67,10 +67,6 @@ class ConfigManager:
                 raise ConfigError(
                     f"Corrupt lock file {marker.resolve(strict=False)}: {e}"
                 ) from e
-            if data.get("layout_version") in (None, "", "1"):
-                raise ConfigError(
-                    "Legacy layout version detected. Run 'claude-wiki migrate' to upgrade."
-                )
             config = self._build_config(repo_root, data)
         else:
             # Infer from git remote, falling back to directory name + local owner.

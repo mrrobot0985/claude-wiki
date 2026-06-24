@@ -42,6 +42,9 @@ class ProjectConfig:
             if not isinstance(value, str) or not value.strip():
                 raise ConfigError(f"{name} must be a non-empty string")
 
+        if self.layout_version != "2":
+            raise ConfigError("layout_version must be '2'")
+
         # timezone must be a real IANA zone; an invalid value would crash
         # query --file-back with ZoneInfoNotFoundError at call time.
         try:

@@ -13,13 +13,14 @@ a stable structural baseline.
 ## Decision
 
 Freeze v2 as the stable layout for v1.0. No new auto-migrations
-post-v1. The only active migration code is the v1→v2 path from ADR-005. After a
-grace period, legacy v1 migration code may be removed.
+post-v1. The legacy v1→v2 migration code was removed in v1.0.0 after the
+grace period; only layout version "2" is accepted.
 
 ## Consequences
 
 Users can script/backup against stable paths; no ongoing
-multi-layout support obligation; v1 migration code carried briefly post-v1.0.
+multi-layout support obligation; v1 layouts are rejected and must be migrated
+on a 0.x release before upgrading to v1.0.0.
 
 ## Alternatives rejected
 
