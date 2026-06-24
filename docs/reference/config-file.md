@@ -12,7 +12,7 @@ ______________________________________________________________________
 | -------------------- | ------------------------------ | ---------------------- | -------------------------------------------------------- |
 | `repo_name`          | `str`                          | directory name         | Repository identifier                                    |
 | `repo_owner`         | `str`                          | `"local"`              | Namespace for XDG path                                   |
-| `layout_version`     | `str`                          | `"2"`                  | Schema version; tracks the v1→v2 lazy migration          |
+| `layout_version`     | `str`                          | `"2"`                  | Schema version; currently `"2"`                          |
 | `kb_dir`             | `"project"`, `"user"`, or path | `"project"`            | KB location (see modes below)                            |
 | `daily_dir`          | `str`                          | mode-aware (see below) | Source log directory                                     |
 | `timezone`           | `str`                          | `"UTC"`                | IANA timezone for timestamps                             |

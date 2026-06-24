@@ -29,9 +29,9 @@ Per [ADR-006](../adr/006-vault-naming-and-obsidian-graph-hygiene.md), the per-re
   claude-wiki rename-catalog
   ```
 
-### Directory-layout migration is automatic
+### Directory-layout migration is explicit
 
-[ADR-005](../adr/005-kb-directory-redesign.md) introduced `layout_version: "2"` and separated vault, machine-state, and cache directories. The migration is performed lazily and idempotently by `ConfigManager._maybe_migrate_legacy()` whenever a normal command loads the lock file. You do not need a dedicated `migrate --to-v2` command.
+[ADR-005](../adr/005-kb-directory-redesign.md) introduced `layout_version: "2"` and separated vault, machine-state, and cache directories. Lazy auto-migration was removed in v0.13.x; the only migration path is explicit `claude-wiki migrate`. If you are on v0.8 or newer with `layout_version: "2"`, no action is needed. If you have an older `layout_version`, run `claude-wiki migrate` to upgrade.
 
 If `claude-wiki status` passes, your repository is already on layout version 2.
 

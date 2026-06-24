@@ -60,7 +60,7 @@ Supported events:
 - `SessionEnd`
 - `PreCompact`
 
-Handlers are auto-discovered from `claude_wiki.hook_handlers`. The dispatcher reads hook-specific JSON from stdin and returns a JSON object on stdout. A `CLAUDE_INVOKED_BY` recursion guard prevents nested hook triggers from re-entering the flush pipeline.
+Handlers are explicitly registered via `_HANDLER_MODULES` in `claude_wiki.hook_handlers.__init__` and loaded by `hooks._load_handlers()`. The dispatcher reads hook-specific JSON from stdin and returns a JSON object on stdout. A `CLAUDE_INVOKED_BY` recursion guard prevents nested hook triggers from re-entering the flush pipeline.
 
 ### `.claude-wiki.lock` schema
 
