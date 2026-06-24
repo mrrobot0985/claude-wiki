@@ -375,6 +375,25 @@ class TestProjectConfigValidation:
         assert config.daily_dir == Path.home() / ".claude" / "daily"
         assert "~" not in config.daily_dir.parts
 
+    def test_post_init_accepts_unicode_repo_name_and_owner(self):
+        """Unicode letters and marks are valid path-safe identifiers."""
+        config = ProjectConfig(repo_name="百科", repo_owner="所有者")
+        assert config.repo_name == "百科"
+        assert config.repo_owner == "所有者"
+
+    def test_validate_under_repo_root_rejects_symlink_escape(self, tmp_path):
+        """A relative path that resolves outside repo_root via a symlink is rejected."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        escape_link = repo / "escape"
+        escape_link.symlink_to(outside, target_is_directory=True)
+
+        config = ProjectConfig(repo_name="x", kb_dir=Path("escape"))
+        with pytest.raises(ConfigError, match="kb_dir resolves outside repo_root"):
+            config.validate_under_repo_root(repo)
+
 
 class TestResultModels:
     """Smoke tests for lightweight result dataclasses."""

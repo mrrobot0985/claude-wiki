@@ -53,6 +53,10 @@ def choice(text: str, options: list[str], default: str | None = None) -> str:
     # Map non-option defaults (e.g. an absolute custom path) to a placeholder
     # option so the user sees the actual value pre-selected.
     if default is not None and default.lower() not in normalized:
+        if "custom" not in options:
+            raise ValueError(
+                f"default {default!r} is not an option and 'custom' is unavailable"
+            )
         default = "custom"
 
     def validator(answer: str) -> bool:
@@ -153,4 +157,5 @@ def configure(
         timezone=timezone,
         compile_after_hour=compile_hour,
     )
+    config.validate_under_repo_root(repo_root)
     return config, hook_target == "global"

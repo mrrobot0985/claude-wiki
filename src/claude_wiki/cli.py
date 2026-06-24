@@ -9,7 +9,7 @@ import logging
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from claude_wiki import interactive
 from claude_wiki.config import ConfigManager, default_daily_dir
@@ -21,7 +21,7 @@ from claude_wiki.hook_detect import (
     settings_has_claude_wiki_hooks,
 )
 from claude_wiki.logging_setup import configure_stderr_logging
-from claude_wiki.models import MigrationResult
+from claude_wiki.models import MigrationResult, ProjectConfig
 
 logger = logging.getLogger(__name__)
 
@@ -247,21 +247,33 @@ def _init(args: argparse.Namespace) -> int:
             return 1
         use_global_hooks = args.global_flag
 
-    # --force with explicit path changes would orphan data; require migrate instead.
-    if (
-        marker.exists()
-        and args.force
-        and (args.kb_dir is not None or args.daily_dir is not None)
-    ):
-        try:
-            previous = loader.load(repo_root)
-        except ConfigError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            return 1
-        if previous.kb_dir != config.kb_dir or previous.daily_dir != config.daily_dir:
+    try:
+        config.validate_under_repo_root(repo_root)
+    except ConfigError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    # --force would orphan data if the effective KB/daily directories changed.
+    if marker.exists() and args.force:
+        raw = loader.load_raw(repo_root)
+        previous = ProjectConfig.from_dict(raw) if raw else config
+
+        def _resolve_for_compare(cfg: ProjectConfig, name: str) -> Path:
+            value = cast(Path, getattr(cfg, name))
+            if name == "kb_dir" and str(value) in ("project", "user"):
+                return detector.get_kb_root(repo_root, cfg)
+            if not value.is_absolute():
+                return (repo_root / value).resolve(strict=False)
+            return value.resolve(strict=False)
+
+        if _resolve_for_compare(previous, "kb_dir") != _resolve_for_compare(
+            config, "kb_dir"
+        ) or _resolve_for_compare(previous, "daily_dir") != _resolve_for_compare(
+            config, "daily_dir"
+        ):
             print(
-                "Error: --force with --kb-dir/--daily-dir would change configured "
-                "paths and orphan existing data. Use 'claude-wiki migrate' to move data.",
+                "Error: --force would change configured paths and orphan existing data. "
+                "Use 'claude-wiki migrate' to move data.",
                 file=sys.stderr,
             )
             return 1
@@ -365,6 +377,12 @@ def _migrate(args: argparse.Namespace) -> int:
 
     try:
         config = dataclasses.replace(previous, **overrides) if overrides else previous
+    except ConfigError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        config.validate_under_repo_root(repo_root)
     except ConfigError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

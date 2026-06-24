@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from claude_wiki.errors import ConfigError
 
 _PATH_FIELDS = ("kb_dir", "daily_dir", "reports_dir")
-_PATH_SAFE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_PATH_SAFE_RE = re.compile(r"^(?!.*\.\.)[\w.-]+$", re.UNICODE)
 
 
 def _field_default(f: dataclasses.Field) -> Any:  # type: ignore[type-arg]
@@ -49,7 +49,7 @@ class ProjectConfig:
             if not _PATH_SAFE_RE.match(value) or value == "..":
                 raise ConfigError(
                     f"{name} must contain only letters, digits, underscores, "
-                    f"hyphens, and periods: {value}"
+                    f"hyphens, periods, and Unicode word characters: {value}"
                 )
 
         if self.layout_version != "2":

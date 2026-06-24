@@ -156,7 +156,10 @@ def _lint_handler(args: argparse.Namespace) -> int:
         issues.extend(_run_llm_checks(kb_root, repo_name=config.repo_name))
 
     today = _today_iso(config.timezone)
-    report_path = _save_report(cache_dir, issues, today)
+    report_dir = config.reports_dir
+    if not report_dir.is_absolute():
+        report_dir = cache_dir / report_dir
+    report_path = _save_report(report_dir, issues, today)
     _update_state(machine_state_dir)
 
     errors = sum(1 for issue in issues if issue.severity == "error")
@@ -744,9 +747,8 @@ def _today_iso(timezone: str = "UTC") -> str:
     return datetime.now(tz).date().isoformat()
 
 
-def _save_report(cache_dir: Path, issues: list[_Issue], today: str) -> Path:
+def _save_report(report_dir: Path, issues: list[_Issue], today: str) -> Path:
     """Write the markdown lint report and return its path."""
-    report_dir = cache_dir / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / f"lint-{today}.md"
 

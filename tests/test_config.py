@@ -395,6 +395,92 @@ class TestConfigManager:
                 result = manager.get_kb_root(repo, config)
                 assert result == (home_dir / "config-kb").resolve(strict=False)
 
+    def test_load_relative_env_daily_dir_anchored_to_repo_root(self):
+        """Relative CLAUDE_WIKI_DAILY_DIR is anchored to repo_root by ConfigManager.load."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "2",
+                        "kb_dir": "project",
+                        "daily_dir": ".claude/daily",
+                        "timezone": "UTC",
+                        "compile_after_hour": 18,
+                    }
+                )
+            )
+            with patch.dict(
+                os.environ, {"CLAUDE_WIKI_DAILY_DIR": "env-daily"}, clear=False
+            ):
+                manager = ConfigManager()
+                config = manager.load(repo)
+                assert config.daily_dir == repo / "env-daily"
+
+    def test_get_machine_state_dir_relative_env_anchored_to_repo_root(self):
+        """Relative CLAUDE_WIKI_STATE_DIR is anchored to repo_root."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            config = ProjectConfig(repo_name="my-project", repo_owner="owner")
+            with patch.dict(
+                os.environ, {"CLAUDE_WIKI_STATE_DIR": "custom-state"}, clear=False
+            ):
+                manager = ConfigManager()
+                result = manager.get_machine_state_dir(repo, config)
+                assert result == (repo / "custom-state").resolve(strict=False)
+
+    def test_get_cache_dir_relative_env_anchored_to_repo_root(self):
+        """Relative CLAUDE_WIKI_CACHE_DIR is anchored to repo_root."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            config = ProjectConfig(repo_name="my-project", repo_owner="owner")
+            with patch.dict(
+                os.environ, {"CLAUDE_WIKI_CACHE_DIR": "custom-cache"}, clear=False
+            ):
+                manager = ConfigManager()
+                result = manager.get_cache_dir(repo, config)
+                assert result == (repo / "custom-cache").resolve(strict=False)
+
+    def test_load_raw_returns_lock_data_without_env_overrides(self):
+        """load_raw returns the stored lock data, ignoring environment overrides."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "2",
+                        "kb_dir": "project",
+                        "daily_dir": ".claude/daily",
+                        "reports_dir": "reports",
+                        "timezone": "UTC",
+                        "compile_after_hour": 18,
+                    }
+                )
+            )
+            with patch.dict(
+                os.environ,
+                {
+                    "CLAUDE_WIKI_DAILY_DIR": "/env/daily",
+                    "CLAUDE_WIKI_PROJECT_DIR": "/env/kb",
+                    "CLAUDE_WIKI_REPORTS_DIR": "/env/reports",
+                },
+                clear=False,
+            ):
+                raw = ConfigManager().load_raw(repo)
+                assert raw["daily_dir"] == ".claude/daily"
+                assert raw["kb_dir"] == "project"
+                assert raw["reports_dir"] == "reports"
+
 
 class TestResolveRepoPath:
     """Unit tests for ConfigManager.resolve_repo_path."""

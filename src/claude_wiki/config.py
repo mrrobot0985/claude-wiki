@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from platformdirs import user_cache_dir, user_data_dir, user_state_dir
 
@@ -59,14 +59,8 @@ class ConfigManager:
 
     def load(self, repo_root: Path) -> ProjectConfig:
         """Read .claude-wiki.lock if present, else infer defaults."""
-        marker = repo_root / ".claude-wiki.lock"
-        if marker.exists():
-            try:
-                data = json.loads(marker.read_text(encoding="utf-8"))
-            except json.JSONDecodeError as e:
-                raise ConfigError(
-                    f"Corrupt lock file {marker.resolve(strict=False)}: {e}"
-                ) from e
+        data = self.load_raw(repo_root)
+        if data:
             config = self._build_config(repo_root, data)
         else:
             # Infer from git remote, falling back to directory name + local owner.
@@ -77,6 +71,20 @@ class ConfigManager:
                 daily_dir=Path(".claude/daily"),
             )
         return config
+
+    def load_raw(self, repo_root: Path) -> dict[str, Any]:
+        """Return the raw .claude-wiki.lock JSON without env overrides."""
+        marker = repo_root / ".claude-wiki.lock"
+        if marker.exists():
+            try:
+                return cast(
+                    dict[str, Any], json.loads(marker.read_text(encoding="utf-8"))
+                )
+            except json.JSONDecodeError as e:
+                raise ConfigError(
+                    f"Corrupt lock file {marker.resolve(strict=False)}: {e}"
+                ) from e
+        return {}
 
     def _build_config(self, repo_root: Path, data: dict[str, Any]) -> ProjectConfig:
         """Merge raw lock JSON with defaults and return a ProjectConfig."""
@@ -132,6 +140,11 @@ class ConfigManager:
         finally:
             os.close(temp_fd)
         os.replace(temp, marker)
+        dir_fd = os.open(marker.parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
     def get_kb_root(self, repo_root: Path, config: ProjectConfig) -> Path:
         """Resolve KB directory: env > absolute config > mode-based.

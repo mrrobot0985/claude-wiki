@@ -326,6 +326,28 @@ class TestLintStructural:
         assert len(article_reads) == 5
         assert all(count == 1 for count in article_reads.values())
 
+    def test_reports_dir_config_is_respected(
+        self, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A custom reports_dir in the lock file overrides the default location."""
+        repo, kb_root = self._repo_and_kb(tmp_path)
+        custom_reports = tmp_path / "custom-reports"
+        marker = repo / ".claude-wiki.lock"
+        data = json.loads(marker.read_text())
+        data["reports_dir"] = str(custom_reports)
+        marker.write_text(json.dumps(data))
+
+        monkeypatch.chdir(repo)
+
+        exit_code = main(["lint", "--structural-only"])
+        captured = capsys.readouterr()
+
+        assert exit_code == 0
+        report = custom_reports / "lint-2026-06-19.md"
+        assert report.exists()
+        assert "Report saved to" in captured.out
+        assert str(custom_reports) in captured.out
+
 
 class TestLintLLM:
     """The LLM contradiction check is included in full lint mode."""

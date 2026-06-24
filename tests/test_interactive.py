@@ -111,6 +111,11 @@ class TestConfirm:
             )
             assert result == "custom"
 
+    def test_choice_default_without_custom_option_raises(self):
+        """A default that is not an option raises ValueError when 'custom' is absent."""
+        with pytest.raises(ValueError, match=r"custom.*is unavailable"):
+            choice("pick", ["a", "b"], default="/some/path")
+
 
 class TestConfigure:
     """Tests for configure."""
