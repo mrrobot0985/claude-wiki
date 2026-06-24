@@ -18,7 +18,7 @@ Fix every error before continuing. Warnings (for example, an empty daily directo
 
 ### Catalog rename already happened in v0.4.0
 
-Per [ADR-006](../adr/006-vault-naming-and-obsidian-graph-hygiene.md), the per-repo catalog was renamed from `index.md` to `{repo_name}.md` (for example, `claude-wiki.md`). This change shipped in v0.4.0.
+The per-repo catalog was renamed from `index.md` to `{repo_name}.md` (for example, `claude-wiki.md`). This change shipped in v0.4.0.
 
 - If you initialized your knowledge base on v0.4.0 or later, your catalog is already named correctly.
 
@@ -31,7 +31,7 @@ Per [ADR-006](../adr/006-vault-naming-and-obsidian-graph-hygiene.md), the per-re
 
 ### Directory-layout migration is explicit
 
-[ADR-005](../adr/005-kb-directory-redesign.md) introduced `layout_version: "2"` and separated vault, machine-state, and cache directories. Lazy auto-migration was removed in v0.13.x; the only migration path is explicit `claude-wiki migrate`. If you are on v0.8 or newer with `layout_version: "2"`, no action is needed.
+`layout_version: "2"` separated vault, machine-state, and cache directories. Lazy auto-migration was removed in v0.13.x; the only migration path is explicit `claude-wiki migrate`. If you are on v0.8 or newer with `layout_version: "2"`, no action is needed.
 
 Layout version 1 is no longer supported as of v1.0.0. If you are still on a 0.x release with an older `layout_version`, run `claude-wiki migrate` before upgrading to v1.0.0.
 

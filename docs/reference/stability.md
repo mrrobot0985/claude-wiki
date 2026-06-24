@@ -150,12 +150,3 @@ A stable surface is retired in three steps:
 1. If a deprecation warning cannot be emitted automatically, the release notes document the replacement and the minimum version that supports it.
 
 Security fixes and data-integrity fixes may be backported to the current major release line without following the full deprecation cycle.
-
-## Decision log
-
-Architecture decisions that shape these guarantees are recorded in the ADRs:
-
-- [ADR-005: Knowledge Base Directory Redesign](../adr/005-kb-directory-redesign.md)
-- [ADR-006: Vault Naming and Obsidian Graph Hygiene](../adr/006-vault-naming-and-obsidian-graph-hygiene.md)
-
-See the full list under [Architecture Decision Records](../index.md#architecture-decision-records) in the documentation hub.

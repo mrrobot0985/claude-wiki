@@ -28,7 +28,7 @@ claude-wiki query "What is the vault layout?" --json
   "answer": "Project mode stores the KB at ...",
   "citations": [
     "concepts/vault-layout",
-    "explanation/obsidian-graph-hygiene"
+    "concepts/obsidian-graph-hygiene"
   ]
 }
 ```

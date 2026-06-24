@@ -77,13 +77,6 @@ Once hooks are registered, Claude Code automatically flushes conversation
 context to `.claude/daily/YYYY-MM-DD.md` at session end (project mode; user mode
 uses `~/.local/share/claude-wiki-daily/<owner>/<repo>/`).
 
-If you want to try compiling without waiting for a real session, copy the
-synthetic daily log from the examples directory:
-
-```bash
-cp examples/minimal-walkthrough/daily/2026-06-20.md .claude/daily/2026-06-20.md
-```
-
 ______________________________________________________________________
 
 ## Step 5: Compile
@@ -203,4 +196,3 @@ ______________________________________________________________________
 - [Configure advanced options](../how-to/configure-repo.md)
 - [Customise hooks](../how-to/customize-hooks.md)
 - [CLI reference](../reference/cli.md)
-- [Examples](../../examples/) — self-contained walkthrough without hooks

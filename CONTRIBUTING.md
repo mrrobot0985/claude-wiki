@@ -101,5 +101,4 @@ ______________________________________________________________________
 
 ## CI/CD
 
-See [docs/reference/ci-cd.md](docs/reference/ci-cd.md) for the full security model,
-SHA pinning strategy, and PyPI trusted publishing setup.
+See `.github/workflows/ci.yml` and `.github/workflows/release.yml` for the full security model, SHA pinning strategy, and PyPI trusted publishing setup.
