@@ -242,7 +242,7 @@ async def _run_query(
             cwd=str(kb_root),
             system_prompt={"type": "preset", "preset": "claude_code"},
             allowed_tools=["Read", "Glob", "Grep"],
-            permission_mode="acceptEdits",
+            permission_mode="dontAsk",
             max_turns=10,
         )
 

@@ -5,7 +5,10 @@ import asyncio
 import builtins
 import json
 import os
+import sys
 import tempfile
+import types
+from typing import Any
 
 from claude_wiki.errors import WriterError
 from collections.abc import AsyncIterator, Callable
@@ -415,6 +418,49 @@ class TestRunQuery:
             )
             assert "## connections/auth-and-webhooks.md" in prompt_capture["prompt"]
             assert "## concepts/auth.md" not in prompt_capture["prompt"]
+
+    def test_run_query_sdk_options_use_dontask_permission_mode(
+        self, monkeypatch: Any
+    ) -> None:
+        """When using the real SDK path, query options set permission_mode to dontAsk."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb = Path(tmpdir) / "kb"
+            kb.mkdir()
+            (kb / "repo.md").write_text("# Index")
+            _write_article(kb, "concepts", "auth", "# Auth")
+
+            captured: dict[str, Any] = {}
+
+            async def fake_query(
+                *, prompt: str, options: object
+            ) -> AsyncIterator[object]:
+                captured["options"] = options
+
+                class Block:
+                    text = "Use [[concepts/auth]]."
+
+                class Message:
+                    content = [Block()]
+
+                yield Message()
+
+            class FakeClaudeAgentOptions:
+                def __init__(self, **kwargs: Any) -> None:
+                    self.kwargs = kwargs
+
+            fake_module = types.SimpleNamespace(
+                query=fake_query,
+                ClaudeAgentOptions=FakeClaudeAgentOptions,
+            )
+
+            monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake_module)
+            result = asyncio.run(
+                _run_query(kb, "how do I auth?", file_back=False, repo_name="repo")
+            )
+
+            assert "[[concepts/auth]]" in result.answer
+            assert captured["options"].kwargs.get("permission_mode") == "dontAsk"
+            assert captured["options"].kwargs.get("permission_mode") != "acceptEdits"
 
 
 class TestFileBack:

@@ -97,6 +97,13 @@ Return a single JSON object describing the articles to write. Do not edit files.
 # Safe reference format for ``log_created`` / ``log_updated``: category/slug.
 _LOG_REF_RE = re.compile(r"^[a-z0-9-]+/[a-z0-9-]+$")
 
+# Valid compile-time model names. The agent SDK default is accepted by leaving
+# ``model`` unset; an explicit override must be a known Anthropic model name.
+_MODEL_RE = re.compile(r"^claude-[a-z0-9-]+$")
+
+# Extract JSON from a fenced code block (``` or ```json) if present.
+_FENCE_RE = re.compile(r"```(?:json)?\s*\n(.*?)```", re.DOTALL)
+
 
 # Cache populated once per ``compile`` run so the index and existing articles are
 # not re-read for every daily log.
@@ -292,14 +299,42 @@ def _read_index(kb_root: Path, repo_name: str) -> str:
 
 
 def _extract_json(raw_text: str) -> str:
-    """Locate the outermost JSON object in ``raw_text``."""
+    """Locate the outermost JSON object in ``raw_text``.
+
+    Prefers fenced code blocks (`` ```json ... ``` ``) when present, then
+    falls back to brace-depth parsing so braces inside string values do not
+    confuse extraction.
+    """
+    fence_match = _FENCE_RE.search(raw_text)
+    if fence_match:
+        return fence_match.group(1).strip()
+
     start = raw_text.find("{")
     if start == -1:
         raise WriterError("no JSON object found in LLM response")
-    end = raw_text.rfind("}")
-    if end == -1 or end < start:
-        raise WriterError("unclosed JSON object in LLM response")
-    return raw_text[start : end + 1]
+
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(raw_text[start:], start=start):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+        else:
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return raw_text[start : i + 1]
+
+    raise WriterError("unclosed JSON object in LLM response")
 
 
 def _parse_compile_response(
@@ -488,6 +523,22 @@ def _append_compile_log(
     append_log(kb_root, entry)
 
 
+def _max_backtick_run(text: str) -> int:
+    """Return the length of the longest run of consecutive backticks in ``text``."""
+    return max((len(m) for m in re.findall(r"`+", text)), default=0)
+
+
+def _wrap_article_for_prompt(content: str) -> str:
+    """Wrap article content in a markdown fence longer than any backtick run inside it.
+
+    This prevents article content containing triple backticks from closing the
+    prompt's code fence early and leaking into the rest of the instructions.
+    """
+    fence_len = max(3, _max_backtick_run(content) + 1)
+    fence = "`" * fence_len
+    return f"{fence}markdown\n{content}\n{fence}"
+
+
 async def _compile_daily_log_async(
     log_path: Path,
     repo_root: Path,
@@ -518,6 +569,12 @@ async def _compile_daily_log_async(
     ResultMessage = claude_agent_sdk.ResultMessage
     query = claude_agent_sdk.query
 
+    if model is not None and not _MODEL_RE.match(model):
+        raise CompileError(
+            f"Invalid model '{model}'. Model override must match the pattern "
+            f"^claude-[a-z0-9-]+$, e.g. 'claude-sonnet-4-6-20251001'."
+        )
+
     log_content = log_path.read_text(encoding="utf-8")
     schema = _read_schema()
     if wiki_index is None:
@@ -532,7 +589,7 @@ async def _compile_daily_log_async(
     existing_context = "(No existing articles yet)"
     if budgeted_articles:
         parts = [
-            f"### {rel_path}\n```markdown\n{content}\n```"
+            f"### {rel_path}\n{_wrap_article_for_prompt(content)}"
             for rel_path, content in budgeted_articles.items()
         ]
         existing_context = "\n\n".join(parts)
