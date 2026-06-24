@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from claude_wiki.catalog_utils import extract_tags, split_frontmatter
+from claude_wiki.errors import WriterError
+from claude_wiki.writer import _ensure_confined
 
 
 KB_SUBDIRS: tuple[str, ...] = ("concepts", "connections", "qa")
@@ -45,11 +47,18 @@ def build_link_graph(kb_root: Path) -> LinkGraph:
         targets: set[str] = set()
         for link in extract_wikilinks(content):
             target = wikilink_target(link)
-            targets.add(target)
             # A page never counts as its own inbound link.
             if target == rel.replace(".md", ""):
                 continue
-            if (kb_root / f"{target}.md").exists():
+            candidate = kb_root / f"{target}.md"
+            # Resolve and confine the target before touching disk. Wikilinks that
+            # escape the KB tree (e.g. traversal sequences) are ignored.
+            try:
+                _ensure_confined(candidate, kb_root)
+            except WriterError:
+                continue
+            targets.add(target)
+            if candidate.exists():
                 inbound[target] = inbound.get(target, 0) + 1
         outbound[rel] = targets
 

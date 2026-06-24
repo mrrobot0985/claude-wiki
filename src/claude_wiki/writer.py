@@ -103,6 +103,17 @@ def append_log(kb_root: Path, entry: str) -> Path:
     return _write_atomic_confined(log_path, kb_root, current + entry)
 
 
+def apply_fix(kb_root: Path, rel_path: str, content: str) -> Path:
+    """Write a lint fix to ``kb_root / rel_path`` atomically and confined.
+
+    ``rel_path`` is resolved against ``kb_root`` and must stay inside the
+    resolved ``kb_root`` tree. Symlinked articles that point outside the vault
+    are rejected before any write happens.
+    """
+    target = kb_root / rel_path
+    return _write_atomic_confined(target, kb_root, content, label="fix")
+
+
 @dataclass(frozen=True)
 class CompiledArticle:
     title: str
