@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 from claude_wiki.catalog_utils import resolve_catalog, split_frontmatter
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
+from claude_wiki.writer import apply_fix
 from claude_wiki.graph_utils import (
     KB_SUBDIRS,
     LinkGraph,
@@ -304,7 +305,7 @@ def _apply_fixes(kb_root: Path, fixable_issues: list[_Issue]) -> None:
         ):
             new_content += "\n"
         if new_content != content:
-            path.write_text(new_content, encoding="utf-8")
+            apply_fix(kb_root, rel, new_content)
 
 
 def _check_broken_links(kb_root: Path, graph: LinkGraph) -> list[_Issue]:

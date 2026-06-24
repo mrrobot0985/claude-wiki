@@ -17,7 +17,13 @@ from claude_wiki.catalog_utils import extract_tags, resolve_catalog
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
 from claude_wiki.models import QueryResult
-from claude_wiki.writer import slugify
+from claude_wiki.writer import (
+    CompiledArticle,
+    append_log,
+    slugify,
+    write_article,
+    write_catalog,
+)
 
 
 EXIT_OK = 0
@@ -402,18 +408,14 @@ def _file_back(
     repo_name: str,
 ) -> None:
     """Create a Q&A article and update index/log."""
-    qa_dir = kb_root / "qa"
-    qa_dir.mkdir(parents=True, exist_ok=True)
-
     slug = _slugify(question) or "question"
-    qa_file = qa_dir / f"{slug}.md"
 
     tz = ZoneInfo(timezone)
     now = datetime.now(tz)
     timestamp = now.isoformat(timespec="seconds")
     filed_date = now.strftime("%Y-%m-%d")
 
-    title = json.dumps(f"Q: {question}")
+    title_json = json.dumps(f"Q: {question}")
     question_json = json.dumps(question)
 
     consulted_lines = "\n".join(f'  - "{citation}"' for citation in result.citations)
@@ -427,30 +429,30 @@ def _file_back(
     if not sources_lines:
         sources_lines = "- No sources available"
 
-    content = f"""---
-title: {title}
-question: {question_json}
-consulted:
-{consulted_lines}
-filed: {filed_date}
----
+    frontmatter = (
+        f"title: {title_json}\n"
+        f"question: {question_json}\n"
+        f"consulted:\n{consulted_lines}\n"
+        f"filed: {filed_date}"
+    )
+    body = (
+        f"# Q: {question}\n\n"
+        f"## Answer\n\n{result.answer}\n\n"
+        f"## Sources Consulted\n\n{sources_lines}\n\n"
+        f"## Follow-Up Questions\n\n- What else would you like to know?"
+    )
 
-# Q: {question}
-
-## Answer
-
-{result.answer}
-
-## Sources Consulted
-
-{sources_lines}
-
-## Follow-Up Questions
-
-- What else would you like to know?
-"""
-
-    qa_file.write_text(content, encoding="utf-8")
+    article_title = question.strip() or "question"
+    write_article(
+        CompiledArticle(
+            title=article_title,
+            slug=slug,
+            category="qa",
+            frontmatter=frontmatter,
+            body=body,
+        ),
+        kb_root,
+    )
     _update_index(kb_root, slug, question, filed_date, repo_name)
     _append_log(kb_root, timestamp, question, result.citations, slug)
 
@@ -477,7 +479,7 @@ def _update_index(
     else:
         lines.append(row)
 
-    index_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_catalog(kb_root, repo_name, "\n".join(lines) + "\n")
 
 
 def _append_log(
@@ -488,10 +490,6 @@ def _append_log(
     slug: str,
 ) -> None:
     """Append a query entry to log.md."""
-    log_file = kb_root / "log.md"
-    if not log_file.exists():
-        return
-
     consulted = (
         ", ".join(
             f"{citation}" if citation.startswith("daily/") else f"[[{citation}]]"
@@ -505,4 +503,4 @@ def _append_log(
         f"- Consulted: {consulted}\n"
         f"- Filed to: [[qa/{slug}]]\n"
     )
-    log_file.write_text(log_file.read_text(encoding="utf-8") + entry, encoding="utf-8")
+    append_log(kb_root, entry)
