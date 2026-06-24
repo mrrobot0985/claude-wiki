@@ -15,7 +15,14 @@ from claude_wiki.models import MigrationResult, ProjectConfig
 
 
 def _case_insensitive_paths() -> bool:
-    """Return True on platforms with case-insensitive default filesystems."""
+    """Return True on platforms with case-insensitive default filesystems.
+
+    This is a conservative assumption: every shipping macOS installation uses
+    a case-insensitive APFS/HFS+ root volume by default, so we treat darwin as
+    case-insensitive. A runtime probe (e.g., creating a temporary file and
+    comparing its case-folded path resolution) could be added if a stricter
+    check becomes necessary.
+    """
     return sys.platform in ("win32", "darwin")
 
 
