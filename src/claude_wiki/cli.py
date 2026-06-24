@@ -221,6 +221,9 @@ def _init(args: argparse.Namespace) -> int:
     if interactive_mode:
         try:
             config, use_global_hooks = interactive.configure(repo_root, defaults)
+        except ConfigError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
         except KeyboardInterrupt:
             print("\nAborted.", file=sys.stderr)
             return 1
@@ -235,8 +238,33 @@ def _init(args: argparse.Namespace) -> int:
             overrides["daily_dir"] = default_daily_dir(
                 kb_mode, defaults.repo_owner, defaults.repo_name
             )
-        config = dataclasses.replace(defaults, **overrides) if overrides else defaults
+        try:
+            config = (
+                dataclasses.replace(defaults, **overrides) if overrides else defaults
+            )
+        except ConfigError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
         use_global_hooks = args.global_flag
+
+    # --force with explicit path changes would orphan data; require migrate instead.
+    if (
+        marker.exists()
+        and args.force
+        and (args.kb_dir is not None or args.daily_dir is not None)
+    ):
+        try:
+            previous = loader.load(repo_root)
+        except ConfigError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        if previous.kb_dir != config.kb_dir or previous.daily_dir != config.daily_dir:
+            print(
+                "Error: --force with --kb-dir/--daily-dir would change configured "
+                "paths and orphan existing data. Use 'claude-wiki migrate' to move data.",
+                file=sys.stderr,
+            )
+            return 1
 
     if not args.no_hooks and not use_global_hooks:
         global_settings = global_claude_settings_path()
@@ -258,7 +286,11 @@ def _init(args: argparse.Namespace) -> int:
         for err in result.errors:
             print(f"Error: {err}", file=sys.stderr)
 
-    loader.write(repo_root, config)
+    try:
+        loader.write(repo_root, config)
+    except ConfigError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
     if args.no_hooks:
         print(
@@ -331,7 +363,11 @@ def _migrate(args: argparse.Namespace) -> int:
             new_mode, previous.repo_owner, previous.repo_name
         )
 
-    config = dataclasses.replace(previous, **overrides) if overrides else previous
+    try:
+        config = dataclasses.replace(previous, **overrides) if overrides else previous
+    except ConfigError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
     if previous == config:
         print("No migration needed — paths are unchanged.")

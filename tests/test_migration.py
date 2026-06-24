@@ -394,7 +394,7 @@ class TestMigrationManager:
             repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
         )
         previous = ProjectConfig(
-            repo_name="test", kb_dir=Path("repo/../knowledge"), daily_dir=Path("daily")
+            repo_name="test", kb_dir=Path("/fake/knowledge"), daily_dir=Path("daily")
         )
 
         result = mgr.check_and_migrate(repo, current, previous, dry_run=False)

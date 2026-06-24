@@ -79,6 +79,48 @@ class TestConfigManager:
             assert config.timezone == "Europe/Amsterdam"
             assert config.compile_after_hour == 21
 
+    def test_load_env_override_precedence_after_lock_data(self):
+        """CLAUDE_WIKI_DAILY_DIR overrides the lock value, not the other way around."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            marker = repo / ".claude-wiki.lock"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "owner",
+                        "layout_version": "2",
+                        "kb_dir": "project",
+                        "daily_dir": "lock-daily",
+                        "timezone": "UTC",
+                        "compile_after_hour": 18,
+                    }
+                )
+            )
+
+            with patch.dict(
+                os.environ,
+                {"CLAUDE_WIKI_DAILY_DIR": str(repo / "env-daily")},
+                clear=False,
+            ):
+                manager = ConfigManager()
+                config = manager.load(repo)
+                assert config.daily_dir == repo / "env-daily"
+
+    def test_load_relative_env_override_anchored_to_repo_root(self):
+        """Relative CLAUDE_WIKI_PROJECT_DIR is anchored at repo_root."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            with patch.dict(
+                os.environ, {"CLAUDE_WIKI_PROJECT_DIR": "env-kb"}, clear=False
+            ):
+                manager = ConfigManager()
+                config = ProjectConfig(repo_name="test", repo_owner="owner")
+                kb_root = manager.get_kb_root(repo, config)
+                assert kb_root == repo / "env-kb"
+
     def test_load_defaults_when_no_marker(self):
         """Load defaults when no marker exists."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -225,12 +267,31 @@ class TestConfigManager:
             assert result == (repo / ".claude" / "knowledge").resolve(strict=False)
 
             # Relative fallback anchored at repo_root resolves clean.
-            config = ProjectConfig(
-                repo_name="r", repo_owner="o", kb_dir=Path("..") / "rel-kb"
-            )
+            config = ProjectConfig(repo_name="r", repo_owner="o", kb_dir=Path("rel-kb"))
             result = manager.get_kb_root(repo, config)
             assert result.is_absolute()
-            assert result == (base / "rel-kb").resolve(strict=False)
+            assert result == (repo / "rel-kb").resolve(strict=False)
+
+    def test_write_uses_pid_suffixed_temp_file(self):
+        """write() uses a pid-suffixed temp file to avoid collision."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            manager = ConfigManager()
+            config = ProjectConfig(
+                repo_name="my-project",
+                repo_owner="owner",
+                kb_dir=Path("kb"),
+                daily_dir=Path("daily"),
+                timezone="UTC",
+            )
+            manager.write(repo, config)
+
+            marker = repo / ".claude-wiki.lock"
+            assert marker.exists()
+            # There should be no leftover temp files.
+            temps = list(repo.glob(".lock.tmp*"))
+            assert temps == []
 
     def test_write_persists_atomically_with_utf8_and_replace(self):
         """write() creates a sibling temp file, writes UTF-8, and os.replace()s it."""
@@ -240,8 +301,8 @@ class TestConfigManager:
             manager = ConfigManager()
             config = ProjectConfig(
                 repo_name="my-project",
-                repo_owner="所有者",
-                kb_dir=Path("kb"),
+                repo_owner="owner",
+                kb_dir=Path("kb-百科"),
                 daily_dir=Path("daily"),
                 timezone="UTC",
             )
@@ -287,7 +348,8 @@ class TestConfigManager:
 
             data = json.loads(marker.read_text(encoding="utf-8"))
             assert data["repo_name"] == "my-project"
-            assert data["repo_owner"] == "所有者"
+            assert data["repo_owner"] == "owner"
+            assert data["kb_dir"] == "kb-百科"
 
     def test_load_corrupt_marker_raises_config_error_with_path(self):
         """A corrupt .claude-wiki.lock raises ConfigError with the absolute path and JSON text."""
