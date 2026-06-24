@@ -150,9 +150,7 @@ and `CLAUDE_WIKI_DEBUG` (verbose hook logging).
 
 ## Documentation
 
-- Full docs in [`docs/`](docs/) — tutorials, how-to guides, reference, and
-  explanation (Diátaxis).
-- [`examples/`](examples/) for a self-contained walkthrough of compiled output.
+- Full docs in [`docs/`](docs/) — tutorials, how-to guides, and reference.
 - [`CHANGELOG.md`](CHANGELOG.md) for release history.
 - [`docs/adr/`](docs/adr/) for architecture decisions.
 
