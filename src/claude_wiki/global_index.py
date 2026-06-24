@@ -260,14 +260,6 @@ class GlobalIndexManager:
             Path(path_str), Path(repo_root) if repo_root else None
         )
 
-    def _format_link(self, path: Path) -> str:
-        """Format a path as an absolute markdown link target."""
-        abs_path = path.resolve(strict=False)
-        text = str(abs_path)
-        if " " in text:
-            return f"<{text}>"
-        return text
-
     def sanitize(self) -> list[RegistryEntry]:
         """Evict entries whose repo root no longer contains a .claude-wiki.lock.
 

@@ -743,16 +743,6 @@ class TestGlobalIndexManager:
             assert mgr._read_lock(repo) is None
             assert "expected object" in caplog.text.lower()
 
-    def test_format_link_escapes_spaces(self):
-        """Paths containing spaces are wrapped in angle brackets."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "my dir"
-            path.mkdir()
-            mgr = GlobalIndexManager(base_dir=Path(tmpdir) / "global")
-            link = mgr._format_link(path)
-            assert link.startswith("<") and link.endswith(">")
-            assert "my dir" in link
-
     def test_sanitize_under_lock_preserves_legacy_entries(self):
         """Entries with None or relative repo_root survive the locked sanitize pass."""
         original_cwd = os.getcwd()

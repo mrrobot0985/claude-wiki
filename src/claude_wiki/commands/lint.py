@@ -201,7 +201,7 @@ def _run_structural_checks(
     kb_root: Path,
     daily_dir: Path,
     *,
-    repo_name: str | None = None,
+    repo_name: str,
     threshold: int = SPARSE_WORD_THRESHOLD,
 ) -> list[_Issue]:
     """Run all non-LLM health checks."""
@@ -441,9 +441,7 @@ def _extract_catalog_references(catalog_content: str) -> set[str]:
     return referenced
 
 
-def _check_catalog_completeness(
-    kb_root: Path, repo_name: str | None = None
-) -> list[_Issue]:
+def _check_catalog_completeness(kb_root: Path, repo_name: str) -> list[_Issue]:
     """Verify the catalog references every article and every reference resolves."""
     catalog = resolve_catalog(kb_root, repo_name)
     if not catalog.exists():
@@ -484,7 +482,7 @@ def _check_catalog_completeness(
     return issues
 
 
-def _run_llm_checks(kb_root: Path, repo_name: str | None = None) -> list[_Issue]:
+def _run_llm_checks(kb_root: Path, repo_name: str) -> list[_Issue]:
     """Run LLM-based checks, returning a system error if unavailable."""
     try:
         return asyncio.run(_check_contradictions(kb_root, repo_name))
@@ -508,9 +506,7 @@ def _run_llm_checks(kb_root: Path, repo_name: str | None = None) -> list[_Issue]
         ]
 
 
-async def _check_contradictions(
-    kb_root: Path, repo_name: str | None = None
-) -> list[_Issue]:
+async def _check_contradictions(kb_root: Path, repo_name: str) -> list[_Issue]:
     """Ask an LLM to detect contradictions across the knowledge base."""
     try:
         sdk = __import__("claude_agent_sdk")
@@ -685,7 +681,7 @@ def _is_ignored(issue: _Issue, rules: list[_IgnoreRule]) -> bool:
     return False
 
 
-def _read_all_wiki_content(kb_root: Path, repo_name: str | None = None) -> str:
+def _read_all_wiki_content(kb_root: Path, repo_name: str) -> str:
     """Return index + all articles as one string for LLM context."""
     parts: list[str] = []
     index_file = resolve_catalog(kb_root, repo_name)
