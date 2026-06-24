@@ -127,7 +127,7 @@ class TestQueryHelpers:
         with tempfile.TemporaryDirectory() as tmpdir:
             kb = Path(tmpdir) / "kb"
             kb.mkdir()
-            content, count = _read_kb_content(kb)
+            content, count = _read_kb_content(kb, repo_name="test")
             assert content == ""
             assert count == 0
 
@@ -341,7 +341,9 @@ class TestRunQuery:
             kb.mkdir()
             fake = _fake_sdk_query("should not be called")
             result = asyncio.run(
-                _run_query(kb, "question", file_back=False, query_func=fake)
+                _run_query(
+                    kb, "question", file_back=False, repo_name="repo", query_func=fake
+                )
             )
             assert "No knowledge base found" in result.answer
             assert result.citations == []

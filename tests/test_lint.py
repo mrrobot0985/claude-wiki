@@ -434,7 +434,7 @@ class TestLintHelpers:
         concepts.mkdir()
         (concepts / "note.md").write_text("# Note")
 
-        content = _read_all_wiki_content(kb)
+        content = _read_all_wiki_content(kb, repo_name="repo")
         assert "## INDEX" in content
         assert "(no index)" in content
         assert "## concepts/note.md" in content
@@ -766,7 +766,7 @@ class TestContradictionDetection:
         kb.mkdir()
 
         with self._sdk_unavailable():
-            issues = _run_llm_checks(kb)
+            issues = _run_llm_checks(kb, repo_name="repo")
 
         assert len(issues) == 1
         assert issues[0].severity == "error"

@@ -78,23 +78,12 @@ def extract_tags(content: str) -> list[str]:
     return []
 
 
-def resolve_catalog(kb_root: Path, repo_name: str | None = None) -> Path:
+def resolve_catalog(kb_root: Path, repo_name: str) -> Path:
     """Resolve the catalog file for a knowledge base.
 
-    If ``repo_name`` is provided, returns ``kb_root / f"{repo_name}.md"``.
-    Otherwise falls back to backward-compatible heuristics:
-    - If exactly one ``{name}.md`` exists at the root (excluding ``index.md``),
-      use it.
-    - If ``index.md`` exists, use it.
-    - Otherwise default to ``index.md``.
+    Returns ``kb_root / f"{repo_name}.md"``.
     """
-    if repo_name is not None:
-        return kb_root / f"{repo_name}.md"
-    candidates = [p for p in kb_root.glob("*.md") if p.is_file()]
-    named = [p for p in candidates if p.name != "index.md"]
-    if len(named) == 1:
-        return named[0]
-    return kb_root / "index.md"
+    return kb_root / f"{repo_name}.md"
 
 
 def rewrite_index_wikilinks(content: str, repo_name: str) -> str:

@@ -194,7 +194,7 @@ async def _run_query(
     question: str,
     *,
     file_back: bool,
-    repo_name: str | None = None,
+    repo_name: str,
     categories: Iterable[str] | None = None,
     tags: Iterable[str] | None = None,
     since: date | None = None,
@@ -285,7 +285,7 @@ def _build_prompt(content: str, question: str) -> str:
 
 def _read_kb_content(
     kb_root: Path,
-    repo_name: str | None = None,
+    repo_name: str,
     *,
     categories: Iterable[str] | None = None,
     tags: Iterable[str] | None = None,
@@ -399,7 +399,7 @@ def _file_back(
     result: QueryResult,
     *,
     timezone: str = "UTC",
-    repo_name: str | None = None,
+    repo_name: str,
 ) -> None:
     """Create a Q&A article and update index/log."""
     qa_dir = kb_root / "qa"
@@ -460,7 +460,7 @@ def _update_index(
     slug: str,
     question: str,
     filed_date: str,
-    repo_name: str | None = None,
+    repo_name: str,
 ) -> None:
     """Add a row to the catalog for the new Q&A article."""
     index_file = resolve_catalog(kb_root, repo_name)
