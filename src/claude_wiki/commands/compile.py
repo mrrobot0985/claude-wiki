@@ -29,6 +29,7 @@ from claude_wiki.factories import DefaultConfigResolver
 from claude_wiki import graph_utils
 from claude_wiki.global_index import GlobalIndexManager
 from claude_wiki.models import ProjectConfig
+from claude_wiki.prompt_utils import _wrap_for_prompt
 from claude_wiki.writer import (
     CATEGORIES,
     CompiledArticle,
@@ -97,6 +98,9 @@ Return a single JSON object describing the articles to write. Do not edit files.
 # Safe reference format for ``log_created`` / ``log_updated``: category/slug.
 _LOG_REF_RE = re.compile(r"^[a-z0-9-]+/[a-z0-9-]+$")
 
+# Valid compile-time model names. The agent SDK default is accepted by leaving
+# ``model`` unset; an explicit override must be a known Anthropic model name.
+_MODEL_RE = re.compile(r"^claude-[a-z0-9-]+$")
 
 # Cache populated once per ``compile`` run so the index and existing articles are
 # not re-read for every daily log.
@@ -291,15 +295,75 @@ def _read_index(kb_root: Path, repo_name: str) -> str:
     return _CATALOG_HEADER.format(repo_name=repo_name)
 
 
+def _extract_fenced_json(raw_text: str) -> str | None:
+    """Extract JSON from the first markdown fenced code block, if any.
+
+    Fence-length aware: finds the opening backtick run length ``N``, accepts an
+    optional info string such as ``json``, and scans lines until a closing run of
+    length ``>= N`` is found. This prevents triple backticks inside JSON string
+    values from terminating extraction early.
+    """
+    lines = raw_text.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if not stripped.startswith("`"):
+            continue
+        match = re.match(r"`+", stripped)
+        if not match:
+            continue
+        fence_len = len(match.group(0))
+        after = stripped[fence_len:].strip()
+        # An info string must not itself begin with a backtick.
+        if after.startswith("`"):
+            continue
+        for j in range(i + 1, len(lines)):
+            close_stripped = lines[j].lstrip()
+            if not close_stripped.startswith("`"):
+                continue
+            close_match = re.match(r"`+", close_stripped)
+            if close_match and len(close_match.group(0)) >= fence_len:
+                content = "\n".join(lines[i + 1 : j]).strip()
+                return content
+    return None
+
+
 def _extract_json(raw_text: str) -> str:
-    """Locate the outermost JSON object in ``raw_text``."""
+    """Locate the outermost JSON object in ``raw_text``.
+
+    Prefers fenced code blocks (`` ```json ... ``` ``) when present, then
+    falls back to brace-depth parsing so braces inside string values do not
+    confuse extraction.
+    """
+    fenced = _extract_fenced_json(raw_text)
+    if fenced is not None:
+        return fenced
+
     start = raw_text.find("{")
     if start == -1:
         raise WriterError("no JSON object found in LLM response")
-    end = raw_text.rfind("}")
-    if end == -1 or end < start:
-        raise WriterError("unclosed JSON object in LLM response")
-    return raw_text[start : end + 1]
+
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(raw_text[start:], start=start):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+        else:
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return raw_text[start : i + 1]
+
+    raise WriterError("unclosed JSON object in LLM response")
 
 
 def _parse_compile_response(
@@ -518,6 +582,12 @@ async def _compile_daily_log_async(
     ResultMessage = claude_agent_sdk.ResultMessage
     query = claude_agent_sdk.query
 
+    if model is not None and not _MODEL_RE.match(model):
+        raise CompileError(
+            f"Invalid model '{model}'. Model override must match the pattern "
+            f"^claude-[a-z0-9-]+$, e.g. 'claude-sonnet-4-6-20251001'."
+        )
+
     log_content = log_path.read_text(encoding="utf-8")
     schema = _read_schema()
     if wiki_index is None:
@@ -532,7 +602,7 @@ async def _compile_daily_log_async(
     existing_context = "(No existing articles yet)"
     if budgeted_articles:
         parts = [
-            f"### {rel_path}\n```markdown\n{content}\n```"
+            f"### {rel_path}\n{_wrap_for_prompt(content, info='markdown')}"
             for rel_path, content in budgeted_articles.items()
         ]
         existing_context = "\n\n".join(parts)
@@ -555,7 +625,7 @@ async def _compile_daily_log_async(
 
 **File:** {log_path.name}
 
-{log_content}
+{_wrap_for_prompt(log_content, info="markdown")}
 
 ## Your Task
 

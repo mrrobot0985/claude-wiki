@@ -5,6 +5,7 @@ All LLM calls are mocked so these tests run offline and deterministically.
 
 import json
 import os
+import re
 import threading
 import time
 import types
@@ -22,6 +23,7 @@ from claude_wiki.commands.compile import (
     _append_compile_log,
     _apply_context_budget,
     _compile_one,
+    _extract_json,
     _format_catalog_row,
     _list_existing_articles,
     _parse_compile_response,
@@ -1861,9 +1863,9 @@ class TestCompileModelSelection:
         fake_sdk, fake_import = _make_fake_sdk(answer, capture=captured)
         monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
 
-        _compile_one(log, repo, kb, config, model="custom-model")
+        _compile_one(log, repo, kb, config, model="claude-test-model")
 
-        assert captured["options"].kwargs.get("model") == "custom-model"
+        assert captured["options"].kwargs.get("model") == "claude-test-model"
 
     def test_default_model_not_set(
         self,
@@ -1940,6 +1942,146 @@ class TestCompileModelSelection:
         assert exit_code == 0
         assert compile_mock.call_args.kwargs.get("model") == _CHEAP_MODEL
         assert "overrides" in captured.err
+
+    def test_invalid_model_rejected_before_sdk_call(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """A model string that does not match the claude-* pattern is rejected."""
+        repo, log, kb, config = kb_repo
+
+        fake_sdk = types.SimpleNamespace(
+            AssistantMessage=object,
+            ClaudeAgentOptions=object,
+            ResultMessage=object,
+            query=lambda **kwargs: iter([]),
+        )
+
+        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "claude_agent_sdk":
+                return fake_sdk
+            raise ImportError(name)
+
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        with pytest.raises(CompileError, match="Invalid model"):
+            _compile_one(log, repo, kb, config, model="gpt-4")
+
+
+class TestCompileJsonExtraction:
+    """ADR-012: robust extraction of the JSON object from LLM responses."""
+
+    def test_extract_json_prefers_fenced_block(self) -> None:
+        """A fenced ```json block is extracted before any surrounding prose."""
+        raw = (
+            'Some prose with {"unfenced": true}\n'
+            "```json\n"
+            '{"articles": [], "catalog_additions": []}\n'
+            "```\n"
+            "more prose"
+        )
+        result = _extract_json(raw)
+        assert result == '{"articles": [], "catalog_additions": []}'
+
+    def test_extract_json_finds_object_after_prose(self) -> None:
+        """Brace-depth fallback locates the JSON object after leading prose."""
+        raw = 'Here is the result: {"articles": []} thanks!'
+        result = _extract_json(raw)
+        assert result == '{"articles": []}'
+
+    def test_extract_json_ignores_braces_inside_strings(self) -> None:
+        """Braces inside JSON string values do not confuse brace-depth parsing."""
+        raw = '{"body": "A { brace and a } brace"}'
+        result = _extract_json(raw)
+        assert result == '{"body": "A { brace and a } brace"}'
+
+    def test_extract_json_rejects_unclosed_object(self) -> None:
+        """An unclosed JSON object raises a clear WriterError."""
+        with pytest.raises(WriterError, match="unclosed JSON object"):
+            _extract_json('{"articles": [')
+
+    def test_extract_json_handles_triple_backticks_inside_string(self) -> None:
+        """Triple backticks inside a JSON string value do not truncate extraction."""
+        raw = '```json\n{"body": "Use ```python``` blocks for code"}\n```\n'
+        result = _extract_json(raw)
+        assert result == '{"body": "Use ```python``` blocks for code"}'
+
+
+class TestCompilePromptEscaping:
+    """ADR-012: existing article content must not break prompt code fences."""
+
+    def test_triple_backticks_in_article_use_longer_fence(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """Article content containing ``` is wrapped in a fence longer than that run."""
+        repo, log, kb, config = kb_repo
+        (kb / "concepts" / "existing.md").write_text("```python\nprint('hello')\n```")
+        answer = json.dumps(
+            {
+                "articles": [],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+        captured: dict[str, Any] = {}
+        fake_sdk, fake_import = _make_fake_sdk(answer, capture=captured)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        _compile_one(log, repo, kb, config)
+
+        prompt = captured["prompt"]
+        # The article fence must use more than 3 backticks to avoid being closed by content.
+        assert "```python" in prompt
+        assert "````markdown" in prompt
+        # The content should not split the prompt article section into multiple blocks.
+        article_section = prompt[prompt.find("### concepts/existing.md") :]
+        fence_runs = sorted(
+            {len(m) for m in re.findall(r"`+", article_section)}, reverse=True
+        )
+        # The longest backtick run in the section belongs to the outer fence.
+        assert fence_runs[0] > 3
+
+    def test_triple_backticks_in_daily_log_use_longer_fence(
+        self,
+        tmp_path: Path,
+        monkeypatch: Any,
+        kb_repo: tuple[Path, Path, Path, ProjectConfig],
+    ) -> None:
+        """Daily log content containing ``` is wrapped in a fence longer than that run."""
+        repo, log, kb, config = kb_repo
+        log.write_text("User pasted:\n```python\nprint('hello')\n```")
+        answer = json.dumps(
+            {
+                "articles": [],
+                "catalog_additions": [],
+                "log_created": [],
+                "log_updated": [],
+            }
+        )
+        captured: dict[str, Any] = {}
+        fake_sdk, fake_import = _make_fake_sdk(answer, capture=captured)
+        monkeypatch.setattr(_compile_module.importlib, "import_module", fake_import)
+
+        _compile_one(log, repo, kb, config)
+
+        prompt = captured["prompt"]
+        start = prompt.find("## Daily Log to Compile")
+        end = prompt.find("## Your Task")
+        assert start != -1 and end != -1
+        log_section = prompt[start:end]
+        fence_runs = sorted(
+            {len(m) for m in re.findall(r"`+", log_section)}, reverse=True
+        )
+        # The longest backtick run in the log section belongs to the outer fence.
+        assert fence_runs[0] > 3
+        # The task section must appear after the log content, not inside it.
+        assert "## Your Task" in prompt[end:]
 
 
 class TestCompileStateLock:

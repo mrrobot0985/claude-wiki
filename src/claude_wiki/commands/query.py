@@ -17,6 +17,7 @@ from claude_wiki.catalog_utils import extract_tags, resolve_catalog
 from claude_wiki.config import ConfigManager
 from claude_wiki.errors import RepoNotFoundError
 from claude_wiki.models import QueryResult
+from claude_wiki.prompt_utils import _wrap_for_prompt
 from claude_wiki.writer import (
     CompiledArticle,
     append_log,
@@ -242,7 +243,7 @@ async def _run_query(
             cwd=str(kb_root),
             system_prompt={"type": "preset", "preset": "claude_code"},
             allowed_tools=["Read", "Glob", "Grep"],
-            permission_mode="acceptEdits",
+            permission_mode="dontAsk",
             max_turns=10,
         )
 
@@ -308,7 +309,9 @@ def _read_kb_content(
 
     index_file = resolve_catalog(kb_root, repo_name)
     if index_file.exists():
-        parts.append(f"## INDEX\n\n{index_file.read_text(encoding='utf-8')}")
+        parts.append(
+            f"## INDEX\n\n{_wrap_for_prompt(index_file.read_text(encoding='utf-8'), info='markdown')}"
+        )
 
     allowed = set(categories) if categories else set(_KB_SUBDIRS)
     requested_tags = set(tags) if tags else None
@@ -330,7 +333,7 @@ def _read_kb_content(
                 if not (article_tags & requested_tags):
                     continue
             rel = md_file.relative_to(kb_root).as_posix()
-            section = f"## {rel}\n\n{content}"
+            section = f"## {rel}\n\n{_wrap_for_prompt(content, info='markdown')}"
             articles.append((article_date or date.min, rel, section))
 
     if max_chars is not None:
