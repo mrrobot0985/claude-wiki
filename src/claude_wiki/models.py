@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from claude_wiki.errors import ConfigError
 
 _PATH_FIELDS = ("kb_dir", "daily_dir", "reports_dir")
+_PATH_SAFE_RE = re.compile(r"^(?!.*\.\.)[\w.-]+$", re.UNICODE)
 
 
 def _field_default(f: dataclasses.Field) -> Any:  # type: ignore[type-arg]
@@ -42,6 +44,14 @@ class ProjectConfig:
             if not isinstance(value, str) or not value.strip():
                 raise ConfigError(f"{name} must be a non-empty string")
 
+        for name in ("repo_name", "repo_owner"):
+            value = getattr(self, name)
+            if not _PATH_SAFE_RE.match(value) or value == "..":
+                raise ConfigError(
+                    f"{name} must contain only letters, digits, underscores, "
+                    f"hyphens, periods, and Unicode word characters: {value}"
+                )
+
         if self.layout_version != "2":
             raise ConfigError("layout_version must be '2'")
 
@@ -55,7 +65,7 @@ class ProjectConfig:
             ) from exc
 
         if (
-            not isinstance(self.compile_after_hour, int)
+            type(self.compile_after_hour) is not int
             or not 0 <= self.compile_after_hour <= 23
         ):
             raise ConfigError("compile_after_hour must be an integer between 0 and 23")
@@ -65,9 +75,41 @@ class ProjectConfig:
             if not isinstance(value, (str, Path)):
                 raise ConfigError(f"{name} must be a string or Path")
             # Expand ~ so a configured "~/..." path does not anchor a literal
-            # "~" directory under the repo root. frozen dataclass → setattr via object.
+            # "~" directory under the repo root. frozen dataclass -> setattr via object.
             expanded = Path(value).expanduser()
             object.__setattr__(self, name, expanded)
+            if not expanded.is_absolute() and ".." in expanded.parts:
+                raise ConfigError(
+                    f"{name} must not contain '..' path components: {expanded}"
+                )
+
+    def validate_under_repo_root(self, repo_root: Path) -> None:
+        """Ensure relative daily_dir and kb_dir resolve inside repo_root.
+
+        Absolute paths are allowed (custom external directories), but relative
+        paths that escape repo_root are rejected.
+        """
+        repo_root = repo_root.resolve(strict=False)
+
+        kb_dir = self.kb_dir
+        if str(kb_dir) not in ("project", "user") and not kb_dir.is_absolute():
+            resolved = (repo_root / kb_dir).resolve(strict=False)
+            try:
+                resolved.relative_to(repo_root)
+            except ValueError as exc:
+                raise ConfigError(
+                    f"kb_dir resolves outside repo_root: {resolved}"
+                ) from exc
+
+        daily_dir = self.daily_dir
+        if not daily_dir.is_absolute():
+            resolved = (repo_root / daily_dir).resolve(strict=False)
+            try:
+                resolved.relative_to(repo_root)
+            except ValueError as exc:
+                raise ConfigError(
+                    f"daily_dir resolves outside repo_root: {resolved}"
+                ) from exc
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ProjectConfig:
@@ -79,6 +121,11 @@ class ProjectConfig:
         """
         required_from_dict = {"repo_name", "repo_owner", "compile_after_hour"}
         kwargs: dict[str, Any] = {}
+
+        valid_field_names = {f.name for f in dataclasses.fields(cls)}
+        for key in data:
+            if key not in valid_field_names:
+                raise ConfigError(f"unknown key in config: {key}")
 
         for f in dataclasses.fields(cls):
             if f.name in data:

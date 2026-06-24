@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from typing import Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from claude_wiki.models import ProjectConfig
 
@@ -48,6 +49,15 @@ def prompt(
 def choice(text: str, options: list[str], default: str | None = None) -> str:
     """Prompt for one of the allowed options (case-insensitive)."""
     normalized = {opt.lower(): opt for opt in options}
+
+    # Map non-option defaults (e.g. an absolute custom path) to a placeholder
+    # option so the user sees the actual value pre-selected.
+    if default is not None and default.lower() not in normalized:
+        if "custom" not in options:
+            raise ValueError(
+                f"default {default!r} is not an option and 'custom' is unavailable"
+            )
+        default = "custom"
 
     def validator(answer: str) -> bool:
         return answer.lower() in normalized
@@ -102,15 +112,20 @@ def configure(
         default=str(defaults.daily_dir),
         validator=lambda answer: bool(answer.strip()),
     )
-    reports_dir = prompt(
-        "Reports directory",
-        default=str(defaults.reports_dir),
-        validator=lambda answer: bool(answer.strip()),
-    )
+
+    def _timezone_validator(answer: str) -> bool:
+        if not answer.strip():
+            return False
+        try:
+            ZoneInfo(answer)
+        except ZoneInfoNotFoundError:
+            return False
+        return True
+
     timezone = prompt(
         "Timezone",
         default=defaults.timezone,
-        validator=lambda answer: bool(answer.strip()),
+        validator=_timezone_validator,
     )
 
     def _hour_validator(answer: str) -> bool:
@@ -138,8 +153,9 @@ def configure(
         repo_owner=owner,
         kb_dir=Path(kb_dir),
         daily_dir=Path(daily_dir),
-        reports_dir=Path(reports_dir),
+        reports_dir=defaults.reports_dir,
         timezone=timezone,
         compile_after_hour=compile_hour,
     )
+    config.validate_under_repo_root(repo_root)
     return config, hook_target == "global"

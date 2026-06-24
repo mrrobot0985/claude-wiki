@@ -310,7 +310,7 @@ class TestInitCommand:
             (repo / ".git").mkdir()
             claude_dir = Path(tmpdir) / ".claude"
             claude_dir.mkdir()
-            inputs = ["", "", "", "", "", "", ""]
+            inputs = ["", "", "", "", "", ""]
 
             with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
                 with patch("claude_wiki.cli.GlobalIndexManager"):
@@ -341,7 +341,6 @@ class TestInitCommand:
                 "custom",
                 "/tmp/custom-kb",
                 "logs",
-                "findings",
                 "America/New_York",
                 "9",
                 "global",
@@ -358,7 +357,7 @@ class TestInitCommand:
             assert data["repo_owner"] == "custom-owner"
             assert data["kb_dir"] == "/tmp/custom-kb"
             assert data["daily_dir"] == "logs"
-            assert data["reports_dir"] == "findings"
+            assert data["reports_dir"] == "reports"
             assert data["timezone"] == "America/New_York"
             assert data["compile_after_hour"] == 9
             assert (claude_dir / "settings.json").exists()
@@ -718,7 +717,7 @@ class TestInitCommand:
             (repo / ".git").mkdir()
             claude_dir = Path(tmpdir) / ".claude"
             claude_dir.mkdir()
-            inputs = ["", "", "", "", "", "abc", "25", "9", ""]
+            inputs = ["", "", "", "", "abc", "25", "9", ""]
 
             with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
                 with patch("claude_wiki.cli.GlobalIndexManager"):
@@ -752,7 +751,7 @@ class TestInitCommand:
             )
             claude_dir = Path(tmpdir) / ".claude"
             claude_dir.mkdir()
-            inputs = ["y", "", "", "", "", "", "", ""]
+            inputs = ["y", "", "", "", "", "", ""]
 
             with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
                 with patch("claude_wiki.cli.GlobalIndexManager"):
@@ -764,6 +763,126 @@ class TestInitCommand:
             data = json.loads((repo / ".claude-wiki.lock").read_text())
             assert data["repo_name"] == "my-project"
             assert data["repo_owner"] == "local"
+
+    def test_init_force_with_changed_paths_warns_and_refuses(self, capsys):
+        """--force with --kb-dir/--daily-dir that change paths refuses migration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "local",
+                        "layout_version": "2",
+                        "kb_dir": "project",
+                        "daily_dir": ".claude/daily",
+                        "reports_dir": "reports",
+                        "timezone": "UTC",
+                        "compile_after_hour": 18,
+                    }
+                )
+            )
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+
+            with patch.dict("os.environ", {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager"):
+                    with patch("sys.stdin.isatty", return_value=False):
+                        exit_code = main(
+                            [
+                                "init",
+                                "--path",
+                                str(repo),
+                                "--force",
+                                "--kb-dir",
+                                "/tmp/new-kb",
+                            ]
+                        )
+
+            captured = capsys.readouterr()
+            assert exit_code == 1
+            assert "path" in captured.err.lower() or "migrate" in captured.err.lower()
+            data = json.loads((repo / ".claude-wiki.lock").read_text())
+            assert data["kb_dir"] == "project"
+
+    def test_init_force_with_env_override_matching_stored_paths_succeeds(self):
+        """--force succeeds when env overrides match the lock-stored paths."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            daily_path = str(repo / ".claude" / "daily")
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "local",
+                        "layout_version": "2",
+                        "kb_dir": "project",
+                        "daily_dir": daily_path,
+                        "reports_dir": "reports",
+                        "timezone": "UTC",
+                        "compile_after_hour": 18,
+                    }
+                )
+            )
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+
+            with patch.dict(
+                os.environ,
+                {"HOME": tmpdir, "CLAUDE_WIKI_DAILY_DIR": daily_path},
+                clear=False,
+            ):
+                with patch("claude_wiki.cli.GlobalIndexManager"):
+                    with patch("sys.stdin.isatty", return_value=False):
+                        exit_code = main(["init", "--path", str(repo), "--force"])
+
+            assert exit_code == 0
+            data = json.loads((repo / ".claude-wiki.lock").read_text())
+            assert data["kb_dir"] == "project"
+            assert data["daily_dir"] == daily_path
+
+    def test_init_interactive_force_changed_paths_refuses(self, capsys):
+        """Interactive --force refuses when the user changes configured paths."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "my-project"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / ".claude-wiki.lock").write_text(
+                json.dumps(
+                    {
+                        "repo_name": "my-project",
+                        "repo_owner": "local",
+                        "layout_version": "2",
+                        "kb_dir": "project",
+                        "daily_dir": ".claude/daily",
+                        "reports_dir": "reports",
+                        "timezone": "UTC",
+                        "compile_after_hour": 18,
+                    }
+                )
+            )
+            claude_dir = Path(tmpdir) / ".claude"
+            claude_dir.mkdir()
+            # Confirm overwrite, owner, switch kb mode to user, accept default daily,
+            # timezone, compile hour, hook target.
+            inputs = ["y", "", "user", "", "UTC", "9", "repo-local"]
+
+            with patch.dict(os.environ, {"HOME": tmpdir}, clear=False):
+                with patch("claude_wiki.cli.GlobalIndexManager"):
+                    with patch("sys.stdin.isatty", return_value=True):
+                        with patch("builtins.input", side_effect=inputs):
+                            exit_code = main(["init", "--path", str(repo), "--force"])
+
+            captured = capsys.readouterr()
+            assert exit_code == 1
+            assert "migrate" in captured.err.lower()
+            data = json.loads((repo / ".claude-wiki.lock").read_text())
+            assert data["kb_dir"] == "project"
+            assert data["daily_dir"] == ".claude/daily"
 
     def test_init_interactive_force_decline_aborts(self):
         """Interactive --force with declined confirmation aborts."""

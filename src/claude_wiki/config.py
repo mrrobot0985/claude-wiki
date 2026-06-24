@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from platformdirs import user_cache_dir, user_data_dir, user_state_dir
 
@@ -59,14 +59,8 @@ class ConfigManager:
 
     def load(self, repo_root: Path) -> ProjectConfig:
         """Read .claude-wiki.lock if present, else infer defaults."""
-        marker = repo_root / ".claude-wiki.lock"
-        if marker.exists():
-            try:
-                data = json.loads(marker.read_text(encoding="utf-8"))
-            except json.JSONDecodeError as e:
-                raise ConfigError(
-                    f"Corrupt lock file {marker.resolve(strict=False)}: {e}"
-                ) from e
+        data = self.load_raw(repo_root)
+        if data:
             config = self._build_config(repo_root, data)
         else:
             # Infer from git remote, falling back to directory name + local owner.
@@ -77,6 +71,20 @@ class ConfigManager:
                 daily_dir=Path(".claude/daily"),
             )
         return config
+
+    def load_raw(self, repo_root: Path) -> dict[str, Any]:
+        """Return the raw .claude-wiki.lock JSON without env overrides."""
+        marker = repo_root / ".claude-wiki.lock"
+        if marker.exists():
+            try:
+                return cast(
+                    dict[str, Any], json.loads(marker.read_text(encoding="utf-8"))
+                )
+            except json.JSONDecodeError as e:
+                raise ConfigError(
+                    f"Corrupt lock file {marker.resolve(strict=False)}: {e}"
+                ) from e
+        return {}
 
     def _build_config(self, repo_root: Path, data: dict[str, Any]) -> ProjectConfig:
         """Merge raw lock JSON with defaults and return a ProjectConfig."""
@@ -95,18 +103,48 @@ class ConfigManager:
             owner = data.get("repo_owner", "local")
             name = data.get("repo_name", repo_root.name)
             defaults["daily_dir"] = str(default_daily_dir(kb_mode, owner, name))
+
+        merged = {**defaults, **data}
+
+        # Environment overrides take precedence over the lock file but relative
+        # paths are anchored to repo_root.
+        env_overrides: dict[str, str] = {}
         env_daily = os.environ.get("CLAUDE_WIKI_DAILY_DIR")
         if env_daily:
-            defaults["daily_dir"] = env_daily
-        merged = {**defaults, **data}
-        return ProjectConfig.from_dict(merged)
+            env_overrides["daily_dir"] = env_daily
+        env_reports = os.environ.get("CLAUDE_WIKI_REPORTS_DIR")
+        if env_reports:
+            env_overrides["reports_dir"] = env_reports
+        env_kb = os.environ.get("CLAUDE_WIKI_PROJECT_DIR")
+        if env_kb:
+            env_overrides["kb_dir"] = env_kb
+
+        for key, raw_value in env_overrides.items():
+            path_value = Path(raw_value)
+            if not path_value.is_absolute():
+                path_value = repo_root / path_value
+            merged[key] = str(path_value)
+
+        config = ProjectConfig.from_dict(merged)
+        config.validate_under_repo_root(repo_root)
+        return config
 
     def write(self, repo_root: Path, config: ProjectConfig) -> None:
         """Persist .claude-wiki.lock atomically via a sibling temp file."""
         marker = repo_root / ".claude-wiki.lock"
-        temp = marker.with_suffix(".lock.tmp")
+        temp = marker.with_suffix(f".lock.tmp.{os.getpid()}")
         temp.write_text(json.dumps(config.to_dict(), indent=2), encoding="utf-8")
+        temp_fd = os.open(temp, os.O_RDONLY)
+        try:
+            os.fsync(temp_fd)
+        finally:
+            os.close(temp_fd)
         os.replace(temp, marker)
+        dir_fd = os.open(marker.parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
     def get_kb_root(self, repo_root: Path, config: ProjectConfig) -> Path:
         """Resolve KB directory: env > absolute config > mode-based.
@@ -120,7 +158,10 @@ class ConfigManager:
         # Priority 1: environment override
         env_dir = os.environ.get("CLAUDE_WIKI_PROJECT_DIR")
         if env_dir:
-            return Path(env_dir).expanduser().resolve(strict=False)
+            path = Path(env_dir).expanduser()
+            if not path.is_absolute():
+                path = repo_root / path
+            return path.resolve(strict=False)
 
         # Priority 2: absolute path in config (expand ~ before testing absoluteness)
         kb_dir = config.kb_dir.expanduser()
@@ -148,7 +189,10 @@ class ConfigManager:
         """
         env_dir = os.environ.get("CLAUDE_WIKI_STATE_DIR")
         if env_dir:
-            return Path(env_dir).expanduser().resolve(strict=False)
+            path = Path(env_dir).expanduser()
+            if not path.is_absolute():
+                path = repo_root / path
+            return path.resolve(strict=False)
 
         kb_dir = config.kb_dir.expanduser()
         if str(kb_dir) == "user":
@@ -169,7 +213,10 @@ class ConfigManager:
         """
         env_dir = os.environ.get("CLAUDE_WIKI_CACHE_DIR")
         if env_dir:
-            return Path(env_dir).expanduser().resolve(strict=False)
+            path = Path(env_dir).expanduser()
+            if not path.is_absolute():
+                path = repo_root / path
+            return path.resolve(strict=False)
 
         kb_dir = config.kb_dir.expanduser()
         if str(kb_dir) == "user":

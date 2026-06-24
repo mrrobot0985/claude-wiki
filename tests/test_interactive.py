@@ -89,6 +89,33 @@ class TestConfirm:
         with patch("claude_wiki.interactive.input", return_value=""):
             assert confirm("ok?", default=False) is False
 
+    def test_choice_custom_kb_dir_default_maps_to_custom(self):
+        """An absolute default kb_dir maps to the 'custom' choice option."""
+        defaults = ProjectConfig(repo_name="test", kb_dir=Path("/tmp/custom-kb"))
+        with patch("claude_wiki.interactive.input", return_value=""):
+            result = choice(
+                "KB directory mode",
+                options=["project", "user", "custom"],
+                default=str(defaults.kb_dir),
+            )
+            assert result == "custom"
+
+    def test_choice_custom_kb_dir_default_uses_value(self):
+        """When default maps to custom, the literal custom-path default is used."""
+        defaults = ProjectConfig(repo_name="test", kb_dir=Path("/tmp/custom-kb"))
+        with patch("claude_wiki.interactive.input", side_effect=["", "/opt/other-kb"]):
+            result = choice(
+                "KB directory mode",
+                options=["project", "user", "custom"],
+                default=str(defaults.kb_dir),
+            )
+            assert result == "custom"
+
+    def test_choice_default_without_custom_option_raises(self):
+        """A default that is not an option raises ValueError when 'custom' is absent."""
+        with pytest.raises(ValueError, match=r"custom.*is unavailable"):
+            choice("pick", ["a", "b"], default="/some/path")
+
 
 class TestConfigure:
     """Tests for configure."""
@@ -101,7 +128,6 @@ class TestConfigure:
             "owner",  # repo owner
             "project",  # kb mode
             "daily",  # daily dir
-            "reports",  # reports dir
             "UTC",  # timezone
             "18",  # compile hour
             "repo-local",  # hook target
@@ -126,7 +152,6 @@ class TestConfigure:
             "custom",  # kb mode
             "my-kb",  # custom path
             "daily",  # daily dir
-            "reports",  # reports dir
             "UTC",  # timezone
             "9",  # compile hour
             "global",  # hook target
@@ -144,7 +169,6 @@ class TestConfigure:
             "local",
             "project",
             "daily",
-            "reports",
             "UTC",
             "not-a-number",
             "25",
@@ -154,3 +178,20 @@ class TestConfigure:
         with patch("claude_wiki.interactive.input", side_effect=inputs):
             config, _ = configure(repo, defaults)
             assert config.compile_after_hour == 12
+
+    def test_configure_reprompts_invalid_timezone(self):
+        """Invalid timezone input triggers re-prompting."""
+        repo = Path("/fake/repo")
+        defaults = ProjectConfig(repo_name="test")
+        inputs = [
+            "local",
+            "project",
+            "daily",
+            "Mars/Phobos",
+            "America/New_York",
+            "9",
+            "repo-local",
+        ]
+        with patch("claude_wiki.interactive.input", side_effect=inputs):
+            config, _ = configure(repo, defaults)
+            assert config.timezone == "America/New_York"

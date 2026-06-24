@@ -86,10 +86,81 @@ class TestProjectConfigValidation:
         with pytest.raises(ConfigError):
             ProjectConfig(repo_name="test", compile_after_hour="18")
 
+    def test_post_init_rejects_bool_compile_hour(self):
+        """bool is a subclass of int but must be rejected."""
+        with pytest.raises(ConfigError, match="compile_after_hour"):
+            ProjectConfig(repo_name="test", compile_after_hour=True)
+
+    def test_from_dict_rejects_bool_compile_hour(self):
+        """A JSON boolean for compile_after_hour raises ConfigError."""
+        with pytest.raises(ConfigError, match="compile_after_hour"):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "test",
+                    "repo_owner": "local",
+                    "compile_after_hour": True,
+                }
+            )
+
     def test_post_init_rejects_invalid_path_type(self):
         """A kb_dir that is neither str nor Path raises ConfigError."""
         with pytest.raises(ConfigError):
             ProjectConfig(repo_name="test", kb_dir=123)
+
+    @pytest.mark.parametrize("unsafe", ["a/b", "a\\b", "..", "a\x00b"])
+    def test_post_init_rejects_path_unsafe_repo_name(self, unsafe):
+        """repo_name containing separators, dots, or control chars raises ConfigError."""
+        with pytest.raises(ConfigError, match="repo_name"):
+            ProjectConfig(repo_name=unsafe)
+
+    @pytest.mark.parametrize("unsafe", ["a/b", "a\\b", "..", "a\x00b"])
+    def test_from_dict_rejects_path_unsafe_repo_name(self, unsafe):
+        """Path-unsafe repo_name from dict raises ConfigError."""
+        with pytest.raises(ConfigError, match="repo_name"):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": unsafe,
+                    "repo_owner": "local",
+                    "compile_after_hour": 18,
+                }
+            )
+
+    @pytest.mark.parametrize("unsafe", ["a/b", "a\\b", "..", "a\x00b"])
+    def test_post_init_rejects_path_unsafe_repo_owner(self, unsafe):
+        """repo_owner containing separators, dots, or control chars raises ConfigError."""
+        with pytest.raises(ConfigError, match="repo_owner"):
+            ProjectConfig(repo_name="test", repo_owner=unsafe)
+
+    @pytest.mark.parametrize("path_field", ["kb_dir", "daily_dir", "reports_dir"])
+    def test_post_init_rejects_parent_dir_component(self, path_field):
+        """A path containing '..' can escape repo_root and is rejected."""
+        with pytest.raises(ConfigError, match=path_field):
+            ProjectConfig(repo_name="test", **{path_field: Path("..")})
+
+    @pytest.mark.parametrize("path_field", ["kb_dir", "daily_dir"])
+    def test_from_dict_rejects_parent_dir_component(self, path_field):
+        """A '..' path component in dict form is rejected."""
+        with pytest.raises(ConfigError, match=path_field):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "test",
+                    "repo_owner": "local",
+                    "compile_after_hour": 18,
+                    path_field: "../escape",
+                }
+            )
+
+    def test_from_dict_rejects_unknown_keys(self):
+        """Unexpected keys in the lock file raise ConfigError."""
+        with pytest.raises(ConfigError, match="unknown key"):
+            ProjectConfig.from_dict(
+                {
+                    "repo_name": "test",
+                    "repo_owner": "local",
+                    "compile_after_hour": 18,
+                    "legacy_setting": "value",
+                }
+            )
 
     def test_from_dict_rejects_null_value(self):
         """A null value for a known field raises ConfigError."""
@@ -303,6 +374,25 @@ class TestProjectConfigValidation:
         )
         assert config.daily_dir == Path.home() / ".claude" / "daily"
         assert "~" not in config.daily_dir.parts
+
+    def test_post_init_accepts_unicode_repo_name_and_owner(self):
+        """Unicode letters and marks are valid path-safe identifiers."""
+        config = ProjectConfig(repo_name="百科", repo_owner="所有者")
+        assert config.repo_name == "百科"
+        assert config.repo_owner == "所有者"
+
+    def test_validate_under_repo_root_rejects_symlink_escape(self, tmp_path):
+        """A relative path that resolves outside repo_root via a symlink is rejected."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        escape_link = repo / "escape"
+        escape_link.symlink_to(outside, target_is_directory=True)
+
+        config = ProjectConfig(repo_name="x", kb_dir=Path("escape"))
+        with pytest.raises(ConfigError, match="kb_dir resolves outside repo_root"):
+            config.validate_under_repo_root(repo)
 
 
 class TestResultModels:
