@@ -421,6 +421,20 @@ def test_apply_fix_writes_relative_path(tmp_path: Path) -> None:
     assert path.read_text(encoding="utf-8") == "# Note\n"
 
 
+def test_apply_fix_blocks_traversal(tmp_path: Path) -> None:
+    """A ``..`` path that escapes kb_root must be rejected."""
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    (kb / "concepts").mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("# Outside\n")
+
+    with pytest.raises(WriterError):
+        apply_fix(kb, "concepts/../../outside.md", "# Replaced\n")
+
+    assert outside.read_text(encoding="utf-8") == "# Outside\n"
+
+
 def test_apply_fix_blocked_by_symlinked_article(tmp_path: Path) -> None:
     """A symlinked article pointing outside kb_root must not be fixed."""
     outside = tmp_path / "outside"
