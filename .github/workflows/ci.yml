@@ -228,7 +228,7 @@ jobs:
         run: |
           for lock in examples/*/.claude-wiki.lock; do
             if [ -f "$lock" ]; then
-              python -m json.tool "$lock" > /dev/null || { echo "Invalid JSON: $lock"; exit 1; }
+              uv run python -m json.tool "$lock" > /dev/null || { echo "Invalid JSON: $lock"; exit 1; }
             fi
           done
       - name: Check example markdown formatting

@@ -547,3 +547,42 @@ class TestSessionEndRegistration:
         session_end.register(handlers)
         assert "SessionEnd" in handlers
         assert callable(handlers["SessionEnd"])
+
+
+class TestSessionEndLoggingSanitization:
+    """WARNING/ERROR logs must not leak full paths."""
+
+    def _repo_with_config(self, tmp_path: Path) -> Path:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        marker = repo / ".claude-wiki.lock"
+        marker.write_text(
+            json.dumps(
+                {"repo_name": "repo", "repo_owner": "owner", "layout_version": "2"}
+            )
+        )
+        return repo
+
+    def test_rejected_transcript_path_logs_basename_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A rejected outside transcript path is logged without its full path."""
+        monkeypatch.delenv("CLAUDE_INVOKED_BY", raising=False)
+        repo = self._repo_with_config(tmp_path)
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+
+        outside = tmp_path / "secret" / "evil.jsonl"
+        outside.parent.mkdir()
+        outside.write_text("{}", encoding="utf-8")
+        payload = json.dumps({"session_id": "outside", "transcript_path": str(outside)})
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+
+        assert session_end._handle_session_end([]) == 0
+
+        log_path = repo / ".claude" / "state" / "logs" / "flush.log"
+        log_text = log_path.read_text(encoding="utf-8")
+        assert "Rejected transcript path" in log_text
+        assert str(outside) not in log_text
+        assert outside.name in log_text

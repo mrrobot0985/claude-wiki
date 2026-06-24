@@ -64,7 +64,7 @@ def _handle_session_end(argv: list[str]) -> int:
     try:
         flush.validate_transcript_path(transcript_path, repo_root)
     except ValueError as e:
-        logger.error("Rejected transcript path: %s", e)
+        logger.error("Rejected transcript path: %s", flush._sanitize_for_log(e))
         return 0
 
     if not transcript_path.exists():
@@ -74,7 +74,7 @@ def _handle_session_end(argv: list[str]) -> int:
     try:
         context, turn_count = flush.extract_conversation_context(transcript_path)
     except Exception as e:
-        logger.error("Context extraction failed: %s", e)
+        logger.error("Context extraction failed: %s", flush._sanitize_for_log(e))
         return 0
 
     if not context.strip():
@@ -102,7 +102,7 @@ def _handle_session_end(argv: list[str]) -> int:
             proc.pid,
         )
     except Exception as e:
-        logger.error("Failed to spawn flush.py: %s", e)
+        logger.error("Failed to spawn flush.py: %s", flush._sanitize_for_log(e))
 
     return 0
 
@@ -117,7 +117,9 @@ def _try_log(message: str) -> None:
         flush.configure_logging(logs_dir / "flush.log")
         logger.info(message)
     except Exception as exc:
-        logger.warning("Best-effort logging unavailable: %s", exc)
+        logger.warning(
+            "Best-effort logging unavailable: %s", flush._sanitize_for_log(exc)
+        )
 
 
 def _try_log_error(message: str) -> None:
@@ -128,9 +130,11 @@ def _try_log_error(message: str) -> None:
         config = manager.load(repo_root)
         logs_dir = flush.get_logs_dir(config, repo_root)
         flush.configure_logging(logs_dir / "flush.log")
-        logger.error(message)
+        logger.error(flush._sanitize_for_log(message))
     except Exception as exc:
-        logger.warning("Best-effort error logging unavailable: %s", exc)
+        logger.warning(
+            "Best-effort error logging unavailable: %s", flush._sanitize_for_log(exc)
+        )
 
 
 def register(handlers: dict[str, Any]) -> None:

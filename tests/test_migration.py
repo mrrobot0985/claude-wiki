@@ -302,9 +302,10 @@ class TestMigrationManager:
         """kb_dir='user' resolves to XDG path, not repo-relative."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)
+            old_kb = repo / "project"
+            old_kb.mkdir(parents=True)
+            (old_kb / "index.md").write_text("# Index")
             xdg_kb = Path.home() / ".local" / "share" / "claude-wiki" / "local" / "test"
-            xdg_kb.mkdir(parents=True, exist_ok=True)
-            (xdg_kb / "index.md").write_text("# Index")
 
             current = ProjectConfig(
                 repo_name="test", kb_dir=Path("user"), daily_dir=Path("daily")
@@ -325,8 +326,10 @@ class TestMigrationManager:
         """--dry-run with kb_dir='user' previews the XDG path when destination is empty."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)
+            old_kb = repo / "project"
+            old_kb.mkdir(parents=True)
+            (old_kb / "index.md").write_text("# Index")
             xdg_kb = Path.home() / ".local" / "share" / "claude-wiki" / "local" / "test"
-            xdg_kb.mkdir(parents=True, exist_ok=True)
 
             current = ProjectConfig(
                 repo_name="test", kb_dir=Path("user"), daily_dir=Path("daily")
@@ -339,8 +342,11 @@ class TestMigrationManager:
             result = mgr.check_and_migrate(repo, current, previous, dry_run=True)
 
             assert result.migrated
+            assert result.old_kb_dir == old_kb
             assert result.new_kb_dir == xdg_kb
             assert not result.errors
+            assert old_kb.exists()
+            assert not xdg_kb.exists()
 
     def test_flag_driven_migration_with_reports_dir(self):
         """A config built from CLI flags migrates kb_dir and daily_dir and round-trips reports_dir."""
@@ -475,6 +481,48 @@ class TestMigrationManager:
     # ------------------------------------------------------------------
     # Issue #14: destination non-empty must report migrated=False
     # ------------------------------------------------------------------
+
+    def test_migrated_false_when_source_missing(self):
+        """A changed path with no source directory is not a migration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            new_kb = repo / "wiki"
+
+            current = ProjectConfig(
+                repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+            )
+            previous = ProjectConfig(
+                repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+            )
+
+            mgr = MigrationManager()
+            result = mgr.check_and_migrate(repo, current, previous, dry_run=False)
+
+            assert not result.migrated
+            assert not result.errors
+            assert not result.warnings
+            assert not new_kb.exists()
+
+    def test_dry_run_migrated_false_when_source_missing(self):
+        """--dry-run with a missing source reports migrated=False, not True."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            new_kb = repo / "wiki"
+
+            current = ProjectConfig(
+                repo_name="test", kb_dir=Path("wiki"), daily_dir=Path("daily")
+            )
+            previous = ProjectConfig(
+                repo_name="test", kb_dir=Path("knowledge"), daily_dir=Path("daily")
+            )
+
+            mgr = MigrationManager()
+            result = mgr.check_and_migrate(repo, current, previous, dry_run=True)
+
+            assert not result.migrated
+            assert not result.errors
+            assert not result.warnings
+            assert not new_kb.exists()
 
     def test_migrated_false_when_destination_non_empty(self):
         """A skipped move because the destination exists leaves migrated=False."""
@@ -625,6 +673,16 @@ class TestMigrationManager:
         """_paths_overlap returns True for identical paths."""
         mgr = MigrationManager()
         assert mgr._paths_overlap(Path("/a"), Path("/a")) is True
+
+    def test_paths_overlap_case_insensitive_on_darwin_windows(self, monkeypatch):
+        """_paths_overlap is case-insensitive on Windows and macOS."""
+        import claude_wiki.migration as migration_mod
+
+        monkeypatch.setattr(migration_mod, "_case_insensitive_paths", lambda: True)
+        mgr = MigrationManager()
+        assert mgr._paths_overlap(Path("/A/B"), Path("/a/b")) is True
+        assert mgr._paths_overlap(Path("/A"), Path("/a/b")) is True
+        assert mgr._paths_overlap(Path("/A"), Path("/b")) is False
 
     def test_paths_overlap_when_unrelated(self):
         """_paths_overlap returns False for unrelated paths."""

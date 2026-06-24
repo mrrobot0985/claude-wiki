@@ -460,3 +460,24 @@ class TestRegistration:
         hook_handlers.pre_compact.register(handlers)
         assert "PreCompact" in handlers
         assert handlers["PreCompact"] is hook_handlers.pre_compact.handler
+
+
+class TestPreCompactLoggingSanitization:
+    """WARNING/ERROR logs must not leak full paths."""
+
+    def test_rejected_transcript_path_logs_basename_only(
+        self, pre_compact, repo, monkeypatch, caplog
+    ):
+        """A rejected outside transcript path is logged without its full path."""
+        caplog.set_level(logging.ERROR)
+        outside = repo.parent / "secret" / "evil.jsonl"
+        outside.parent.mkdir()
+        outside.write_text("{}", encoding="utf-8")
+        _stdin(monkeypatch, {"session_id": "outside", "transcript_path": str(outside)})
+
+        result = pre_compact.handler([])
+
+        assert result == 0
+        assert "Rejected transcript path" in caplog.text
+        assert str(outside) not in caplog.text
+        assert outside.name in caplog.text

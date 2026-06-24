@@ -61,7 +61,7 @@ def handler(_args: list[str]) -> int:
         repo_root = manager.find_repo_root(Path.cwd())
         config = manager.load(repo_root)
     except Exception as exc:
-        logging.error("Failed to locate repo root: %s", exc)
+        logging.error("Failed to locate repo root: %s", flush._sanitize_for_log(exc))
         return 1
 
     logs_dir = flush.get_logs_dir(config, repo_root)
@@ -72,7 +72,7 @@ def handler(_args: list[str]) -> int:
         try:
             hook_input = flush.read_hook_input(raw)
         except (json.JSONDecodeError, ValueError) as exc:
-            logger.error("Failed to parse stdin: %s", exc)
+            logger.error("Failed to parse stdin: %s", flush._sanitize_for_log(exc))
             return 1
     else:
         hook_input = {}
@@ -90,7 +90,7 @@ def handler(_args: list[str]) -> int:
     try:
         flush.validate_transcript_path(transcript_path, repo_root)
     except ValueError as exc:
-        logger.error("Rejected transcript path: %s", exc)
+        logger.error("Rejected transcript path: %s", flush._sanitize_for_log(exc))
         return 0
 
     if not transcript_path.exists():
@@ -104,7 +104,7 @@ def handler(_args: list[str]) -> int:
             max_chars=MAX_CONTEXT_CHARS,
         )
     except Exception as exc:
-        logger.error("Context extraction failed: %s", exc)
+        logger.error("Context extraction failed: %s", flush._sanitize_for_log(exc))
         return 1
 
     if not context.strip():
@@ -131,7 +131,7 @@ def handler(_args: list[str]) -> int:
     try:
         _spawn_flush(context_file, session_id, repo_root)
     except Exception as exc:
-        logger.error("Failed to spawn flush: %s", exc)
+        logger.error("Failed to spawn flush: %s", flush._sanitize_for_log(exc))
         return 1
 
     logger.info(
